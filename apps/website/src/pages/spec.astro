@@ -1,0 +1,13 @@
+---
+import Base from "../layouts/Base.astro";
+import fs from "node:fs";
+import path from "node:path";
+import { marked } from "marked";
+
+const specPath = path.resolve("../../packages/spec/SPECIFICATION.md");
+const specMd = fs.readFileSync(specPath, "utf-8");
+const specHtml = await marked(specMd);
+---
+<Base title="MUDdown Specification">
+  <div class="container spec-content" set:html={specHtml} />
+</Base>

@@ -1,0 +1,277 @@
+:root {
+  --bg: #0a0e14;
+  --bg-surface: #111820;
+  --bg-elevated: #1a2230;
+  --text: #c8d0d8;
+  --text-bright: #e8eef4;
+  --text-dim: #6e7a88;
+  --accent: #5ccfe6;
+  --accent-dim: #3a8a9a;
+  --green: #87d68d;
+  --yellow: #ffd580;
+  --red: #ff6b6b;
+  --purple: #c3a6ff;
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  --font-body: "Inter", system-ui, sans-serif;
+  --radius: 8px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+  min-height: 100vh;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover { text-decoration: underline; }
+
+h1, h2, h3 {
+  color: var(--text-bright);
+  font-weight: 700;
+}
+
+code {
+  font-family: var(--font-mono);
+  background: var(--bg-elevated);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+pre {
+  background: var(--bg-elevated);
+  padding: 1.25rem;
+  border-radius: var(--radius);
+  overflow-x: auto;
+  border: 1px solid #2a3444;
+}
+pre code {
+  background: none;
+  padding: 0;
+}
+
+/* ── Layout ─────────────────────────────────── */
+
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+header {
+  border-bottom: 1px solid #1e2a38;
+  padding: 1rem 0;
+}
+header .container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+header h1 {
+  font-size: 1.4rem;
+  letter-spacing: -0.02em;
+}
+header h1 span { color: var(--accent); }
+header nav a {
+  margin-left: 1.5rem;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+header nav a:hover { color: var(--text-bright); }
+
+footer {
+  border-top: 1px solid #1e2a38;
+  padding: 2rem 0;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  margin-top: 4rem;
+}
+
+/* Full-height layout for play page */
+body:has(.play-section) {
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+body:has(.play-section) main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+body:has(.play-section) footer {
+  display: none;
+}
+
+/* ── Hero ───────────────────────────────────── */
+
+.hero {
+  text-align: center;
+  padding: 5rem 0 3rem;
+}
+.hero h2 {
+  font-size: 2.8rem;
+  margin-bottom: 1rem;
+  letter-spacing: -0.03em;
+}
+.hero h2 span { color: var(--accent); }
+.hero p {
+  font-size: 1.2rem;
+  color: var(--text-dim);
+  max-width: 640px;
+  margin: 0 auto 2rem;
+}
+.hero .cta {
+  display: inline-flex;
+  gap: 1rem;
+}
+.hero .cta a {
+  display: inline-block;
+  padding: 0.75rem 1.75rem;
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-size: 1rem;
+}
+.hero .cta .primary {
+  background: var(--accent);
+  color: var(--bg);
+}
+.hero .cta .secondary {
+  border: 1px solid var(--accent-dim);
+  color: var(--accent);
+}
+
+/* ── Features Grid ──────────────────────────── */
+
+.features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  padding: 2rem 0 3rem;
+}
+.feature-card {
+  background: var(--bg-surface);
+  border: 1px solid #1e2a38;
+  border-radius: var(--radius);
+  padding: 1.5rem;
+}
+.feature-card h3 {
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+}
+.feature-card h3 .icon { margin-right: 0.5rem; }
+.feature-card p {
+  color: var(--text-dim);
+  font-size: 0.95rem;
+}
+
+/* ── Example Block ──────────────────────────── */
+
+.example {
+  padding: 3rem 0;
+}
+.example h2 {
+  font-size: 1.6rem;
+  margin-bottom: 1rem;
+}
+
+/* ── Play Section ───────────────────────────── */
+
+.play-section {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#game-terminal {
+  background: var(--bg-surface);
+  border-top: 1px solid #2a3444;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#game-output {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem 1rem;
+  line-height: 1.4;
+}
+#game-output > div { margin-bottom: 0.25rem; }
+#game-output p { margin: 0 0 0.15rem; }
+#game-output .room h1 { color: var(--green); font-size: 1.1rem; margin: 0.3rem 0; }
+#game-output .room h2 { color: var(--yellow); font-size: 0.95rem; margin: 0.4rem 0 0.15rem; }
+#game-output .system { color: var(--purple); }
+#game-output .narrative { color: var(--text); font-style: italic; }
+#game-output a { cursor: pointer; }
+#game-output ul { list-style: none; padding-left: 0.5rem; margin: 0; }
+#game-output li { margin: 0; }
+#game-output li::before { content: "› "; color: var(--accent-dim); }
+#game-output table { border-collapse: collapse; margin: 0.25rem 0; }
+#game-output td { padding: 0.1rem 0.75rem 0.1rem 0; vertical-align: top; }
+
+#game-input-row {
+  display: flex;
+  border-top: 1px solid #2a3444;
+}
+#game-prompt {
+  padding: 0.75rem;
+  color: var(--green);
+  font-family: var(--font-mono);
+  user-select: none;
+}
+#game-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-bright);
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  padding: 0.75rem 0.5rem;
+  outline: none;
+}
+#game-input::placeholder { color: var(--text-dim); }
+
+/* ── Spec Page ──────────────────────────────── */
+
+.spec-content {
+  padding: 3rem 0;
+}
+.spec-content h1 { font-size: 2rem; margin-bottom: 1.5rem; }
+.spec-content h2 { font-size: 1.4rem; margin-top: 2.5rem; margin-bottom: 0.75rem; border-bottom: 1px solid #1e2a38; padding-bottom: 0.5rem; }
+.spec-content h3 { font-size: 1.15rem; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+.spec-content p { margin-bottom: 1rem; }
+.spec-content ul, .spec-content ol { margin-bottom: 1rem; padding-left: 1.5rem; }
+.spec-content table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
+.spec-content th, .spec-content td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #1e2a38; }
+.spec-content th { color: var(--text-bright); }
+
+/* ── Responsive ─────────────────────────────── */
+
+@media (max-width: 640px) {
+  .hero h2 { font-size: 2rem; }
+  .hero .cta { flex-direction: column; }
+  header .container { flex-direction: column; gap: 0.75rem; }
+}

@@ -1,0 +1,254 @@
+# MUDdown Project Plan
+
+**Domain**: muddown.com  
+**Repository**: ~/GitHub/MUDdown (pending GitHub push)  
+**License**: MIT  
+**Started**: 2026-03-27
+
+---
+
+## Vision
+
+MUDdown reimagines Multi-User Dungeons for the modern era by replacing ANSI escape codes and raw telnet with an extended Markdown format — **MUDdown** — that is human-readable, machine-parseable, AI-friendly, and natively accessible.
+
+### Core Principles
+
+- **Text is the truth**: Markdown source is the canonical representation
+- **Progressive enhancement**: Plain Markdown renderers are valid clients; richer clients add interactivity
+- **Semantic over decorative**: Structure conveys meaning, not visual styling
+- **AI-legible**: All game constructs are structured data that LLMs can parse and act on
+- **Accessible by design**: Screenreader-first; ARIA-mapped container blocks
+
+---
+
+## Architecture Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Language | TypeScript | Widest multi-platform reach; first-class AI SDK ecosystem |
+| Monorepo | Turborepo + npm workspaces | Shared types, independent packages, parallel builds |
+| Transport | WebSocket (JSON envelopes) | Browser-native, bidirectional, replaces telnet |
+| Game markup | MUDdown (Markdown superset) | Readable raw, interactive when rendered, AI-parseable |
+| Website | Astro (static site) | Fast, deploys on Debian via nginx, embeds React islands |
+| Server | Node.js + ws | Lightweight, same language as client, easy to extend |
+| License | MIT | Maximally permissive, widely understood |
+| Hosting target | Debian Linux | nginx for static site, systemd for game server |
+
+---
+
+## What's Been Built (Phase 0 — Scaffold)
+
+### Monorepo Structure
+```
+MUDdown/
+├── packages/
+│   ├── spec/           ✅ MUDdown Specification v0.1.0 (draft)
+│   ├── shared/         ✅ TypeScript types for protocol, blocks, links, wire messages
+│   ├── parser/         ✅ MUDdown parser (blocks, attributes, sections, links, frontmatter)
+│   ├── server/         ✅ WebSocket game server with demo world
+│   ├── client/         📁 Directory created (empty — web client is in website for now)
+│   └── bridge/         📁 Directory created (empty — telnet bridge future)
+├── apps/
+│   └── website/        ✅ Astro site: landing page, spec docs, playable web client
+├── turbo.json          ✅ Build orchestration
+├── package.json        ✅ Workspace root
+├── tsconfig.json       ✅ Shared TypeScript config
+├── .gitignore          ✅
+├── LICENSE             ✅ MIT
+└── README.md           ✅
+```
+
+### Specification (packages/spec/SPECIFICATION.md)
+The v0.1.0 draft covers:
+- **Container blocks**: `:::room`, `:::npc`, `:::item`, `:::combat`, `:::dialogue`, `:::system`, `:::map`, plus `x-` extensions
+- **Interactive link schemes**: `cmd:`, `go:`, `item:`, `npc:`, `player:`, `help:`, `url:`
+- **Player mentions**: `[@Name](player:id)` syntax
+- **YAML frontmatter**: Metadata for message type, server info, timestamps
+- **Wire protocol**: JSON envelopes over WebSocket with typed message types (room, combat, dialogue, system, narrative, command, input, ping/pong)
+- **AI integration hooks**: Tool-calling schema, MCP resource URIs (`muddown://room/current`, etc.), context window serialization format
+- **Accessibility**: ARIA role mappings for container blocks
+- **Conformance levels**: Text, Interactive, Full
+
+### Shared Types (packages/shared)
+- Block types, link schemes, container attributes (Room, NPC, Item, Combat, Dialogue)
+- Wire protocol types (ServerMessage, ClientMessage)
+- MCP resource URI types
+- Conformance level enum
+
+### Parser (packages/parser)
+- `parseBlocks()` — Extracts container blocks with attributes from MUDdown text
+- `parseAttributes()` — Parses key=value pairs (string, number, boolean)
+- `extractLinks()` — Finds all game links with scheme/target/displayText
+- `parseSections()` — Splits block content by H2 headings
+- `parse()` — Full document parser (frontmatter + blocks)
+
+### Game Server (packages/server)
+- WebSocket server on port 3300
+- Player session management (auto-generated names)
+- Demo world "Northkeep" with 6 interconnected rooms:
+  - Town Square (hub, connects to all areas)
+  - The Iron Gate (north, connects to Guard Tower)
+  - Guard Tower (above Iron Gate)
+  - Bakery Lane (east)
+  - Docks District (south)
+  - Temple of the Silver Moon (west)
+- Commands: `go`, `look`, `examine`, `say`, `who`, `help`, directional shortcuts
+- Multi-player: players see each other, broadcast chat per room, arrival/departure messages
+- All output is MUDdown format
+
+### Website (apps/website)
+- **Landing page** (`/`): Hero section, feature grid (6 cards), MUDdown code example
+- **Specification** (`/spec`): Renders SPECIFICATION.md via `marked`
+- **Play** (`/play`): Full web MUD client with:
+  - WebSocket connection to game server (auto-reconnect)
+  - MUDdown-to-HTML renderer (headings, bold, italic, code, lists, game links)
+  - Clickable game links (go:, cmd:, examine on npc:/item:)
+  - Command input with history (up/down arrows)
+  - Dark theme with monospace terminal aesthetic
+- **Shared layout**: Header nav, footer, Google Fonts (Inter + JetBrains Mono)
+
+### Git
+- Repository initialized on `main` branch
+- All files staged, no commits yet
+
+---
+
+## Big Ideas (from design discussions)
+
+These are the visionary features discussed during planning. Each is a potential milestone or community contribution area.
+
+### 1. LLM as Dungeon Master
+Humans build rules, lore, and constraints (knowledge graph). An LLM generates all prose dynamically — room descriptions shift with weather, time, character mood, and history. No two players read the same description.
+
+### 2. Ambient AI NPCs with Memory
+NPCs that remember players across sessions. Conversational AI with RAG over each NPC's "life history" stored in a vector database. The blacksmith recalls you stiffed him; the guard mentions rumors you started.
+
+### 3. Collaborative Worldbuilding as Gameplay
+Players propose room descriptions, lore, and quest hooks as Markdown PRs. Community votes; accepted contributions become canon. The MUD is a living wiki you walk through. Git-based version control for the world.
+
+### 4. Spatial Audio + Text Hybrid
+Procedural spatial audio layered over text. Hear the waterfall before reading about it. Combat has sound cues. Distance-based footsteps for other players. Text for precision, audio for atmosphere.
+
+### 5. Code is Magic
+Spell-casting is literally programming. The game provides an API; magic is writing functions against it. TypeScript as the arcane language. Bugs in your spell cause backfire. Merges MUDs with creative coding education.
+
+### 6. Federated MUD Protocol (ActivityPub for Dungeons)
+Each server hosts a "realm." Portals between realms are federation links. Character identity travels across servers (like Mastodon handles). Each realm has its own rules and theme but shares the protocol.
+
+### 7. Persistent Ecology Simulation
+The world simulates ecosystems offline. Over-hunt wolves → deer overpopulate → famine. Players' aggregate actions reshape the world over weeks/months. AI summarizes what happened while you were away.
+
+### 8. Screenreader-First Design
+Lean into MUDs' accidental accessibility *intentionally*. Semantic Markdown + ARIA metadata. Design for screenreaders first, visual rendering second. A strength, not a constraint.
+
+### 9. Branching Narrative via CRDT
+Multiple players in the "same" room experience divergent realities based on choices. CRDTs track parallel narrative branches that collapse when players interact. Quantum-state storytelling.
+
+### 10. Physical World Overlay
+Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described as a haunted forest. Other nearby players appear as NPCs/allies. AR text adventure without a camera — just MUDdown on your phone.
+
+---
+
+## Roadmap
+
+### Phase 1 — Foundations (Current)
+- [x] Monorepo scaffold (Turborepo + npm workspaces)
+- [x] MUDdown specification v0.1.0 draft
+- [x] Shared TypeScript types
+- [x] MUDdown parser
+- [x] WebSocket game server with demo world
+- [x] Astro website with landing page, spec docs, playable client
+- [x] MIT license, README, git init
+- [ ] Push to GitHub (create repo, initial commit)
+- [ ] Parser unit tests (validate spec compliance)
+- [ ] Fix any build/runtime issues found during testing
+
+### Phase 2 — Playable Game
+- [ ] Expand Northkeep: 20+ rooms across multiple regions
+- [ ] Item system: pick up, drop, use, combine, equip
+- [ ] NPC dialogue trees (MUDdown `:::dialogue` blocks)
+- [ ] Basic combat system (MUDdown `:::combat` blocks)
+- [ ] Player persistence (save/load state, SQLite or JSON files)
+- [ ] Character creation (name, class, starting stats)
+- [ ] Inventory and equipment UI in the web client
+
+### Phase 3 — Deployment & Infrastructure
+- [ ] Debian server setup (nginx + systemd)
+- [ ] DNS: point muddown.com to server
+- [ ] TLS via Let's Encrypt
+- [ ] nginx config: static site + WebSocket proxy to game server
+- [ ] CI/CD: GitHub Actions for build/test/deploy
+- [ ] Environment-based configuration (.env)
+
+### Phase 4 — AI Integration
+- [ ] MCP server: expose game state as MCP resources
+- [ ] LLM-powered NPC conversations (RAG over NPC backstories)
+- [ ] AI game assistant: context-aware help, command suggestions
+- [ ] Tool-calling integration: AI agents can play the game
+- [ ] Dynamic room descriptions via LLM (based on player state)
+- [ ] Vector store for game lore/help (RAG for player questions)
+
+### Phase 5 — Multi-Platform Client
+- [ ] Extract web client into standalone `packages/client`
+- [ ] React Native wrapper for iOS/Android
+- [ ] Tauri desktop app (lightweight native shell)
+- [ ] Terminal client (renders MUDdown as styled terminal output)
+- [ ] Telnet bridge (`packages/bridge`): legacy client support
+
+### Phase 6 — Federation & Social
+- [ ] Federation protocol design (realm discovery, portal linking)
+- [ ] Cross-server character identity
+- [ ] Player profiles and persistence across federated servers
+- [ ] Collaborative worldbuilding PRs (propose/vote/merge rooms)
+- [ ] World event system (server-wide narrative arcs)
+
+### Phase 7 — Advanced Features
+- [ ] Persistent ecology simulation
+- [ ] Spatial audio engine
+- [ ] Code-as-magic scripting API
+- [ ] Branching narrative CRDT system
+- [ ] GPS/physical world overlay mode
+- [ ] Accessibility audit and WCAG 2.2 compliance
+
+---
+
+## Technical Stack Summary
+
+| Component | Technology |
+|-----------|-----------|
+| Language | TypeScript 5.5+ |
+| Runtime | Node.js 20+ |
+| Build | Turborepo |
+| Server transport | ws (WebSocket) |
+| Website | Astro 4 |
+| Markdown rendering | marked |
+| Future client | React / React Native |
+| Future desktop | Tauri (Rust shell) |
+| Future AI | Vercel AI SDK, LangChain.js, transformers.js |
+| Future database | SQLite (player state), vector store (RAG) |
+| Deployment | Debian, nginx, systemd, Let's Encrypt |
+
+---
+
+## Development Commands
+
+```bash
+# Install all dependencies
+npm install
+
+# Build everything
+npm run build
+
+# Start game server (port 3300)
+cd packages/server && npm start
+
+# Start website dev server (port 4321)
+cd apps/website && npm run dev
+
+# Run tests
+npm test
+```
+
+---
+
+*This plan is a living document. Update as the project evolves.*

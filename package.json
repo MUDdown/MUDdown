@@ -1,0 +1,30 @@
+{
+  "name": "muddown",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MUDdown — A modern MUD platform using Markdown as the universal game markup language",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mconley/MUDdown.git"
+  },
+  "license": "MIT",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "clean": "turbo run clean"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "npm@10.0.0"
+}

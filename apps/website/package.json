@@ -1,0 +1,17 @@
+{
+  "name": "@muddown/website",
+  "version": "0.1.0",
+  "description": "muddown.com — specification docs and playable demo",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "clean": "rm -rf dist .astro"
+  },
+  "dependencies": {
+    "astro": "^6.1.1",
+    "marked": "^12.0.0"
+  },
+  "license": "MIT"
+}

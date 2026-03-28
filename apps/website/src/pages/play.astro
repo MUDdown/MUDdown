@@ -1,0 +1,214 @@
+---
+import Base from "../layouts/Base.astro";
+---
+<Base title="Play MUDdown">
+  <section class="play-section">
+    <div id="game-terminal">
+      <div id="game-output" role="log" aria-live="polite"></div>
+      <div id="game-input-row">
+        <span id="game-prompt">&gt;</span>
+        <input
+          id="game-input"
+          type="text"
+          placeholder="Type a command..."
+          autocomplete="off"
+          autofocus
+          aria-label="Game command input"
+        />
+      </div>
+    </div>
+  </section>
+
+  <script>
+    const output = document.getElementById("game-output")!;
+    const input = document.getElementById("game-input")! as HTMLInputElement;
+
+    // ── Markdown-lite renderer (handles basic MUDdown for display) ──────
+
+    function renderMuddown(muddown: string): string {
+      // Strip container block fences
+      let text = muddown
+        .replace(/^:::[\w-]+\{[^}]*\}\s*$/gm, "")
+        .replace(/^:::[\w-]+\s*$/gm, "")
+        .replace(/^:::\s*$/gm, "")
+        .trim();
+
+      // Convert Markdown to HTML
+      const lines = text.split("\n");
+      const html: string[] = [];
+      let inList = false;
+      let inTable = false;
+      let paraLines: string[] = [];
+
+      function flushPara() {
+        if (paraLines.length > 0) {
+          const content = paraLines.join(" ");
+          if (content.trim()) html.push(`<p>${content}</p>`);
+          paraLines = [];
+        }
+      }
+
+      function inlineFormat(line: string): string {
+        return line
+          .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+          .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+          .replace(/`([^`]+)`/g, "<code>$1</code>")
+          .replace(
+            /\[([^\]]+)\]\((cmd|go|item|npc|player|help):([^)]*)\)/g,
+            '<a href="#" data-scheme="$2" data-target="$3" onclick="handleGameLink(this); return false;">$1</a>'
+          )
+          .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+      }
+
+      for (const raw of lines) {
+        const line = inlineFormat(raw);
+
+        // Table rows
+        if (raw.trimStart().startsWith("|") && raw.trimEnd().endsWith("|")) {
+          // Skip separator rows like |---|---|
+          if (raw.match(/^\|[\s\-:|]+\|$/)) continue;
+          flushPara();
+          if (inList) { html.push("</ul>"); inList = false; }
+          if (!inTable) { html.push("<table>"); inTable = true; }
+          const cells = line.split("|").slice(1, -1).map(c => c.trim());
+          html.push("<tr>" + cells.map(c => `<td>${c}</td>`).join("") + "</tr>");
+        } else if (raw.match(/^#{1,3} /)) {
+          flushPara();
+          if (inList) { html.push("</ul>"); inList = false; }
+          if (inTable) { html.push("</table>"); inTable = false; }
+          const level = raw.match(/^(#+)/)?.[1].length ?? 1;
+          const content = line.replace(/^#{1,3} /, "");
+          html.push(`<h${level}>${content}</h${level}>`);
+        } else if (raw.startsWith("- ")) {
+          flushPara();
+          if (inTable) { html.push("</table>"); inTable = false; }
+          if (!inList) { html.push("<ul>"); inList = true; }
+          html.push(`<li>${line.slice(2)}</li>`);
+        } else if (raw.trim() === "") {
+          flushPara();
+          if (inList) { html.push("</ul>"); inList = false; }
+          if (inTable) { html.push("</table>"); inTable = false; }
+        } else {
+          paraLines.push(line);
+        }
+      }
+      flushPara();
+      if (inList) html.push("</ul>");
+      if (inTable) html.push("</table>");
+
+      return html.join("");
+    }
+
+    function appendMessage(muddown: string, className: string) {
+      const div = document.createElement("div");
+      div.className = className;
+      div.innerHTML = renderMuddown(muddown);
+      output.appendChild(div);
+      requestAnimationFrame(() => {
+        output.scrollTop = output.scrollHeight;
+      });
+    }
+
+    // ── Game link handler (exposed globally for onclick) ────────────────
+
+    (window as any).handleGameLink = function (el: HTMLElement) {
+      const scheme = el.getAttribute("data-scheme");
+      const target = el.getAttribute("data-target");
+      if (scheme === "go") {
+        sendCommand(`go ${target}`);
+      } else if (scheme === "cmd") {
+        sendCommand(target ?? "");
+      } else if (scheme === "npc" || scheme === "item") {
+        sendCommand(`examine ${target}`);
+      }
+      input.scrollIntoView({ block: "end" });
+      input.focus();
+    };
+
+    // ── WebSocket connection ───────────────────────────────────────────
+
+    const wsProtocol = location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${wsProtocol}//${location.hostname}:3300`;
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout>;
+
+    function connect() {
+      appendMessage("*Connecting to Northkeep...*", "system");
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        appendMessage("*Connected!*", "system");
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          const className = msg.type || "narrative";
+          appendMessage(msg.muddown, className);
+        } catch {
+          appendMessage(event.data, "narrative");
+        }
+      };
+
+      ws.onclose = () => {
+        appendMessage("*Disconnected. Reconnecting in 3s...*", "system");
+        reconnectTimer = setTimeout(connect, 3000);
+      };
+
+      ws.onerror = () => {
+        ws?.close();
+      };
+    }
+
+    function sendCommand(cmd: string) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        appendMessage("*Not connected to server.*", "system");
+        return;
+      }
+      const msg = {
+        v: 1,
+        id: crypto.randomUUID(),
+        type: "command",
+        timestamp: new Date().toISOString(),
+        command: cmd,
+      };
+      ws.send(JSON.stringify(msg));
+    }
+
+    // ── Input handling ─────────────────────────────────────────────────
+
+    const history: string[] = [];
+    let historyIndex = -1;
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        const cmd = input.value.trim();
+        if (!cmd) return;
+        history.unshift(cmd);
+        historyIndex = -1;
+        appendMessage(`<span style="color:var(--green)">&gt; ${cmd}</span>`, "input-echo");
+        sendCommand(cmd);
+        input.value = "";
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        if (historyIndex < history.length - 1) {
+          historyIndex++;
+          input.value = history[historyIndex];
+        }
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        if (historyIndex > 0) {
+          historyIndex--;
+          input.value = history[historyIndex];
+        } else {
+          historyIndex = -1;
+          input.value = "";
+        }
+      }
+    });
+
+    // ── Start ──────────────────────────────────────────────────────────
+
+    connect();
+  </script>
+</Base>

@@ -1,0 +1,89 @@
+---
+import Base from "../layouts/Base.astro";
+---
+<Base title="MUDdown — Markdown-Powered MUDs">
+  <section class="hero">
+    <div class="container">
+      <h2>The Future of MUDs is <span>Markdown</span></h2>
+      <p>
+        MUDdown reimagines text adventures for the modern era. Rooms are documents.
+        Links are commands. AI agents are first-class players. And it all runs everywhere.
+      </p>
+      <div class="cta">
+        <a href="/play" class="primary">Play Now</a>
+        <a href="/spec" class="secondary">Read the Spec</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="container">
+    <div class="features">
+      <div class="feature-card">
+        <h3><span class="icon">📝</span> Markdown-Native</h3>
+        <p>
+          Room descriptions, combat logs, and dialogue are structured Markdown.
+          Readable as plain text, beautifully rendered in browsers, parseable by machines.
+        </p>
+      </div>
+      <div class="feature-card">
+        <h3><span class="icon">🌐</span> Multi-Platform</h3>
+        <p>
+          Play in a browser, on your phone, or in a terminal. One protocol,
+          every surface. WebSocket transport with graceful degradation.
+        </p>
+      </div>
+      <div class="feature-card">
+        <h3><span class="icon">🤖</span> AI-First</h3>
+        <p>
+          Game state exposed via structured schemas compatible with LLM tool-calling
+          and Model Context Protocol. AI agents can play or assist seamlessly.
+        </p>
+      </div>
+      <div class="feature-card">
+        <h3><span class="icon">🔗</span> Federated</h3>
+        <p>
+          Servers link realms together. Walk between worlds through dimensional portals.
+          Your identity travels across servers.
+        </p>
+      </div>
+      <div class="feature-card">
+        <h3><span class="icon">♿</span> Accessible by Design</h3>
+        <p>
+          Screenreader-first architecture. Semantic Markdown with ARIA-mapped container blocks.
+          Text adventures should be for everyone.
+        </p>
+      </div>
+      <div class="feature-card">
+        <h3><span class="icon">🧩</span> Extensible</h3>
+        <p>
+          Custom container blocks, plugin architecture, and a typed wire protocol.
+          Build crafting systems, procedural worlds, or anything you imagine.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="example container">
+    <h2>What MUDdown Looks Like</h2>
+    <pre><code>:::room&#123;id="iron-gate" region="northkeep" lighting="dim"&#125;
+# The Iron Gate
+
+A massive portcullis of blackened iron bars the passage north.
+The mechanism is **rusted**, but you notice
+[fresh oil on the gears](cmd:examine gears).
+
+## Exits
+- [North](go:north) *(blocked)*
+- [South](go:south) — Courtyard
+- [Up](go:up) — Guard Tower
+
+## Present
+- [@Tharion](player:tharion) is here, studying the mechanism.
+- A [sleeping guard](npc:guard-7) slumps against the wall.
+:::</code></pre>
+    <p style="color: var(--text-dim); margin-top: 1rem;">
+      It's just Markdown. Any renderer displays it. MUDdown-aware clients make the links clickable,
+      the blocks interactive, and the whole thing playable.
+    </p>
+  </section>
+</Base>
