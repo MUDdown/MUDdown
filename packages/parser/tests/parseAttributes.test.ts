@@ -67,4 +67,16 @@ describe("parseAttributes", () => {
   it("throws on unquoted value containing =", () => {
     expect(() => parseAttributes("id=foo=bar")).toThrow(/Invalid unquoted attribute value/);
   });
+
+  it('throws on unquoted value containing "', () => {
+    expect(() => parseAttributes('id=foo"bar')).toThrow(/Invalid unquoted attribute value/);
+  });
+
+  it("throws on unquoted value containing {", () => {
+    expect(() => parseAttributes("id=foo{bar")).toThrow(/Invalid unquoted attribute value/);
+  });
+
+  it("throws on unquoted value containing }", () => {
+    expect(() => parseAttributes("id=foo}bar")).toThrow(/Invalid unquoted attribute value/);
+  });
 });
