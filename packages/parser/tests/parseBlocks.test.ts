@@ -118,6 +118,6 @@ describe("parseBlocks", () => {
 
   it("throws when a block is never closed", () => {
     const input = [":::room", "No closing fence here."].join("\n");
-    expect(() => parseBlocks(input)).toThrow(/Unclosed :::room block \(opened at line 1\)/);
+    expect(() => parseBlocks(input)).toThrow(/Unclosed :::room block opened at line 1/);
   });
 });
