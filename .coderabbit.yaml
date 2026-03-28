@@ -1,0 +1,9 @@
+reviews:
+  path_instructions:
+    - path: "packages/server/world/**/*.md"
+      instructions: >
+        Room files intentionally duplicate id, region, and lighting in both
+        YAML frontmatter and the :::room directive attributes. Frontmatter is
+        consumed by the server-side world loader; directive attributes are
+        shipped to clients inside the MUDdown body. Do not flag this as a
+        DRY violation.
