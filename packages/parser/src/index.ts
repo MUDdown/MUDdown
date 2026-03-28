@@ -11,7 +11,9 @@ import type {
 const BLOCK_OPEN = /^:::(\w[\w-]*)\{([^}]*)\}\s*$/;
 const BLOCK_OPEN_NO_ATTRS = /^:::(\w[\w-]*)\s*$/;
 const BLOCK_CLOSE = /^:::\s*$/;
-const ATTR_PAIR = /(\w[\w-]*)=(?:"([^"]*)"|(\w+))/g;
+// \S+? (not \w+) is intentional: supports unquoted values containing
+// hyphens, dots, colons, and slashes (e.g. timestamps, semver strings).
+const ATTR_PAIR = /(\w[\w-]*)=(?:"([^"]*)"|(\S+?)(?=\s|$))/g;
 const GAME_LINK = /\[([^\]]+)\]\((\w+):([^)]*)\)/g;
 const H2_HEADING = /^## (.+)$/;
 
@@ -27,6 +29,13 @@ export function parseAttributes(raw: string): BlockAttributes {
   while ((match = ATTR_PAIR.exec(raw)) !== null) {
     const key = match[1];
     const value = match[2] ?? match[3];
+
+    // Validate unquoted values — reject characters that indicate malformed input
+    if (match[3] !== undefined && /[="{}]/.test(match[3])) {
+      throw new Error(
+        `Invalid unquoted attribute value for key "${key}" in: ${raw}`
+      );
+    }
 
     if (value === "true") attrs[key] = true;
     else if (value === "false") attrs[key] = false;
@@ -110,11 +119,17 @@ export function parseBlocks(input: string): MUDdownBlock[] {
     }
 
     if (blockType) {
+      const openLine = i;
       const contentLines: string[] = [];
       i++;
       while (i < lines.length && !BLOCK_CLOSE.test(lines[i])) {
         contentLines.push(lines[i]);
         i++;
+      }
+      if (i >= lines.length) {
+        throw new Error(
+          `Unclosed :::${blockType} block opened at line ${openLine + 1}`
+        );
       }
       // skip the closing :::
       i++;
@@ -164,6 +179,11 @@ export function parse(input: string): MUDdownDocument {
   };
 }
 
+/**
+ * Minimal line-by-line YAML parser. Uses the first colon as the
+ * key/value separator. Returns all values as strings (no type
+ * coercion). Does not support YAML lists or multiline values.
+ */
 function parseYamlSimple(yaml: string): Record<string, string> {
   const result: Record<string, string> = {};
   for (const line of yaml.split("\n")) {

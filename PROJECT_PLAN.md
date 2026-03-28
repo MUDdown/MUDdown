@@ -160,8 +160,8 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [x] Astro website with landing page, spec docs, playable client
 - [x] MIT license, README, git init
 - [x] Push to GitHub (create repo, initial commit)
-- [ ] Parser unit tests (validate spec compliance)
-- [ ] Fix any build/runtime issues found during testing
+- [x] Parser unit tests (validate spec compliance)
+- [x] Fix any build/runtime issues found during testing
 
 ### Phase 2 — Playable Game
 - [ ] Expand Northkeep: 20+ rooms across multiple regions
