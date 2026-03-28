@@ -1,7 +1,7 @@
 # MUDdown Project Plan
 
 **Domain**: muddown.com  
-**Repository**: ~/GitHub/MUDdown (pending GitHub push)  
+**Repository**: https://github.com/MUDdown/MUDdown  
 **License**: MIT  
 **Started**: 2026-03-27
 
@@ -159,7 +159,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [x] WebSocket game server with demo world
 - [x] Astro website with landing page, spec docs, playable client
 - [x] MIT license, README, git init
-- [ ] Push to GitHub (create repo, initial commit)
+- [x] Push to GitHub (create repo, initial commit)
 - [ ] Parser unit tests (validate spec compliance)
 - [ ] Fix any build/runtime issues found during testing
 
