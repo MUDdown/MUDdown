@@ -85,13 +85,12 @@ The v0.1.0 draft covers:
 ### Game Server (packages/server)
 - WebSocket server on port 3300
 - Player session management (auto-generated names)
-- Demo world "Northkeep" with 6 interconnected rooms:
-  - Town Square (hub, connects to all areas)
-  - The Iron Gate (north, connects to Guard Tower)
-  - Guard Tower (above Iron Gate)
-  - Bakery Lane (east)
-  - Docks District (south)
-  - Temple of the Silver Moon (west)
+- Demo world "Northkeep" with 24 rooms across 5 regions, all fully interconnected with bidirectional exits:
+  - **northkeep** (6 rooms) — Town Square hub, Iron Gate, Guard Tower, Bakery Lane, Docks District, Temple of the Silver Moon
+  - **market** (4 rooms) — Market Entrance, Market Square, Jeweler's Shop, Blacksmith's Forge
+  - **harbor** (4 rooms) — Warehouse, Pier, Lighthouse, Smuggler's Cove
+  - **northroad** (7 rooms) — North Road, Crossroads, Old Farm, Forest Edge, Deep Forest, Ruins Entrance, Ruins Hall
+  - **catacombs** (3 rooms) — Catacombs Entrance, Ossuary, Sealed Chamber
 - Commands: `go`, `look`, `examine`, `say`, `who`, `help`, directional shortcuts
 - Multi-player: players see each other, broadcast chat per room, arrival/departure messages
 - All output is MUDdown format
@@ -164,7 +163,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [x] Fix any build/runtime issues found during testing
 
 ### Phase 2 — Playable Game
-- [ ] Expand Northkeep: 20+ rooms across multiple regions
+- [x] Expand Northkeep: 20+ rooms across multiple regions
 - [ ] Item system: pick up, drop, use, combine, equip
 - [ ] NPC dialogue trees (MUDdown `:::dialogue` blocks)
 - [ ] Basic combat system (MUDdown `:::combat` blocks)

@@ -4,6 +4,7 @@ region: northkeep
 lighting: warm
 connections:
   west: town-square
+  east: market-entrance
 ---
 :::room{id="bakery" region="northkeep" lighting="warm"}
 # Bakery Lane
@@ -14,6 +15,7 @@ every surface.
 
 ## Exits
 - [West](go:west) — Town Square
+- [East](go:east) — Market Entrance
 
 ## Present
 - [Marta the Baker](npc:marta) hums as she kneads dough.

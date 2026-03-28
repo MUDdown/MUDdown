@@ -4,6 +4,7 @@ region: northkeep
 lighting: ethereal
 connections:
   east: town-square
+  down: catacombs-entrance
 ---
 :::room{id="temple" region="northkeep" lighting="ethereal"}
 # Temple of the Silver Moon
@@ -14,6 +15,7 @@ moonstone that seems to glow faintly from within.
 
 ## Exits
 - [East](go:east) — Town Square
+- [Down](go:down) — Catacombs Entrance
 
 ## Present
 - A [priestess](npc:priestess) kneels in silent prayer before the altar.
