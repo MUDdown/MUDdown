@@ -10,9 +10,7 @@ connections:
 
 A squat stone tower perched on a rocky outcrop at the harbor's eastern edge.
 The great lantern above is dark now, but at night its beam sweeps across
-the water. A spiral staircase winds upward, and the [view from
-the railing](cmd:examine view) takes in all of Northkeep's coastline.
-
+the water. A spiral staircase winds upward, and the [view from the railing](cmd:examine view) takes in all of Northkeep's coastline.
 ## Exits
 - [West](go:west) — The Pier
 
