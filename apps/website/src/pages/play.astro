@@ -102,6 +102,23 @@ import Base from "../layouts/Base.astro";
     function appendMessage(muddown: string, className: string) {
       const div = document.createElement("div");
       div.className = className;
+
+      // ARIA role mapping per MUDdown spec §8
+      const blockMatch = muddown.match(/^:::(\w[\w-]*)/m);
+      if (blockMatch) {
+        const ariaMap: Record<string, { role: string; live?: string }> = {
+          room: { role: "main" },
+          system: { role: "alert" },
+          combat: { role: "log", live: "polite" },
+          dialogue: { role: "dialog" },
+        };
+        const mapping = ariaMap[blockMatch[1]];
+        if (mapping) {
+          div.setAttribute("role", mapping.role);
+          if (mapping.live) div.setAttribute("aria-live", mapping.live);
+        }
+      }
+
       div.innerHTML = renderMuddown(muddown);
       output.appendChild(div);
       requestAnimationFrame(() => {

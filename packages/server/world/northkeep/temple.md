@@ -5,6 +5,8 @@ lighting: ethereal
 connections:
   east: town-square
   down: catacombs-entrance
+items:
+  - prayer-book
 ---
 :::room{id="temple" region="northkeep" lighting="ethereal"}
 # Temple of the Silver Moon

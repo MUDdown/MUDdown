@@ -5,6 +5,8 @@ lighting: warm
 connections:
   west: town-square
   east: market-entrance
+items:
+  - bread
 ---
 :::room{id="bakery" region="northkeep" lighting="warm"}
 # Bakery Lane

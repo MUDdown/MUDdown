@@ -104,3 +104,33 @@ export type MCPResource =
 // ─── Conformance Levels ──────────────────────────────────────────────────────
 
 export type ConformanceLevel = "text" | "interactive" | "full";
+
+// ─── Item System ─────────────────────────────────────────────────────────────
+
+export type EquipSlot = "weapon" | "armor" | "accessory";
+
+interface ItemBase {
+  id: string;
+  name: string;
+  description: string;
+  weight: number;
+  rarity: "common" | "uncommon" | "rare" | "legendary";
+  fixed: boolean;
+}
+
+type EquippableItem = { equippable: true; slot: EquipSlot };
+type NonEquippableItem = { equippable: false; slot?: never };
+
+type UsableItem = { usable: true; useEffect: string };
+type NonUsableItem = { usable: false; useEffect?: never };
+
+export type ItemDefinition = ItemBase &
+  (EquippableItem | NonEquippableItem) &
+  (UsableItem | NonUsableItem);
+
+export interface CombineRecipe {
+  item1: string;
+  item2: string;
+  result: string;
+  description: string;
+}

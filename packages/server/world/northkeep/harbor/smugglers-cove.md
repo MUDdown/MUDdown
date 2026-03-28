@@ -4,6 +4,9 @@ region: harbor
 lighting: dark
 connections:
   east: pier
+items:
+  - locked-chest
+  - torn-map
 ---
 :::room{id="smugglers-cove" region="harbor" lighting="dark"}
 # Smuggler's Cove

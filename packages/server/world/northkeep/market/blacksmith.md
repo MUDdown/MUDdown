@@ -4,6 +4,9 @@ region: market
 lighting: fiery
 connections:
   north: market-square
+items:
+  - shortsword
+  - tongs
 ---
 :::room{id="blacksmith" region="market" lighting="fiery"}
 # Blacksmith's Forge

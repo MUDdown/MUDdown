@@ -7,6 +7,8 @@ connections:
   east: bakery
   south: docks
   west: temple
+items:
+  - notice-board
 ---
 :::room{id="town-square" region="northkeep" lighting="bright"}
 # Town Square

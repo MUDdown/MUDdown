@@ -4,6 +4,9 @@ region: northroad
 lighting: bright
 connections:
   west: crossroads
+items:
+  - eggs
+  - hoe
 ---
 :::room{id="old-farm" region="northroad" lighting="bright"}
 # Old Farm

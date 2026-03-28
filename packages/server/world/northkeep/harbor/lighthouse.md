@@ -1,11 +1,14 @@
 ---
 id: lighthouse
 region: harbor
-lighting: bright
+lighting: dim
 connections:
   west: pier
+items:
+  - telescope
+  - lamp-oil
 ---
-:::room{id="lighthouse" region="harbor" lighting="bright"}
+:::room{id="lighthouse" region="harbor" lighting="dim"}
 # Lighthouse
 
 A squat stone tower perched on a rocky outcrop at the harbor's eastern edge.

@@ -6,6 +6,8 @@ connections:
   north: warehouse
   east: lighthouse
   west: smugglers-cove
+items:
+  - fishing-rod
 ---
 :::room{id="pier" region="harbor" lighting="overcast"}
 # The Pier

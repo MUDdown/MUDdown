@@ -4,6 +4,9 @@ region: catacombs
 lighting: dark
 connections:
   south: ossuary
+items:
+  - tome
+  - silver-amulet
 ---
 :::room{id="sealed-chamber" region="catacombs" lighting="dark"}
 # Sealed Chamber

@@ -5,6 +5,8 @@ lighting: dark
 connections:
   south: catacombs-entrance
   north: sealed-chamber
+items:
+  - holy-water
 ---
 :::room{id="ossuary" region="catacombs" lighting="dark"}
 # Ossuary

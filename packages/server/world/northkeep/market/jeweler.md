@@ -4,6 +4,8 @@ region: market
 lighting: warm
 connections:
   south: market-square
+items:
+  - glass-necklace
 ---
 :::room{id="jeweler" region="market" lighting="warm"}
 # Jeweler's Shop

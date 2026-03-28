@@ -1,0 +1,353 @@
+{
+  "items": [
+    {
+      "id": "bread",
+      "name": "Loaf of Bread",
+      "description": "A warm loaf of crusty bread, fresh from the oven. It smells wonderful.",
+      "weight": 0.5,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": false,
+      "usable": true,
+      "useEffect": "eat"
+    },
+    {
+      "id": "candle",
+      "name": "Tallow Candle",
+      "description": "A stubby candle of rendered animal fat. It gives off a faint, smoky light.",
+      "weight": 0.2,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": false,
+      "usable": true,
+      "useEffect": "light"
+    },
+    {
+      "id": "holy-water",
+      "name": "Vial of Holy Water",
+      "description": "A small glass vial filled with blessed water. It catches the light with an unusual clarity.",
+      "weight": 0.3,
+      "rarity": "uncommon",
+      "fixed": false,
+      "equippable": false,
+      "usable": true,
+      "useEffect": "bless"
+    },
+    {
+      "id": "tome",
+      "name": "Dust-Covered Tome",
+      "description": "A heavy, leather-bound book. The pages are brittle and covered in a script you cannot read.",
+      "weight": 2.0,
+      "rarity": "rare",
+      "fixed": false,
+      "equippable": false,
+      "usable": true,
+      "useEffect": "read"
+    },
+    {
+      "id": "silver-amulet",
+      "name": "Silver Amulet",
+      "description": "An amulet on a tarnished chain. A crescent moon is engraved on its face.",
+      "weight": 0.2,
+      "rarity": "rare",
+      "fixed": false,
+      "equippable": true,
+      "slot": "accessory",
+      "usable": false
+    },
+    {
+      "id": "longbow",
+      "name": "Longbow",
+      "description": "A tall yew bow with a taut string. It's seen better days but still has good draw.",
+      "weight": 1.5,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": true,
+      "slot": "weapon",
+      "usable": false
+    },
+    {
+      "id": "arrow-quiver",
+      "name": "Quiver of Arrows",
+      "description": "A leather quiver holding a dozen iron-tipped arrows. The fletching is slightly ragged.",
+      "weight": 1.0,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": true,
+      "slot": "accessory",
+      "usable": false
+    },
+    {
+      "id": "telescope",
+      "name": "Brass Telescope",
+      "description": "A fine telescope mounted on a brass swivel. It's bolted to the railing and won't budge.",
+      "weight": 5.0,
+      "rarity": "uncommon",
+      "fixed": true,
+      "equippable": false,
+      "usable": true,
+      "useEffect": "look-through"
+    },
+    {
+      "id": "lamp-oil",
+      "name": "Jar of Lamp Oil",
+      "description": "A sealed clay jar of whale oil, used to fuel the lighthouse lantern.",
+      "weight": 1.5,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": false,
+      "usable": false
+    },
+    {
+      "id": "fishing-rod",
+      "name": "Fishing Rod",
+      "description": "A simple bamboo rod with a line and hook. There's dried bait still on the hook.",
+      "weight": 0.8,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": true,
+      "slot": "weapon",
+      "usable": true,
+      "useEffect": "fish"
+    },
+    {
+      "id": "locked-chest",
+      "name": "Locked Chest",
+      "description": "A battered iron-bound chest. The lock is rusted but holds firm. Something rattles inside.",
+      "weight": 15.0,
+      "rarity": "uncommon",
+      "fixed": true,
+      "equippable": false,
+      "usable": false
+    },
+    {
+      "id": "torn-map",
+      "name": "Torn Map",
+      "description": "Half of a hand-drawn map. You can make out a coastline and an X marked in red ink.",
+      "weight": 0.1,
+      "rarity": "uncommon",
+      "fixed": false,
+      "equippable": false,
+      "usable": true,
+      "useEffect": "read"
+    },
+    {
+      "id": "rope",
+      "name": "Coil of Rope",
+      "description": "Fifty feet of sturdy hemp rope, coiled neatly. Useful for climbing or binding.",
+      "weight": 2.0,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": false,
+      "usable": false
+    },
+    {
+      "id": "crowbar",
+      "name": "Crowbar",
+      "description": "A heavy iron crowbar. Good for prying things open — or as an improvised weapon.",
+      "weight": 2.5,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": true,
+      "slot": "weapon",
+      "usable": false
+    },
+    {
+      "id": "logbook",
+      "name": "Worn Logbook",
+      "description": "A guard's logbook with faded entries. The last entry reads: \"Nothing to report. Gate holds.\"",
+      "weight": 0.5,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": false,
+      "usable": true,
+      "useEffect": "read"
+    },
+    {
+      "id": "shortsword",
+      "name": "Dull Shortsword",
+      "description": "A short blade with a nicked edge. It needs sharpening, but it's still steel.",
+      "weight": 1.5,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": true,
+      "slot": "weapon",
+      "usable": false
+    },
+    {
+      "id": "tongs",
+      "name": "Iron Tongs",
+      "description": "Heavy blacksmith's tongs, warm to the touch. The grips are wrapped in leather.",
+      "weight": 1.5,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": false,
+      "usable": false
+    },
+    {
+      "id": "glass-necklace",
+      "name": "Glass Bead Necklace",
+      "description": "A string of colored glass beads. Pretty but not valuable — a trinket for tourists.",
+      "weight": 0.1,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": true,
+      "slot": "accessory",
+      "usable": false
+    },
+    {
+      "id": "handbill",
+      "name": "Crumpled Handbill",
+      "description": "A printed handbill advertising a sale at Aldric's Jeweler's. \"Half off all glass beads!\"",
+      "weight": 0.1,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": false,
+      "usable": true,
+      "useEffect": "read"
+    },
+    {
+      "id": "silver-coin",
+      "name": "Silver Coin",
+      "description": "A silver coin stamped with the seal of Northkeep. Worth a decent meal at any tavern.",
+      "weight": 0.1,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": false,
+      "usable": false
+    },
+    {
+      "id": "mushroom",
+      "name": "Glowing Mushroom",
+      "description": "A soft, bioluminescent mushroom that pulses with blue light. It's cool and slightly damp.",
+      "weight": 0.1,
+      "rarity": "uncommon",
+      "fixed": false,
+      "equippable": false,
+      "usable": true,
+      "useEffect": "light"
+    },
+    {
+      "id": "cloak",
+      "name": "Tattered Cloak",
+      "description": "A heavy wool cloak, torn and stained. It still offers some warmth despite its condition.",
+      "weight": 1.0,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": true,
+      "slot": "armor",
+      "usable": false
+    },
+    {
+      "id": "herbs",
+      "name": "Bundle of Herbs",
+      "description": "A fragrant bundle of wild herbs — rosemary, thyme, and something you don't recognize.",
+      "weight": 0.2,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": false,
+      "usable": true,
+      "useEffect": "eat"
+    },
+    {
+      "id": "signpost",
+      "name": "Weathered Signpost",
+      "description": "A wooden signpost at the roadside. Carved arrows point in several directions. It's firmly planted.",
+      "weight": 20.0,
+      "rarity": "common",
+      "fixed": true,
+      "equippable": false,
+      "usable": false
+    },
+    {
+      "id": "eggs",
+      "name": "Basket of Eggs",
+      "description": "A small wicker basket holding half a dozen brown eggs. They're still warm.",
+      "weight": 0.8,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": false,
+      "usable": true,
+      "useEffect": "eat"
+    },
+    {
+      "id": "hoe",
+      "name": "Rusty Hoe",
+      "description": "A garden hoe with a rusted blade. The handle is worn smooth from years of use.",
+      "weight": 2.0,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": true,
+      "slot": "weapon",
+      "usable": false
+    },
+    {
+      "id": "broken-lantern",
+      "name": "Broken Lantern",
+      "description": "A dented iron lantern with cracked glass. It no longer holds oil, but might be repairable.",
+      "weight": 0.8,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": false,
+      "usable": false
+    },
+    {
+      "id": "shield",
+      "name": "Chipped Shield",
+      "description": "A round wooden shield with an iron boss. The rim is chipped and the paint has worn away.",
+      "weight": 3.0,
+      "rarity": "common",
+      "fixed": false,
+      "equippable": true,
+      "slot": "armor",
+      "usable": false
+    },
+    {
+      "id": "gold-ring",
+      "name": "Gold Ring",
+      "description": "A simple gold band, surprisingly untarnished. There's an inscription inside too small to read.",
+      "weight": 0.1,
+      "rarity": "rare",
+      "fixed": false,
+      "equippable": true,
+      "slot": "accessory",
+      "usable": false
+    },
+    {
+      "id": "prayer-book",
+      "name": "Prayer Book",
+      "description": "A slim book bound in white leather. The prayers inside are written in silver ink on vellum.",
+      "weight": 0.5,
+      "rarity": "uncommon",
+      "fixed": false,
+      "equippable": false,
+      "usable": true,
+      "useEffect": "read"
+    },
+    {
+      "id": "notice-board",
+      "name": "Notice Board",
+      "description": "A large wooden board covered in pinned parchments — job postings, wanted notices, and town decrees.",
+      "weight": 50.0,
+      "rarity": "common",
+      "fixed": true,
+      "equippable": false,
+      "usable": true,
+      "useEffect": "read"
+    }
+  ],
+  "recipes": [
+    {
+      "item1": "crowbar",
+      "item2": "locked-chest",
+      "result": "gold-ring",
+      "description": "You wedge the crowbar under the chest lid and heave. The lock snaps and the lid flies open, revealing a **gold ring** nestled in rotting velvet."
+    },
+    {
+      "item1": "broken-lantern",
+      "item2": "lamp-oil",
+      "result": "candle",
+      "description": "The lantern is too damaged to repair, but you salvage the wick and oil to fashion a makeshift **tallow candle**."
+    }
+  ]
+}

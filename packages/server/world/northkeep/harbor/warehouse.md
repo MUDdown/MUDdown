@@ -5,6 +5,9 @@ lighting: dim
 connections:
   north: docks
   south: pier
+items:
+  - rope
+  - crowbar
 ---
 :::room{id="warehouse" region="harbor" lighting="dim"}
 # Warehouse

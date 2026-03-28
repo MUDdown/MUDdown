@@ -7,3 +7,9 @@ reviews:
         consumed by the server-side world loader; directive attributes are
         shipped to clients inside the MUDdown body. Do not flag this as a
         DRY violation.
+
+        The frontmatter `items:` list and the body `## Items` section are also
+        intentionally duplicated. Frontmatter is the source of truth for item
+        placement (loaded into the server's runtime state). The body section is
+        placeholder content that the server replaces dynamically at runtime.
+        Do not flag items duplication between frontmatter and body.

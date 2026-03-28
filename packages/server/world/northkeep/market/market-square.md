@@ -6,6 +6,8 @@ connections:
   west: market-entrance
   north: jeweler
   south: blacksmith
+items:
+  - silver-coin
 ---
 :::room{id="market-square" region="market" lighting="bright"}
 # Market Square

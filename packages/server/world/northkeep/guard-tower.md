@@ -4,6 +4,9 @@ region: northkeep
 lighting: bright
 connections:
   down: iron-gate
+items:
+  - longbow
+  - arrow-quiver
 ---
 :::room{id="guard-tower" region="northkeep" lighting="bright"}
 # Guard Tower

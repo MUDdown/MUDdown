@@ -5,6 +5,8 @@ lighting: overcast
 connections:
   south: iron-gate
   north: crossroads
+items:
+  - signpost
 ---
 :::room{id="north-road" region="northroad" lighting="overcast"}
 # North Road

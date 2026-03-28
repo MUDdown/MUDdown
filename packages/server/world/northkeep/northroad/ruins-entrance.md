@@ -5,6 +5,8 @@ lighting: dim
 connections:
   south: crossroads
   north: ruins-hall
+items:
+  - broken-lantern
 ---
 :::room{id="ruins-entrance" region="northroad" lighting="dim"}
 # Ruins Entrance

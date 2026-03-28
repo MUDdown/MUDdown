@@ -5,6 +5,8 @@ lighting: bright
 connections:
   west: bakery
   east: market-square
+items:
+  - handbill
 ---
 :::room{id="market-entrance" region="market" lighting="bright"}
 # Market Entrance

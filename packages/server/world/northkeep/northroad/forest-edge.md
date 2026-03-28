@@ -5,6 +5,8 @@ lighting: dim
 connections:
   east: crossroads
   north: deep-forest
+items:
+  - herbs
 ---
 :::room{id="forest-edge" region="northroad" lighting="dim"}
 # Forest Edge

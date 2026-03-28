@@ -6,6 +6,8 @@ connections:
   south: town-square
   up: guard-tower
   north: north-road
+items:
+  - logbook
 ---
 :::room{id="iron-gate" region="northkeep" lighting="dim"}
 # The Iron Gate

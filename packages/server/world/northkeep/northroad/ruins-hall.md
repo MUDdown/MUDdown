@@ -4,6 +4,9 @@ region: northroad
 lighting: dark
 connections:
   south: ruins-entrance
+items:
+  - shield
+  - gold-ring
 ---
 :::room{id="ruins-hall" region="northroad" lighting="dark"}
 # Ruins Hall
