@@ -30,6 +30,9 @@ Tests live in `packages/server/tests/` with one file per concern:
 | `load-npcs.test.ts` | NPC loader (dialogue, location grouping) |
 | `load-recipes.test.ts` | Recipe loader (validation, cross-references) |
 | `world-integrity.test.ts` | Production world validation (counts, exits, cross-refs) |
+| `db.test.ts` | Database abstraction (player CRUD, room items, defeated NPCs, NPC HP, auth sessions) |
+| `hooks.test.ts` | Entity lifecycle hooks (`registerHook`, `fireHook`, greeting hooks) |
+| `combat.test.ts` | Combat helpers (dice rolls, attack resolution, stat bonuses) |
 
 ## Fixture Helpers
 
@@ -102,6 +105,44 @@ describe("findItemByName", () => {
   it("finds by exact ID", () => {
     expect(findItemByName("sword", ["sword"], defs)?.id).toBe("sword");
   });
+});
+```
+
+### Database Tests
+
+Use a temp directory with a real SQLite file. Close the DB and remove the dir in teardown:
+
+```typescript
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { SqliteDatabase } from "../src/db/sqlite.js";
+import type { GameDatabase } from "../src/db/types.js";
+
+let db: GameDatabase;
+let tmpDir: string;
+
+beforeAll(() => {
+  tmpDir = mkdtempSync(join(tmpdir(), "muddown-db-test-"));
+  db = new SqliteDatabase(join(tmpDir, "test.sqlite"));
+});
+
+afterAll(() => {
+  db.close();
+  rmSync(tmpDir, { recursive: true, force: true });
+});
+```
+
+### Hook Tests
+
+Call `clearHooks()` (and `resetGreetings()` if testing greeting hooks) in `beforeEach` to isolate tests:
+
+```typescript
+import { clearHooks, resetGreetings } from "../src/hooks.js";
+
+beforeEach(() => {
+  clearHooks();
+  resetGreetings();
 });
 ```
 

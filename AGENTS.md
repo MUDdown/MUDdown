@@ -147,7 +147,17 @@ Detailed how-to guides live in `.github/skills/<name>/SKILL.md` (canonical) with
 | `item-creation` | Create item definition JSON files (equippable, usable, fixed, recipes) |
 | `npc-creation` | Create NPC definitions with dialogue trees |
 | `muddown-format` | MUDdown markup format (container blocks, link schemes, wire protocol) |
+| `persistence` | Database abstraction, SQLite adapter, player/world save/load lifecycle, auth sessions |
 | `testing` | Testing conventions (vitest, fixtures, world integrity) |
+
+### Maintaining Skills
+
+When a milestone feature lands (new system, new content type, new workflow), evaluate whether it warrants a new skill or an update to an existing one. Guidelines:
+
+- **New skill**: The feature introduces a repeatable pattern that an agent will need to follow again (e.g., a new entity type, a new file format, a new integration). Create `.github/skills/<name>/SKILL.md` with YAML frontmatter (`name`, `description`) and a symlink at `.claude/skills/<name>/SKILL.md`.
+- **Update existing skill**: The feature changes conventions already covered by a skill (e.g., new test patterns → update `testing`, new link scheme → update `muddown-format`). Edit the existing `SKILL.md` in place.
+- **No skill needed**: One-off changes, bug fixes, or refactors that don't establish a new repeatable pattern.
+- **Update the table above** and the skills table in CLAUDE.md so the new skill is discoverable in both files.
 
 ## What NOT to Do
 
