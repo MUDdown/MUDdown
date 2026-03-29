@@ -67,6 +67,18 @@ export function findUnclaimedIndex(arr: string[], target: string, claimed: Set<n
   return -1;
 }
 
+// ─── HTML Comment Stripping ──────────────────────────────────────────────────
+
+export function stripHtmlComments(text: string): string {
+  return text.replace(/<!--[\s\S]*?-->\r?\n?/g, "");
+}
+
+// ─── Dialogue Text Escaping ──────────────────────────────────────────────────
+
+export function escapeDialogueText(text: string): string {
+  return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 // ─── Markdown Link Escaping ──────────────────────────────────────────────────
 
 export function escapeMarkdownLinkLabel(text: string): string {

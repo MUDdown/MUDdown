@@ -6,9 +6,9 @@ import { PLAYER_DEFAULTS } from "@muddown/shared";
 import { loadWorld, type WorldMap } from "./world.js";
 import {
   dirAliases, findItemByName, findNpcInRoom, findUnclaimedIndex,
-  escapeMarkdownLinkLabel, escapeMarkdownLinkDest,
+  escapeMarkdownLinkLabel, escapeMarkdownLinkDest, escapeDialogueText,
   resolveAttack, formatAttackLine, getPlayerAttackBonus, getPlayerDamage, getPlayerAc,
-  resetPlayerAfterDefeat,
+  resetPlayerAfterDefeat, stripHtmlComments,
 } from "./helpers.js";
 import { SqliteDatabase } from "./db/index.js";
 import type { GameDatabase } from "./db/types.js";
@@ -148,7 +148,7 @@ for (const [npcId, npc] of world.npcDefs) {
   if (startNode) {
     registerHook(
       "npc", npcId, "onContact",
-      createGreetingHook(npcId, `:::dialogue{npc="${npcId}" mood="${startNode.mood ?? "neutral"}"}\n> "${startNode.text}"\n:::`),
+      createGreetingHook(npcId, `:::dialogue{npc="${npcId}" mood="${startNode.mood ?? "neutral"}"}\n**${npc.name}** says, "${startNode.text}"\n:::`),
     );
   }
 }
@@ -485,7 +485,7 @@ function sendRoom(ws: WebSocket, roomId: string): void {
     .filter((s) => s.currentRoom === roomId && s.ws !== ws)
     .map((s) => `- [@${s.name}](player:${s.id}) is here.`);
 
-  let muddown = room.muddown;
+  let muddown = stripHtmlComments(room.muddown);
 
   // Replace or inject dynamic Items section using header-boundary slicing
   const itemsHeaderIdx = muddown.indexOf("\n## Items\n");
@@ -706,7 +706,7 @@ function sendDialogueNode(ws: WebSocket, npc: NpcDefinition, nodeId: string, nod
   const mood = node.mood ?? "neutral";
   const lines: string[] = [];
   lines.push(`:::dialogue{npc="${npc.id}" mood="${mood}"}`);
-  lines.push(`> "${node.text}"`);
+  lines.push(`**${npc.name}** says, "${escapeDialogueText(node.text)}"`);
   if (node.narrative) {
     lines.push("");
     lines.push(node.narrative);

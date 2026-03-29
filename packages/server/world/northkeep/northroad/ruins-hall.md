@@ -19,7 +19,6 @@ Water drips steadily from above, pooling in shallow depressions.
 ## Exits
 - [South](go:south) — Ruins Entrance
 
-<!-- Static: this section is a template and won't update after NPC defeat -->
 ## Present
 - A [skeletal guardian](npc:skeleton) stands motionless in an alcove, sword in hand.
 
