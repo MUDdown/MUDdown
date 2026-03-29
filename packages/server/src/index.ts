@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { createServer, type IncomingMessage } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { ClientMessage, ServerMessage, EquipSlot, NpcDefinition, DialogueNode } from "@muddown/shared";
+import type { ClientMessage, ServerMessage, EquipSlot, NpcDefinition, DialogueNode, PlayerRecord } from "@muddown/shared";
 import { PLAYER_DEFAULTS } from "@muddown/shared";
 import { loadWorld, type WorldMap } from "./world.js";
 import {
@@ -9,6 +10,10 @@ import {
   resolveAttack, formatAttackLine, getPlayerAttackBonus, getPlayerDamage, getPlayerAc,
   resetPlayerAfterDefeat,
 } from "./helpers.js";
+import { SqliteDatabase } from "./db/index.js";
+import type { GameDatabase } from "./db/types.js";
+import { handleAuthRoute, resolveTicket, type OAuthConfig } from "./auth.js";
+import { fireHook, registerHook, createGreetingHook } from "./hooks.js";
 
 // ─── Player Session ──────────────────────────────────────────────────────────
 
@@ -29,9 +34,13 @@ interface PlayerSession {
   hp: number;
   maxHp: number;
   combat: CombatState | null;
+  playerId: string | null;  // DB player ID (null = anonymous guest)
+  xp: number;
 }
 
 const RESPAWN_ROOM = "town-square";
+const NPC_RESPAWN_MS = 20 * 60 * 1000; // 20 minutes
+const SAVE_INTERVAL_MS = 60 * 1000;    // auto-save every 60 seconds
 
 // ─── Shared NPC HP (for multi-player combat) ─────────────────────────────────
 
@@ -47,22 +56,210 @@ const PORT = Number(process.env.PORT) || 3300;
 const world: WorldMap = loadWorld();
 const sessions = new Map<WebSocket, PlayerSession>();
 
-const wss = new WebSocketServer({ port: PORT });
+// ── Database ───────────────────────────────────────────────────────────────
 
-console.log(`MUDdown server listening on ws://localhost:${PORT}`);
+const DB_PATH = process.env.MUDDOWN_DB ?? "muddown.sqlite";
+let db: GameDatabase;
+try {
+  db = new SqliteDatabase(DB_PATH);
+} catch (err) {
+  console.error(`Fatal: failed to open database at "${DB_PATH}". Check path, permissions, and disk space.`, err);
+  process.exit(1);
+}
 
-wss.on("connection", (ws) => {
-  const session: PlayerSession = {
-    id: randomUUID(),
-    name: `Adventurer-${Math.floor(Math.random() * 9000) + 1000}`,
-    currentRoom: RESPAWN_ROOM,
-    ws,
-    inventory: [],
-    equipped: { weapon: null, armor: null, accessory: null },
-    hp: PLAYER_DEFAULTS.hp,
-    maxHp: PLAYER_DEFAULTS.maxHp,
-    combat: null,
+// Restore persisted world state from DB (room items, NPC HP)
+function restoreWorldState(): void {
+  const savedRoomItems = db.getAllRoomItems();
+  if (savedRoomItems.size > 0) {
+    for (const [roomId, items] of savedRoomItems) {
+      world.roomItems.set(roomId, items);
+    }
+  }
+
+  const savedNpcHp = db.getAllNpcHp();
+  for (const [key, hp] of savedNpcHp) {
+    npcHpMap.set(key, hp);
+  }
+
+  // Remove defeated NPCs from room NPC lists
+  const defeated = db.getDefeatedNpcs();
+  for (const record of defeated) {
+    const roomNpcList = world.roomNpcs.get(record.roomId);
+    if (roomNpcList) {
+      const idx = roomNpcList.indexOf(record.npcId);
+      if (idx !== -1) roomNpcList.splice(idx, 1);
+    }
+  }
+}
+
+try {
+  restoreWorldState();
+} catch (err) {
+  console.error("Fatal: failed to restore world state from database.", err);
+  process.exit(1);
+}
+
+// ── NPC Respawn Timer ──────────────────────────────────────────────────────
+
+function respawnDefeatedNpcs(): void {
+  const now = new Date();
+  const defeated = db.getDefeatedNpcs();
+  for (const record of defeated) {
+    if (new Date(record.respawnAt) <= now) {
+      try {
+        // Restore NPC to its room
+        const npc = world.npcDefs.get(record.npcId);
+        if (npc) {
+          const roomNpcList = world.roomNpcs.get(record.roomId) ?? [];
+          if (!roomNpcList.includes(record.npcId)) {
+            roomNpcList.push(record.npcId);
+            world.roomNpcs.set(record.roomId, roomNpcList);
+          }
+          // Reset HP to max
+          if (npc.combat) {
+            const hpKey = getNpcHpKey(record.roomId, record.npcId);
+            npcHpMap.delete(hpKey);
+            db.removeNpcHp(record.roomId, record.npcId);
+          }
+          // Fire onReset hook
+          fireHook({
+            event: "onReset",
+            entityId: record.npcId,
+            entityType: "npc",
+            roomId: record.roomId,
+          });
+        }
+        db.removeDefeatedNpc(record.npcId);
+        console.log(`Respawned NPC "${record.npcId}" in room "${record.roomId}"`);
+      } catch (err) {
+        console.error(`Failed to respawn NPC "${record.npcId}" in room "${record.roomId}":`, err);
+      }
+    }
+  }
+}
+
+const respawnTimer = setInterval(respawnDefeatedNpcs, 60_000); // check every minute
+
+// ── Register NPC greeting hooks ────────────────────────────────────────────
+
+for (const [npcId, npc] of world.npcDefs) {
+  const startNode = npc.dialogue["start"];
+  if (startNode) {
+    registerHook(
+      "npc", npcId, "onContact",
+      createGreetingHook(npcId, `:::dialogue{npc="${npcId}" mood="${startNode.mood ?? "neutral"}"}\n> "${startNode.text}"\n:::`),
+    );
+  }
+}
+
+// ── OAuth Configuration ────────────────────────────────────────────────────
+
+const oauthConfig: OAuthConfig | null =
+  process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET
+    ? {
+        clientId: process.env.GITHUB_CLIENT_ID,
+        clientSecret: process.env.GITHUB_CLIENT_SECRET,
+        callbackUrl: process.env.GITHUB_CALLBACK_URL ?? `http://localhost:${PORT}/auth/callback`,
+      }
+    : null;
+
+if (!oauthConfig) {
+  console.warn("GitHub OAuth not configured — players will connect as anonymous guests.");
+  console.warn("Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET to enable authentication.");
+} else if (!process.env.GITHUB_CALLBACK_URL) {
+  console.warn(`GITHUB_CALLBACK_URL not set — defaulting to http://localhost:${PORT}/auth/callback (set this in production).`);
+}
+
+// ── HTTP + WebSocket Server ────────────────────────────────────────────────
+
+const server = createServer((req, res) => {
+  const handleRequest = async (): Promise<void> => {
+    // Handle auth routes if OAuth is configured
+    if (oauthConfig && await handleAuthRoute(req, res, oauthConfig, db)) {
+      return;
+    }
+
+    // Health check
+    if (req.url === "/health") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: "ok", players: sessions.size }));
+      return;
+    }
+
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end("Not Found");
   };
+
+  handleRequest().catch((err) => {
+    console.error("HTTP request error:", err);
+    if (!res.headersSent) {
+      res.writeHead(500, { "Content-Type": "text/plain" });
+      res.end("Internal server error.");
+    }
+  });
+});
+
+const wss = new WebSocketServer({ noServer: true });
+
+server.on("upgrade", (req: IncomingMessage, socket, head) => {
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    wss.emit("connection", ws, req);
+  });
+});
+
+server.listen(PORT, () => {
+  console.log(`MUDdown server listening on http://localhost:${PORT}`);
+  console.log(`WebSocket endpoint: ws://localhost:${PORT}`);
+});
+
+wss.on("connection", (ws, req: IncomingMessage) => {
+  // Authenticate via short-lived single-use ticket: ws://host/?ticket=...
+  let player: PlayerRecord | undefined;
+  let ticket: string | undefined;
+  try {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+    ticket = url.searchParams.get("ticket") ?? undefined;
+  } catch {
+    // Ignore URL parse errors — proceed as guest
+  }
+
+  if (ticket) {
+    const playerId = resolveTicket(ticket);
+    if (playerId) {
+      player = db.getPlayerById(playerId);
+      if (!player) {
+        console.warn(`Player referenced by ticket not found [ticket=${ticket}] [playerId=${playerId}]`);
+      }
+    }
+  }
+
+  const session: PlayerSession = player
+    ? {
+        id: randomUUID(),
+        name: player.displayName,
+        currentRoom: player.currentRoom,
+        ws,
+        inventory: [...player.inventory],
+        equipped: { ...player.equipped },
+        hp: player.hp,
+        maxHp: player.maxHp,
+        combat: null,
+        playerId: player.id,
+        xp: player.xp,
+      }
+    : {
+        id: randomUUID(),
+        name: `Adventurer-${Math.floor(Math.random() * 9000) + 1000}`,
+        currentRoom: RESPAWN_ROOM,
+        ws,
+        inventory: [],
+        equipped: { weapon: null, armor: null, accessory: null },
+        hp: PLAYER_DEFAULTS.hp,
+        maxHp: PLAYER_DEFAULTS.maxHp,
+        combat: null,
+        playerId: null,
+        xp: 0,
+      };
   sessions.set(ws, session);
 
   // Send welcome
@@ -99,6 +296,10 @@ Type commands or click links to explore. Try: \`look\`, \`go north\`, \`help\`
   });
 
   ws.on("close", () => {
+    const s = sessions.get(ws);
+    if (s?.playerId) {
+      savePlayerSession(s);
+    }
     sessions.delete(ws);
   });
 });
@@ -233,6 +434,30 @@ function move(ws: WebSocket, session: PlayerSession, direction: string): void {
   broadcastToRoom(session.currentRoom, session, `*${session.name} arrives.*`);
 
   sendRoom(ws, session.currentRoom);
+
+  // Fire onContact hooks for NPCs in the new room
+  const roomNpcIds = world.roomNpcs.get(targetRoom) ?? [];
+  for (const npcId of roomNpcIds) {
+    const results = fireHook({
+      event: "onContact",
+      entityId: npcId,
+      entityType: "npc",
+      contactId: session.playerId ?? session.id,
+      contactType: "player",
+      roomId: targetRoom,
+    });
+    for (const result of results) {
+      if (result.message) {
+        send(ws, {
+          v: 1, id: randomUUID(), type: "dialogue",
+          timestamp: new Date().toISOString(), muddown: result.message,
+        });
+      }
+      if (result.broadcast) {
+        broadcastToRoom(targetRoom, session, result.broadcast);
+      }
+    }
+  }
 }
 
 function sendRoom(ws: WebSocket, roomId: string): void {
@@ -610,13 +835,26 @@ function handleAttack(ws: WebSocket, session: PlayerSession, arg: string): void 
     // Victory message
     send(ws, systemMessage(`You defeated the **${npc.name}**! (+${npcStats.xp} XP)`));
 
+    // Award XP (persisted for authenticated players via savePlayerSession)
+    session.xp += npcStats.xp;
+
     // Remove NPC from room and clean up shared HP
     npcHpMap.delete(hpKey);
+    db.removeNpcHp(combat.roomId, npc.id);
     const roomNpcList = world.roomNpcs.get(combat.roomId);
     if (roomNpcList) {
       const idx = roomNpcList.indexOf(npc.id);
       if (idx !== -1) roomNpcList.splice(idx, 1);
     }
+
+    // Record defeated NPC for respawn
+    const now = new Date();
+    db.addDefeatedNpc({
+      npcId: npc.id,
+      roomId: combat.roomId,
+      defeatedAt: now.toISOString(),
+      respawnAt: new Date(now.getTime() + NPC_RESPAWN_MS).toISOString(),
+    });
 
     // Notify other players in combat with this NPC that it's dead
     for (const [otherWs, otherSession] of sessions) {
@@ -1104,3 +1342,68 @@ function systemMessage(text: string): ServerMessage {
     muddown: `:::system{type="notification"}\n${text}\n:::`,
   };
 }
+
+// ─── Persistence Helpers ─────────────────────────────────────────────────────
+
+function savePlayerSession(session: PlayerSession): void {
+  if (!session.playerId) return;
+  try {
+    db.savePlayerState(session.playerId, {
+      currentRoom: session.currentRoom,
+      inventory: session.inventory,
+      equipped: session.equipped,
+      hp: session.hp,
+      maxHp: session.maxHp,
+      xp: session.xp,
+    });
+  } catch (err) {
+    console.error(
+      `Failed to save player state [player=${session.playerId}] [name=${session.name}] [room=${session.currentRoom}] [inventory=${JSON.stringify(session.inventory)}]:`,
+      err,
+    );
+  }
+}
+
+function saveAllState(): void {
+  // Save all authenticated player sessions
+  for (const [, session] of sessions) {
+    savePlayerSession(session);
+  }
+  // Save world state (independent try/catch so one failure doesn't block the other)
+  try {
+    db.saveAllRoomItems(world.roomItems);
+  } catch (err) {
+    console.error("Failed to save room items:", err);
+  }
+  try {
+    db.saveAllNpcHp(npcHpMap);
+  } catch (err) {
+    console.error("Failed to save NPC HP:", err);
+  }
+}
+
+// Auto-save timer
+const saveTimer = setInterval(saveAllState, SAVE_INTERVAL_MS);
+
+// ─── Graceful Shutdown ───────────────────────────────────────────────────────
+
+function shutdown(): void {
+  console.log("Shutting down — saving all state...");
+  clearInterval(respawnTimer);
+  clearInterval(saveTimer);
+  saveAllState();
+  db.cleanExpiredSessions();
+  db.close();
+  server.close(() => {
+    console.log("HTTP server closed.");
+    process.exit(0);
+  });
+  // Force exit if server.close hangs (e.g., lingering connections)
+  setTimeout(() => {
+    console.warn("Forced shutdown after timeout.");
+    process.exit(1);
+  }, 5000).unref();
+}
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

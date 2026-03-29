@@ -168,10 +168,16 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [x] Expand Northkeep: 20+ rooms across multiple regions
 - [x] Item system: pick up, drop, use, combine, equip
 - [x] NPC dialogue trees (MUDdown `:::dialogue` blocks)
-- [ ] Basic combat system (MUDdown `:::combat` blocks)
-- [ ] Player persistence (save/load state, SQLite or JSON files)
+- [x] Basic combat system (MUDdown `:::combat` blocks)
+- [x] GitHub OAuth2 authentication (stable player identity)
+- [x] Database abstraction layer (interface + SQLite adapter via `better-sqlite3`)
+- [x] Player persistence (save/load room, inventory, equipment, HP)
+- [x] World state persistence (room items, NPC HP, defeated NPC tracking)
+- [x] NPC respawn system (20-minute timer, restore to home room with full HP)
+- [x] Entity lifecycle hooks (onCreate, onReset, onContact — e.g., NPC greets player on room entry)
 - [ ] Character creation (name, class, starting stats)
 - [ ] Inventory and equipment UI in the web client
+- [ ] OIDC login providers (Microsoft, Google) — extend OAuth2 foundation
 
 ### Phase 3 — Deployment & Infrastructure
 - [ ] Debian server setup (nginx + systemd)
