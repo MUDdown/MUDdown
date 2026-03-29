@@ -1,0 +1,1 @@
+../../../.github/skills/npc-creation/SKILL.md
