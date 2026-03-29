@@ -1,10 +1,23 @@
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { ClientMessage, ServerMessage, EquipSlot, NpcDefinition, DialogueNode } from "@muddown/shared";
+import { PLAYER_DEFAULTS } from "@muddown/shared";
 import { loadWorld, type WorldMap } from "./world.js";
-import { dirAliases, findItemByName, findNpcInRoom, findUnclaimedIndex, escapeMarkdownLinkLabel, escapeMarkdownLinkDest } from "./helpers.js";
+import {
+  dirAliases, findItemByName, findNpcInRoom, findUnclaimedIndex,
+  escapeMarkdownLinkLabel, escapeMarkdownLinkDest,
+  resolveAttack, formatAttackLine, getPlayerAttackBonus, getPlayerDamage, getPlayerAc,
+  resetPlayerAfterDefeat,
+} from "./helpers.js";
 
 // ─── Player Session ──────────────────────────────────────────────────────────
+
+interface CombatState {
+  npcId: string;
+  roomId: string;
+  round: number;
+  npcMaxHp: number;
+}
 
 interface PlayerSession {
   id: string;
@@ -13,7 +26,20 @@ interface PlayerSession {
   ws: WebSocket;
   inventory: string[]; // item IDs
   equipped: Record<EquipSlot, string | null>;
+  hp: number;
+  maxHp: number;
+  combat: CombatState | null;
 }
+
+const RESPAWN_ROOM = "town-square";
+
+// ─── Shared NPC HP (for multi-player combat) ─────────────────────────────────
+
+function getNpcHpKey(roomId: string, npcId: string): string {
+  return `${roomId}:${npcId}`;
+}
+
+const npcHpMap = new Map<string, number>();
 
 // ─── Server ──────────────────────────────────────────────────────────────────
 
@@ -29,10 +55,13 @@ wss.on("connection", (ws) => {
   const session: PlayerSession = {
     id: randomUUID(),
     name: `Adventurer-${Math.floor(Math.random() * 9000) + 1000}`,
-    currentRoom: "town-square",
+    currentRoom: RESPAWN_ROOM,
     ws,
     inventory: [],
     equipped: { weapon: null, armor: null, accessory: null },
+    hp: PLAYER_DEFAULTS.hp,
+    maxHp: PLAYER_DEFAULTS.maxHp,
+    combat: null,
   };
   sessions.set(ws, session);
 
@@ -163,12 +192,25 @@ function handleCommand(ws: WebSocket, msg: ClientMessage): void {
       handleTalk(ws, session, arg);
       break;
     }
+    case "attack": {
+      handleAttack(ws, session, arg);
+      break;
+    }
+    case "flee": {
+      handleFlee(ws, session);
+      break;
+    }
     default:
       send(ws, systemMessage(`Unknown command: \`${verb}\`. Type \`help\` for a list of commands.`));
   }
 }
 
 function move(ws: WebSocket, session: PlayerSession, direction: string): void {
+  if (session.combat) {
+    send(ws, systemMessage("You're in combat! Use `flee` to escape or `attack` to fight."));
+    return;
+  }
+
   const exits = world.connections.get(session.currentRoom);
   const targetRoom = exits?.[direction];
 
@@ -299,6 +341,8 @@ function sendHelp(ws: WebSocket): void {
 | \`unequip <slot>\` | Unequip an item (weapon, armor, accessory) |
 | \`use <item>\` | Use an item |
 | \`combine <item> with <item>\` | Combine two items together |
+| \`attack <npc>\` | Attack a hostile NPC |
+| \`flee\` | Flee from combat |
 | \`say <message>\` | Say something to others in the room |
 | \`who\` | See who is online |
 | \`help\` | Show this help |
@@ -464,6 +508,245 @@ function sendDialogueNode(ws: WebSocket, npc: NpcDefinition, nodeId: string, nod
     timestamp: new Date().toISOString(),
     muddown: lines.join("\n"),
   });
+}
+
+// ─── Combat ──────────────────────────────────────────────────────────────────
+
+function handleAttack(ws: WebSocket, session: PlayerSession, arg: string): void {
+  if (!arg && !session.combat) {
+    send(ws, systemMessage("Attack whom? Usage: `attack <npc>`"));
+    return;
+  }
+
+  let npc: NpcDefinition | undefined;
+
+  if (session.combat) {
+    // Continue existing combat (arg is optional — defaults to current opponent)
+    npc = world.npcDefs.get(session.combat.npcId);
+    if (!npc || !npc.combat) {
+      console.error(`Combat NPC "${session.combat.npcId}" not found or has no combat stats`);
+      session.combat = null;
+      send(ws, systemMessage("Your opponent can no longer fight."));
+      return;
+    }
+  } else {
+    // Start new combat
+    npc = findNpcInRoom(arg, session.currentRoom, world.roomNpcs, world.npcDefs);
+    if (!npc) {
+      send(ws, systemMessage(`There's no one called **${arg}** here to attack.`));
+      return;
+    }
+    if (!npc.combat) {
+      send(ws, systemMessage(`**${npc.name}** is not hostile and can't be attacked.`));
+      return;
+    }
+    // Initialize combat state
+    const hpKey = getNpcHpKey(session.currentRoom, npc.id);
+    if (!npcHpMap.has(hpKey)) {
+      npcHpMap.set(hpKey, npc.combat.hp);
+    }
+    session.combat = {
+      npcId: npc.id,
+      roomId: session.currentRoom,
+      round: 0,
+      npcMaxHp: npc.combat.maxHp,
+    };
+  }
+
+  const combat = session.combat;
+  const npcStats = npc.combat;
+  if (!npcStats) {
+    console.error(`Combat NPC "${npc.id}" lost combat stats mid-fight`);
+    session.combat = null;
+    send(ws, systemMessage("Your opponent can no longer fight."));
+    return;
+  }
+  combat.round++;
+
+  // Calculate player stats (equipment bonuses)
+  const playerAtk = getPlayerAttackBonus(PLAYER_DEFAULTS.attackBonus, session.equipped.weapon, world.itemDefs);
+  const playerDmg = getPlayerDamage(PLAYER_DEFAULTS.damage, session.equipped.weapon, world.itemDefs);
+  const playerAc = getPlayerAc(PLAYER_DEFAULTS.ac, session.equipped.armor, session.equipped.accessory, world.itemDefs);
+
+  // Get shared NPC HP
+  const hpKey = getNpcHpKey(combat.roomId, combat.npcId);
+  let npcHp = npcHpMap.get(hpKey);
+  if (npcHp == null || npcHp <= 0) {
+    // Another player defeated this NPC
+    session.combat = null;
+    send(ws, systemMessage(`**${npc.name}** has already been defeated.`));
+    return;
+  }
+
+  const initiative = `player:${session.name},npc:${npc.id}`;
+  const lines: string[] = [];
+  lines.push(`:::combat{round=${combat.round} initiative="${initiative}"}`);
+  lines.push(`## Round ${combat.round}`);
+  lines.push("");
+
+  // Player attacks NPC
+  const playerResult = resolveAttack(playerAtk, playerDmg, npcStats.ac);
+  if (playerResult.hit) {
+    npcHp = Math.max(0, npcHp - playerResult.damage);
+    npcHpMap.set(hpKey, npcHp);
+  }
+  lines.push(formatAttackLine(
+    `@${session.name}`, npc.name,
+    session.equipped.weapon ? world.itemDefs.get(session.equipped.weapon)?.name : undefined,
+    playerResult, npcHp, combat.npcMaxHp,
+  ));
+
+  // Check if NPC is defeated
+  if (npcHp <= 0) {
+    lines.push("");
+    lines.push(`**${npc.name}** collapses!`);
+    lines.push(":::");
+
+    send(ws, {
+      v: 1, id: randomUUID(), type: "combat",
+      timestamp: new Date().toISOString(), muddown: lines.join("\n"),
+    });
+
+    // Victory message
+    send(ws, systemMessage(`You defeated the **${npc.name}**! (+${npcStats.xp} XP)`));
+
+    // Remove NPC from room and clean up shared HP
+    npcHpMap.delete(hpKey);
+    const roomNpcList = world.roomNpcs.get(combat.roomId);
+    if (roomNpcList) {
+      const idx = roomNpcList.indexOf(npc.id);
+      if (idx !== -1) roomNpcList.splice(idx, 1);
+    }
+
+    // Notify other players in combat with this NPC that it's dead
+    for (const [otherWs, otherSession] of sessions) {
+      if (otherWs !== ws && otherSession.combat?.npcId === npc.id && otherSession.combat?.roomId === combat.roomId) {
+        otherSession.combat = null;
+        send(otherWs, systemMessage(`**${npc.name}** was defeated by ${session.name}!`));
+      }
+    }
+
+    broadcastToRoom(session.currentRoom, session, `*${session.name} defeated the ${npc.name}!*`);
+    session.combat = null;
+    return;
+  }
+
+  // NPC retaliates
+  lines.push("");
+  const npcResult = resolveAttack(npcStats.attackBonus, npcStats.damage, playerAc);
+  if (npcResult.hit) {
+    session.hp = Math.max(0, session.hp - npcResult.damage);
+  }
+  lines.push(formatAttackLine(
+    npc.name, `@${session.name}`, undefined,
+    npcResult, session.hp, session.maxHp,
+  ));
+
+  // Check if player is defeated
+  if (session.hp <= 0) {
+    lines.push("");
+    lines.push(`**@${session.name}** falls unconscious!`);
+    lines.push(":::");
+
+    send(ws, {
+      v: 1, id: randomUUID(), type: "combat",
+      timestamp: new Date().toISOString(), muddown: lines.join("\n"),
+    });
+
+    handlePlayerDefeat(ws, session);
+    return;
+  }
+
+  // Combat continues — add action links
+  lines.push("");
+  lines.push(`@${session.name} HP: ${session.hp}/${session.maxHp}`);
+  lines.push("");
+  lines.push("## Actions");
+  lines.push(`- [Attack](cmd:attack ${escapeMarkdownLinkDest(npc.id)})`);
+  lines.push(`- [Flee](cmd:flee)`);
+  lines.push(":::");
+
+  send(ws, {
+    v: 1, id: randomUUID(), type: "combat",
+    timestamp: new Date().toISOString(), muddown: lines.join("\n"),
+  });
+}
+
+function handleFlee(ws: WebSocket, session: PlayerSession): void {
+  if (!session.combat) {
+    send(ws, systemMessage("You're not in combat."));
+    return;
+  }
+
+  const npc = world.npcDefs.get(session.combat.npcId);
+  const npcStats = npc?.combat;
+
+  // NPC gets a free attack as you flee
+  if (npc && npcStats) {
+    const playerAc = getPlayerAc(PLAYER_DEFAULTS.ac, session.equipped.armor, session.equipped.accessory, world.itemDefs);
+    const result = resolveAttack(npcStats.attackBonus, npcStats.damage, playerAc);
+    if (result.hit) {
+      session.hp = Math.max(0, session.hp - result.damage);
+    }
+
+    const lines: string[] = [];
+    lines.push(`:::combat{round=${session.combat.round} initiative="npc:${npc.id}"}`);
+    lines.push(`**@${session.name}** attempts to flee!`);
+    lines.push("");
+    lines.push(formatAttackLine(npc.name, `@${session.name}`, undefined, result, session.hp, session.maxHp));
+    lines.push(":::");
+
+    send(ws, {
+      v: 1, id: randomUUID(), type: "combat",
+      timestamp: new Date().toISOString(), muddown: lines.join("\n"),
+    });
+
+    if (session.hp <= 0) {
+      handlePlayerDefeat(ws, session);
+      return;
+    }
+  } else {
+    console.error(`Flee: NPC "${session.combat.npcId}" not found or has no combat stats — skipping retaliation`);
+  }
+
+  session.combat = null;
+
+  // Move to a random valid exit
+  const exits = world.connections.get(session.currentRoom);
+  if (exits) {
+    const validDirections = Object.keys(exits).filter(
+      (dir) => exits[dir] && world.rooms.has(exits[dir]),
+    );
+    if (validDirections.length > 0) {
+      const dir = validDirections[Math.floor(Math.random() * validDirections.length)];
+      const targetRoom = exits[dir];
+      broadcastToRoom(session.currentRoom, session, `*${session.name} flees ${dir}!*`);
+      session.currentRoom = targetRoom;
+      broadcastToRoom(session.currentRoom, session, `*${session.name} arrives in a panic.*`);
+      send(ws, systemMessage("You flee from combat!"));
+      sendRoom(ws, session.currentRoom);
+      return;
+    }
+  }
+  // Fallback: stay in room — no exits to flee through
+  send(ws, systemMessage("You scramble to escape but find no way out!"));
+  sendRoom(ws, session.currentRoom);
+}
+
+function handlePlayerDefeat(ws: WebSocket, session: PlayerSession): void {
+  if (!world.rooms.has(RESPAWN_ROOM)) {
+    console.error(`Respawn room "${RESPAWN_ROOM}" not found in world — cannot teleport player`);
+    send(ws, systemMessage("Something went wrong. Please reconnect."));
+    return;
+  }
+
+  resetPlayerAfterDefeat(session, RESPAWN_ROOM);
+
+  send(ws, systemMessage(
+    "You were knocked unconscious... You awaken back in **Town Square**, fully healed.",
+  ));
+  broadcastToRoom(RESPAWN_ROOM, session, `*${session.name} stumbles in, looking dazed.*`);
+  sendRoom(ws, session.currentRoom);
 }
 
 // ─── Item Commands ───────────────────────────────────────────────────────────

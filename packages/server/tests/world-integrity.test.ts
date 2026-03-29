@@ -134,6 +134,42 @@ describe("loadWorld — production Northkeep data", () => {
     expect(wolf!.location).toBe("deep-forest");
   });
 
+  it("combat NPCs have valid combat stats", () => {
+    const combatNpcs = [...world.npcDefs.values()].filter((npc) => npc.combat);
+    expect(combatNpcs.length).toBeGreaterThan(0);
+    for (const npc of combatNpcs) {
+      const stats = npc.combat!;
+      expect(stats.hp, `NPC "${npc.id}" hp`).toBeGreaterThan(0);
+      expect(stats.maxHp, `NPC "${npc.id}" maxHp`).toBe(stats.hp);
+      expect(stats.ac, `NPC "${npc.id}" ac`).toBeGreaterThan(0);
+      expect(stats.attackBonus, `NPC "${npc.id}" attackBonus`).toBeGreaterThanOrEqual(0);
+      expect(stats.damage, `NPC "${npc.id}" damage`).toMatch(/^\d+d\d+([+-]\d+)?$/);
+      expect(stats.xp, `NPC "${npc.id}" xp`).toBeGreaterThan(0);
+    }
+  });
+
+  it("non-combat NPCs do not have combat stats", () => {
+    const crier = world.npcDefs.get("crier");
+    expect(crier).toBeDefined();
+    expect(crier!.combat).toBeUndefined();
+
+    const priestess = world.npcDefs.get("priestess");
+    expect(priestess).toBeDefined();
+    expect(priestess!.combat).toBeUndefined();
+  });
+
+  it("equippable weapons with damage have valid damage expressions", () => {
+    const weapons = [...world.itemDefs.values()].filter(
+      (item) => item.equippable && item.damage,
+    );
+    expect(weapons.length).toBeGreaterThan(0);
+    for (const weapon of weapons) {
+      if (!weapon.equippable) continue; // type narrowing
+      expect(weapon.damage, `Item "${weapon.id}" damage`).toMatch(/^\d+d\d+([+-]\d+)?$/);
+      expect(weapon.attackBonus ?? 0, `Item "${weapon.id}" attackBonus`).toBeGreaterThanOrEqual(0);
+    }
+  });
+
   it("town-square room exists and has correct region", () => {
     const townSquare = world.rooms.get("town-square");
     expect(townSquare).toBeDefined();
