@@ -1,0 +1,55 @@
+{
+  "id": "peddler",
+  "name": "Travelling Peddler",
+  "description": "A lean figure in a patchwork cloak, surrounded by an eclectic assortment of goods spread on a blanket.",
+  "location": "crossroads",
+  "dialogue": {
+    "start": {
+      "text": "Welcome, welcome! Finest goods from across the realm. Trinkets, tonics, curiosities — what catches your eye?",
+      "mood": "eager",
+      "narrative": "The peddler spreads his arms wide over his wares.",
+      "responses": [
+        { "text": "Where do you get your goods?", "next": "source" },
+        { "text": "Any warnings about the road ahead?", "next": "warnings" },
+        { "text": "Just passing through.", "next": null }
+      ]
+    },
+    "source": {
+      "text": "Here and there. I travel the roads, trade with farmers, forage in the forest. Sometimes I find things... unusual things near the old ruins. Glowing stones, metal fragments that hum when you hold them.",
+      "mood": "evasive",
+      "narrative": "He avoids your gaze while rearranging his wares.",
+      "responses": [
+        { "text": "Glowing stones from the ruins?", "next": "stones" },
+        { "text": "What about the road?", "next": "warnings" },
+        { "text": "Interesting.", "next": null }
+      ]
+    },
+    "stones": {
+      "text": "Found them at the forest edge, where the treeline meets the ruins. They were just... lying there, half-buried. I sold a few to the jeweler in town. He seemed very interested.",
+      "mood": "defensive",
+      "narrative": "He shifts uncomfortably.",
+      "responses": [
+        { "text": "Those might be important.", "next": null },
+        { "text": "Be careful with Eltharan artefacts.", "next": null }
+      ]
+    },
+    "warnings": {
+      "text": "Don't go into the deep forest at night — wolves, and worse. The old farm's safe enough, and the ruins entrance is quiet by day. But the deeper you go toward the ruins hall... well, not everyone comes back.",
+      "mood": "serious",
+      "narrative": "He drops his salesman's cheer for a moment.",
+      "responses": [
+        { "text": "What's in the ruins?", "next": "ruins" },
+        { "text": "I'll be careful.", "next": null }
+      ]
+    },
+    "ruins": {
+      "text": "Bones, mostly. And old Eltharan stonework — beautiful, if you ignore the skeletal guardians. There's a hall deep inside with murals on the walls. And below that, the catacombs. I don't go that far.",
+      "mood": "nervous",
+      "narrative": "He wraps his cloak tighter.",
+      "responses": [
+        { "text": "Skeletal guardians?", "next": null },
+        { "text": "Thanks for the information.", "next": null }
+      ]
+    }
+  }
+}

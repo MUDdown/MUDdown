@@ -46,6 +46,7 @@ import Base from "../layouts/Base.astro";
       const html: string[] = [];
       let inList = false;
       let inTable = false;
+      let inBlockquote = false;
       let paraLines: string[] = [];
 
       function flushPara() {
@@ -73,17 +74,25 @@ import Base from "../layouts/Base.astro";
       for (const raw of lines) {
         const line = inlineFormat(raw);
 
-        // Table rows
-        if (raw.trimStart().startsWith("|") && raw.trimEnd().endsWith("|")) {
+        // Blockquotes
+        if (raw.startsWith("> ")) {
+          flushPara();
+          if (inList) { html.push("</ul>"); inList = false; }
+          if (inTable) { html.push("</table>"); inTable = false; }
+          if (!inBlockquote) { html.push("<blockquote>"); inBlockquote = true; }
+          html.push(`<p>${inlineFormat(raw.slice(2))}</p>`);
+        } else if (raw.trimStart().startsWith("|") && raw.trimEnd().endsWith("|")) {
           // Skip separator rows like |---|---|
           if (raw.match(/^\|[\s\-:|]+\|$/)) continue;
           flushPara();
+          if (inBlockquote) { html.push("</blockquote>"); inBlockquote = false; }
           if (inList) { html.push("</ul>"); inList = false; }
           if (!inTable) { html.push("<table>"); inTable = true; }
           const cells = line.split("|").slice(1, -1).map(c => c.trim());
           html.push("<tr>" + cells.map(c => `<td>${c}</td>`).join("") + "</tr>");
         } else if (raw.match(/^#{1,3} /)) {
           flushPara();
+          if (inBlockquote) { html.push("</blockquote>"); inBlockquote = false; }
           if (inList) { html.push("</ul>"); inList = false; }
           if (inTable) { html.push("</table>"); inTable = false; }
           const level = raw.match(/^(#+)/)?.[1].length ?? 1;
@@ -91,11 +100,13 @@ import Base from "../layouts/Base.astro";
           html.push(`<h${level}>${content}</h${level}>`);
         } else if (raw.startsWith("- ")) {
           flushPara();
+          if (inBlockquote) { html.push("</blockquote>"); inBlockquote = false; }
           if (inTable) { html.push("</table>"); inTable = false; }
           if (!inList) { html.push("<ul>"); inList = true; }
           html.push(`<li>${line.slice(2)}</li>`);
         } else if (raw.trim() === "") {
           flushPara();
+          if (inBlockquote) { html.push("</blockquote>"); inBlockquote = false; }
           if (inList) { html.push("</ul>"); inList = false; }
           if (inTable) { html.push("</table>"); inTable = false; }
         } else {
@@ -103,6 +114,7 @@ import Base from "../layouts/Base.astro";
         }
       }
       flushPara();
+      if (inBlockquote) html.push("</blockquote>");
       if (inList) html.push("</ul>");
       if (inTable) html.push("</table>");
 
@@ -158,7 +170,9 @@ import Base from "../layouts/Base.astro";
         sendCommand(`go ${target}`);
       } else if (scheme === "cmd") {
         sendCommand(target ?? "");
-      } else if (scheme === "npc" || scheme === "item") {
+      } else if (scheme === "npc") {
+        sendCommand(`talk ${target}`);
+      } else if (scheme === "item") {
         sendCommand(`examine ${target}`);
       }
       input.scrollIntoView({ block: "end" });
@@ -183,9 +197,11 @@ import Base from "../layouts/Base.astro";
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
+          if (typeof msg.muddown !== "string") throw new Error("Missing muddown field");
           const className = msg.type || "narrative";
           appendMessage(msg.muddown, className);
-        } catch {
+        } catch (err) {
+          console.error("Failed to parse server message:", err);
           appendMessage(event.data, "narrative");
         }
       };
@@ -195,7 +211,8 @@ import Base from "../layouts/Base.astro";
         reconnectTimer = setTimeout(connect, 3000);
       };
 
-      ws.onerror = () => {
+      ws.onerror = (event) => {
+        console.error("WebSocket error:", event);
         ws?.close();
       };
     }

@@ -1,0 +1,11 @@
+{
+  "id": "mushroom",
+  "name": "Glowing Mushroom",
+  "description": "A soft, bioluminescent mushroom that pulses with blue light. It's cool and slightly damp.",
+  "weight": 0.1,
+  "rarity": "uncommon",
+  "fixed": false,
+  "equippable": false,
+  "usable": true,
+  "useEffect": "light"
+}

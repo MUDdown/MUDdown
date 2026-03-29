@@ -1,0 +1,10 @@
+{
+  "id": "broken-lantern",
+  "name": "Broken Lantern",
+  "description": "A dented iron lantern with cracked glass. It no longer holds oil, but might be repairable.",
+  "weight": 0.8,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": false,
+  "usable": false
+}

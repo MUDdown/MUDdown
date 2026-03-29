@@ -1,0 +1,11 @@
+{
+  "id": "tome",
+  "name": "Dust-Covered Tome",
+  "description": "A heavy, leather-bound book. The pages are brittle and covered in a script you cannot read.",
+  "weight": 2.0,
+  "rarity": "rare",
+  "fixed": false,
+  "equippable": false,
+  "usable": true,
+  "useEffect": "read"
+}

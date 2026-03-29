@@ -1,0 +1,11 @@
+{
+  "id": "holy-water",
+  "name": "Vial of Holy Water",
+  "description": "A small glass vial filled with blessed water. It catches the light with an unusual clarity.",
+  "weight": 0.3,
+  "rarity": "uncommon",
+  "fixed": false,
+  "equippable": false,
+  "usable": true,
+  "useEffect": "bless"
+}

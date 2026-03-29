@@ -1,0 +1,11 @@
+{
+  "id": "cloak",
+  "name": "Tattered Cloak",
+  "description": "A heavy wool cloak, torn and stained. It still offers some warmth despite its condition.",
+  "weight": 1.0,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": true,
+  "slot": "armor",
+  "usable": false
+}

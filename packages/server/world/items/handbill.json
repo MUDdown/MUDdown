@@ -1,0 +1,11 @@
+{
+  "id": "handbill",
+  "name": "Crumpled Handbill",
+  "description": "A printed handbill advertising a sale at Aldric's Jeweler's. \"Half off all glass beads!\"",
+  "weight": 0.1,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": false,
+  "usable": true,
+  "useEffect": "read"
+}

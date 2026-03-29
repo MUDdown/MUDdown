@@ -1,0 +1,55 @@
+{
+  "id": "farmer-wynn",
+  "name": "Farmer Wynn",
+  "description": "A sturdy, sun-weathered man in muddy overalls. His hands are calloused from decades of working the soil.",
+  "location": "old-farm",
+  "dialogue": {
+    "start": {
+      "text": "Hmm? Oh, hello there. Don't get many visitors out here. Land's good, but the times aren't.",
+      "mood": "weary",
+      "narrative": "Farmer Wynn leans on his hoe and wipes sweat from his brow.",
+      "responses": [
+        { "text": "What's troubling you?", "next": "troubles" },
+        { "text": "What can you tell me about the area?", "next": "area" },
+        { "text": "Just passing through.", "next": null }
+      ]
+    },
+    "troubles": {
+      "text": "Crops are fine. It's everything else. Wolves bold enough to come near the fence. Strange noises from the forest at night. And my boy says he saw green lights over the ruins. I told him to stay inside after dark.",
+      "mood": "worried",
+      "narrative": "He glances toward the forest edge.",
+      "responses": [
+        { "text": "Tell me about the forest.", "next": "forest" },
+        { "text": "Green lights?", "next": "lights" },
+        { "text": "I'll look into it.", "next": null }
+      ]
+    },
+    "area": {
+      "text": "Crossroads is south — that's where the peddler sets up. Forest starts just beyond the fence to the north. Beyond the trees are the old Eltharan ruins. Used to be safe to walk there, but not anymore.",
+      "mood": "matter-of-fact",
+      "narrative": "He points in each direction with his hoe.",
+      "responses": [
+        { "text": "What's wrong with the forest?", "next": "forest" },
+        { "text": "Thanks for the information.", "next": null }
+      ]
+    },
+    "forest": {
+      "text": "Wolves mostly. A grey pack moved in last season — never used to come this close to town. Something drove them south. Something worse, up near the ruins. The trees are darker there too, like the light doesn't reach.",
+      "mood": "uneasy",
+      "narrative": "He grips his hoe a little tighter.",
+      "responses": [
+        { "text": "Something from the ruins?", "next": "lights" },
+        { "text": "I can handle wolves.", "next": null }
+      ]
+    },
+    "lights": {
+      "text": "Green and cold, flickering above the treeline. My boy saw them three nights running. The priestess in town says it's old magic. I say it's nothing good. If you're heading that way, be armed and be wary.",
+      "mood": "grim",
+      "narrative": "He shakes his head slowly.",
+      "responses": [
+        { "text": "I'll be careful.", "next": null },
+        { "text": "Thanks for the warning.", "next": null }
+      ]
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "id": "nell",
+  "name": "Old Nell",
+  "description": "A wiry old woman with piercing blue eyes and wind-tangled grey hair. She leans on a gnarled walking stick.",
+  "location": "lighthouse",
+  "dialogue": {
+    "start": {
+      "text": "Come to visit old Nell, have you? Not many do. I keep the light burning and I watch the sea. What brings you up here?",
+      "mood": "curious",
+      "narrative": "Nell peers at you from beneath wild eyebrows.",
+      "responses": [
+        { "text": "What do you see from up here?", "next": "view" },
+        { "text": "I've heard about smugglers.", "next": "smugglers" },
+        { "text": "Just exploring.", "next": null }
+      ]
+    },
+    "view": {
+      "text": "Everything. Ships coming and going. Storms rolling in. And late at night... boats that don't want to be seen, slipping into the cove east of here.",
+      "mood": "knowing",
+      "narrative": "She points a bony finger toward the eastern shore.",
+      "responses": [
+        { "text": "Tell me about the cove.", "next": "smugglers" },
+        { "text": "Thanks for the view.", "next": null }
+      ]
+    },
+    "smugglers": {
+      "text": "Smuggler's Cove, folk call it. They move goods by night — nothing too wicked, mostly. But lately there's been new faces. Harder sorts. They've been bringing crates marked with Eltharan runes.",
+      "mood": "wary",
+      "narrative": "She narrows her eyes.",
+      "responses": [
+        { "text": "Eltharan runes?", "next": "runes" },
+        { "text": "I'll be careful.", "next": null }
+      ]
+    },
+    "runes": {
+      "text": "Aye. Same markings as on the ruins to the north. Someone's moving artefacts out of those ruins and shipping them gods-know-where. The harbour master knows, I'm sure of it. But he won't talk.",
+      "mood": "grim",
+      "narrative": "She taps her stick on the floor for emphasis.",
+      "responses": [
+        { "text": "I'll look into it.", "next": null },
+        { "text": "Thanks for the tip, Nell.", "next": null }
+      ]
+    }
+  }
+}

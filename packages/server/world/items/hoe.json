@@ -1,0 +1,11 @@
+{
+  "id": "hoe",
+  "name": "Rusty Hoe",
+  "description": "A garden hoe with a rusted blade. The handle is worn smooth from years of use.",
+  "weight": 2.0,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": true,
+  "slot": "weapon",
+  "usable": false
+}

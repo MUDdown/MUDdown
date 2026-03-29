@@ -1,0 +1,11 @@
+{
+  "id": "bread",
+  "name": "Loaf of Bread",
+  "description": "A warm loaf of crusty bread, fresh from the oven. It smells wonderful.",
+  "weight": 0.5,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": false,
+  "usable": true,
+  "useEffect": "eat"
+}

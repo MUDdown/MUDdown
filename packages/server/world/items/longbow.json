@@ -1,0 +1,11 @@
+{
+  "id": "longbow",
+  "name": "Longbow",
+  "description": "A tall yew bow with a taut string. It's seen better days but still has good draw.",
+  "weight": 1.5,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": true,
+  "slot": "weapon",
+  "usable": false
+}

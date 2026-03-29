@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { RoomAttributes, ItemDefinition, CombineRecipe, EquipSlot } from "@muddown/shared";
+import type { RoomAttributes, ItemDefinition, CombineRecipe, EquipSlot, NpcDefinition, DialogueNode, DialogueResponse } from "@muddown/shared";
 
 export interface Room {
   attributes: RoomAttributes;
@@ -14,6 +14,8 @@ export interface WorldMap {
   itemDefs: Map<string, ItemDefinition>;
   roomItems: Map<string, string[]>; // room-id → [item-id, ...]
   recipes: CombineRecipe[];
+  npcDefs: Map<string, NpcDefinition>;
+  roomNpcs: Map<string, string[]>; // room-id → [npc-id, ...]
 }
 
 // ─── YAML Frontmatter Parser (minimal, no dependencies) ─────────────────────
@@ -108,21 +110,17 @@ export function loadWorld(worldDir?: string): WorldMap {
   const connections = new Map<string, Record<string, string>>();
   const roomItems = new Map<string, string[]>();
 
-  // Load item definitions
+  // Load item definitions from world/items/*.json
   const itemDefs = new Map<string, ItemDefinition>();
   let recipes: CombineRecipe[] = [];
-  const itemsPath = join(dir, "items.json");
+  const itemsDir = join(dir, "items");
   try {
-    const itemsRaw = JSON.parse(readFileSync(itemsPath, "utf-8")) as {
-      items: unknown;
-      recipes?: unknown;
-    };
-    if (!Array.isArray(itemsRaw.items)) {
-      throw new Error("items.json: 'items' must be an array");
-    }
-    for (const raw of itemsRaw.items as Record<string, unknown>[]) {
+    for (const file of readdirSync(itemsDir)) {
+      if (!file.endsWith(".json")) continue;
+      const filePath = join(itemsDir, file);
+      const raw = JSON.parse(readFileSync(filePath, "utf-8")) as Record<string, unknown>;
       if (!raw.id || typeof raw.id !== "string") {
-        console.warn("Skipping item with missing or invalid id:", raw);
+        console.warn(`Skipping ${file}: missing or invalid id`);
         continue;
       }
       if (typeof raw.name !== "string" || typeof raw.description !== "string") {
@@ -137,9 +135,6 @@ export function loadWorld(worldDir?: string): WorldMap {
       if (typeof raw.rarity !== "string" || !validRarities.includes(raw.rarity as typeof validRarities[number])) {
         console.warn(`Skipping item "${raw.id}": invalid rarity "${raw.rarity}"`);
         continue;
-      }
-      if (itemDefs.has(raw.id)) {
-        console.warn(`Duplicate item ID "${raw.id}" — overwriting previous definition`);
       }
 
       const base = {
@@ -166,10 +161,26 @@ export function loadWorld(worldDir?: string): WorldMap {
         : { usable: false as const };
       if (!use) continue;
 
+      if (itemDefs.has(raw.id)) {
+        console.warn(`Duplicate item ID "${raw.id}" — overwriting previous definition`);
+      }
       itemDefs.set(raw.id, { ...base, ...equip, ...use } as ItemDefinition);
     }
-    if (Array.isArray(itemsRaw.recipes)) {
-      for (const raw of itemsRaw.recipes as Record<string, unknown>[]) {
+  } catch (err: unknown) {
+    if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
+      console.warn(`No items directory found at ${itemsDir}, skipping item loading`);
+    } else {
+      console.error(`Error loading items from ${itemsDir}:`, err);
+      throw err;
+    }
+  }
+
+  // Load recipes from world/recipes.json
+  const recipesPath = join(dir, "recipes.json");
+  try {
+    const recipesRaw = JSON.parse(readFileSync(recipesPath, "utf-8")) as unknown;
+    if (Array.isArray(recipesRaw)) {
+      for (const raw of recipesRaw as Record<string, unknown>[]) {
         if (
           typeof raw.item1 === "string" &&
           typeof raw.item2 === "string" &&
@@ -182,19 +193,87 @@ export function loadWorld(worldDir?: string): WorldMap {
         }
       }
     }
-    console.log(`Loaded ${itemDefs.size} item definitions, ${recipes.length} recipes`);
   } catch (err: unknown) {
     if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
-      console.warn(`No items.json found at ${itemsPath}, skipping item loading`);
+      console.warn(`No recipes.json found at ${recipesPath}, skipping recipe loading`);
     } else {
+      console.error(`Error loading recipes from ${recipesPath}:`, err);
+      throw err;
+    }
+  }
+  console.log(`Loaded ${itemDefs.size} item definitions, ${recipes.length} recipes`);
+
+  // Load NPC definitions from world/npcs/*.json
+  const npcDefs = new Map<string, NpcDefinition>();
+  const roomNpcs = new Map<string, string[]>();
+  const npcsDir = join(dir, "npcs");
+  try {
+    for (const file of readdirSync(npcsDir)) {
+      if (!file.endsWith(".json")) continue;
+      const filePath = join(npcsDir, file);
+      try {
+      const raw = JSON.parse(readFileSync(filePath, "utf-8")) as Record<string, unknown>;
+      if (typeof raw.id !== "string" || typeof raw.name !== "string" || typeof raw.description !== "string" || typeof raw.location !== "string") {
+        console.warn(`Skipping NPC in ${file}: missing fields`);
+        continue;
+      }
+      if (typeof raw.dialogue !== "object" || raw.dialogue === null || !("start" in (raw.dialogue as Record<string, unknown>))) {
+        console.warn(`Skipping NPC "${raw.id}": missing or invalid dialogue (must have "start" node)`);
+        continue;
+      }
+      const dialogue: Record<string, DialogueNode> = {};
+      for (const [nodeId, nodeRaw] of Object.entries(raw.dialogue as Record<string, unknown>)) {
+        const node = nodeRaw as Record<string, unknown>;
+        if (typeof node.text !== "string" || !Array.isArray(node.responses)) {
+          console.warn(`Skipping dialogue node "${nodeId}" for NPC "${raw.id}": missing text or responses`);
+          continue;
+        }
+        const responses: DialogueResponse[] = [];
+        for (const resp of node.responses as Record<string, unknown>[]) {
+          if (typeof resp.text === "string" && (resp.next === null || typeof resp.next === "string")) {
+            responses.push({ text: resp.text, next: resp.next as string | null });
+          } else {
+            console.warn(`Skipping malformed dialogue response in node "${nodeId}" for NPC "${raw.id}":`, JSON.stringify(resp));
+          }
+        }
+        dialogue[nodeId] = {
+          text: node.text,
+          mood: typeof node.mood === "string" ? node.mood : undefined,
+          narrative: typeof node.narrative === "string" ? node.narrative : undefined,
+          responses,
+        };
+      }
+      if (!dialogue["start"]) {
+        console.warn(`Skipping NPC "${raw.id}": "start" dialogue node failed validation`);
+        continue;
+      }
+      const npc: NpcDefinition = { id: raw.id, name: raw.name, description: raw.description, location: raw.location, dialogue };
+      npcDefs.set(npc.id, npc);
+      const list = roomNpcs.get(npc.location) ?? [];
+      list.push(npc.id);
+      roomNpcs.set(npc.location, list);
+      } catch (fileErr) {
+        console.error(`Error loading NPC file ${filePath}:`, fileErr instanceof Error ? fileErr.message : fileErr);
+        continue;
+      }
+    }
+    console.log(`Loaded ${npcDefs.size} NPC definitions`);
+  } catch (err: unknown) {
+    if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
+      console.warn(`No npcs directory found at ${npcsDir}, skipping NPC loading`);
+    } else {
+      console.error(`Error loading NPCs from ${npcsDir}:`, err);
       throw err;
     }
   }
 
+  // Skip non-room directories (items/ and npcs/ are loaded separately above)
+  const skipDirs = new Set(["items", "npcs"]);
   function loadDir(dirPath: string): void {
     for (const entry of readdirSync(dirPath)) {
       const fullPath = join(dirPath, entry);
       if (statSync(fullPath).isDirectory()) {
+        if (dirPath === dir && skipDirs.has(entry)) continue;
         loadDir(fullPath);
         continue;
       }
@@ -232,5 +311,13 @@ export function loadWorld(worldDir?: string): WorldMap {
 
   loadDir(dir);
   console.log(`Loaded ${rooms.size} rooms from ${dir}`);
-  return { rooms, connections, itemDefs, roomItems, recipes };
+
+  // Validate NPC locations reference existing rooms
+  for (const [npcId, npc] of npcDefs) {
+    if (!rooms.has(npc.location)) {
+      console.warn(`NPC "${npcId}" references unknown room "${npc.location}"`);
+    }
+  }
+
+  return { rooms, connections, itemDefs, roomItems, recipes, npcDefs, roomNpcs };
 }

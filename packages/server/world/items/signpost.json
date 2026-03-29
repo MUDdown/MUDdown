@@ -1,0 +1,10 @@
+{
+  "id": "signpost",
+  "name": "Weathered Signpost",
+  "description": "A wooden signpost at the roadside. Carved arrows point in several directions. It's firmly planted.",
+  "weight": 20.0,
+  "rarity": "common",
+  "fixed": true,
+  "equippable": false,
+  "usable": false
+}

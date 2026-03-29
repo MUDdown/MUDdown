@@ -1,0 +1,14 @@
+[
+  {
+    "item1": "crowbar",
+    "item2": "locked-chest",
+    "result": "gold-ring",
+    "description": "You wedge the crowbar under the chest lid and heave. The lock snaps and the lid flies open, revealing a **gold ring** nestled in rotting velvet."
+  },
+  {
+    "item1": "broken-lantern",
+    "item2": "lamp-oil",
+    "result": "candle",
+    "description": "The lantern is too damaged to repair, but you salvage the wick and oil to fashion a makeshift **tallow candle**."
+  }
+]

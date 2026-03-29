@@ -1,0 +1,64 @@
+{
+  "id": "gorath",
+  "name": "Gorath the Smith",
+  "description": "A massive man with arms like tree trunks, working the forge with an artisan's precision. Sweat glistens on his dark skin.",
+  "location": "blacksmith",
+  "dialogue": {
+    "start": {
+      "text": "If you've come to browse, keep your fingers off the blades. If you've come to talk, make it quick — this steel won't shape itself.",
+      "mood": "gruff",
+      "narrative": "Gorath plunges a glowing blade into a water trough, sending up a hiss of steam.",
+      "responses": [
+        { "text": "What can you tell me about your work?", "next": "craft" },
+        { "text": "I need something to fight with.", "next": "weapons" },
+        { "text": "Know anything about the ruins?", "next": "ruins" },
+        { "text": "I'll leave you to it.", "next": null }
+      ]
+    },
+    "craft": {
+      "text": "Forty years at the anvil. I've forged swords for kings and horseshoes for farmers. Everything I make, I make to last. No cheap tin work in my forge.",
+      "mood": "proud",
+      "narrative": "He examines the blade critically before setting it aside.",
+      "responses": [
+        { "text": "What about weapons?", "next": "weapons" },
+        { "text": "Impressive work.", "next": null }
+      ]
+    },
+    "weapons": {
+      "text": "I've got blades on the rack and shields on the wall. If you find rare materials — good steel, unusual ore — bring them to me. I can work wonders with the right ingredients.",
+      "mood": "businesslike",
+      "narrative": "He nods toward the weapon display.",
+      "responses": [
+        { "text": "What kind of materials?", "next": "materials" },
+        { "text": "I'll keep that in mind.", "next": null }
+      ]
+    },
+    "materials": {
+      "text": "The ruins used to be an Eltharan forge-city. If the stories are true, there's star-metal down there — lighter than steel, harder than diamond. Bring me some of that and I'll make you something legendary.",
+      "mood": "eager",
+      "narrative": "For the first time, his eyes light up with genuine excitement.",
+      "responses": [
+        { "text": "Star-metal. I'll look for it.", "next": null },
+        { "text": "Sounds dangerous.", "next": null }
+      ]
+    },
+    "ruins": {
+      "text": "My grandfather told stories of Eltharan smiths who forged blades that sang. The ruins north of here — that was their city once. Something's waking up there. The priestess came to me last week asking about old Eltharan seals.",
+      "mood": "thoughtful",
+      "narrative": "He strokes his chin, leaving a smudge of soot.",
+      "responses": [
+        { "text": "Seals?", "next": "seals" },
+        { "text": "Interesting. Thanks.", "next": null }
+      ]
+    },
+    "seals": {
+      "text": "Magical locks, forged in metal. The Eltharans sealed something beneath their city. The priestess thinks the seal is weakening. That's what those lights are — old magic leaking out.",
+      "mood": "grave",
+      "narrative": "He sets down his hammer and looks at you seriously.",
+      "responses": [
+        { "text": "I should talk to the priestess.", "next": null },
+        { "text": "I'll investigate.", "next": null }
+      ]
+    }
+  }
+}

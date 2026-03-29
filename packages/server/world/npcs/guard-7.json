@@ -1,0 +1,56 @@
+{
+  "id": "guard-7",
+  "name": "Sleeping Guard",
+  "description": "A city guard who has dozed off at his post. His helmet has slipped over one eye and a half-eaten apple rests in his lap.",
+  "location": "iron-gate",
+  "dialogue": {
+    "start": {
+      "text": "Wha—? Who goes there?",
+      "mood": "groggy",
+      "narrative": "The guard blinks and reaches for his sword, then relaxes when he sees you.",
+      "responses": [
+        { "text": "Sorry to wake you.", "next": "apologetic" },
+        { "text": "Some guard you are.", "next": "defensive" },
+        { "text": "What's beyond the gate?", "next": "gate-info" },
+        { "text": "Never mind.", "next": null }
+      ]
+    },
+    "apologetic": {
+      "text": "Ah, don't worry about it. Double shift, y'know? Captain's had us all on edge since those lights started up at the ruins.",
+      "mood": "tired",
+      "narrative": "He rubs his eyes and yawns.",
+      "responses": [
+        { "text": "What lights?", "next": "lights" },
+        { "text": "What's beyond the gate?", "next": "gate-info" },
+        { "text": "Get some rest.", "next": null }
+      ]
+    },
+    "defensive": {
+      "text": "Hey now, I was just... resting my eyes! Nothing gets past me. Well, almost nothing.",
+      "mood": "embarrassed",
+      "narrative": "He straightens up and adjusts his helmet.",
+      "responses": [
+        { "text": "What's beyond the gate?", "next": "gate-info" },
+        { "text": "Sure you were.", "next": null }
+      ]
+    },
+    "gate-info": {
+      "text": "North road leads out to the crossroads and the old farm. Beyond that, the forest — and further still, the Eltharan ruins. I wouldn't go past the crossroads at night if I were you.",
+      "mood": "serious",
+      "narrative": "He lowers his voice and glances through the gate.",
+      "responses": [
+        { "text": "Why not?", "next": "lights" },
+        { "text": "I can handle myself.", "next": null }
+      ]
+    },
+    "lights": {
+      "text": "Strange green lights, flickering in the ruins after dark. The farmer's boy swears he heard chanting. Priestess says it's old magic stirring. Whatever it is, it's got the captain spooked.",
+      "mood": "uneasy",
+      "narrative": "The guard shivers despite the mild air.",
+      "responses": [
+        { "text": "I'll investigate.", "next": null },
+        { "text": "Sounds like trouble.", "next": null }
+      ]
+    }
+  }
+}

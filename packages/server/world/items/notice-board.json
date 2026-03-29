@@ -1,0 +1,11 @@
+{
+  "id": "notice-board",
+  "name": "Notice Board",
+  "description": "A large wooden board covered in pinned parchments — job postings, wanted notices, and town decrees.",
+  "weight": 50.0,
+  "rarity": "common",
+  "fixed": true,
+  "equippable": false,
+  "usable": true,
+  "useEffect": "read"
+}

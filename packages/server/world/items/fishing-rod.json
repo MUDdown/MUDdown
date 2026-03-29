@@ -1,0 +1,12 @@
+{
+  "id": "fishing-rod",
+  "name": "Fishing Rod",
+  "description": "A simple bamboo rod with a line and hook. There's dried bait still on the hook.",
+  "weight": 0.8,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": true,
+  "slot": "weapon",
+  "usable": true,
+  "useEffect": "fish"
+}

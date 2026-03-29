@@ -1,0 +1,26 @@
+{
+  "id": "skeleton",
+  "name": "Skeletal Guardian",
+  "description": "An animated skeleton in corroded Eltharan armour. Empty eye sockets glow with faint green light.",
+  "location": "ruins-hall",
+  "dialogue": {
+    "start": {
+      "text": "T-t-turn... back... the living... must not... enter...",
+      "mood": "menacing",
+      "narrative": "The skeletal guardian raises a rusted sword with jerky, unnatural movements. Ancient magic animates its bones.",
+      "responses": [
+        { "text": "I'm not afraid of you.", "next": "warning" },
+        { "text": "Back away slowly.", "next": null }
+      ]
+    },
+    "warning": {
+      "text": "The... master... stirs... the seals... weaken... flee... while you... can...",
+      "mood": "anguished",
+      "narrative": "For a moment, something almost like sorrow flickers in its empty eyes.",
+      "responses": [
+        { "text": "What master?", "next": null },
+        { "text": "I'll be the judge of that.", "next": null }
+      ]
+    }
+  }
+}

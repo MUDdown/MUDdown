@@ -1,0 +1,11 @@
+{
+  "id": "torn-map",
+  "name": "Torn Map",
+  "description": "Half of a hand-drawn map. You can make out a coastline and an X marked in red ink.",
+  "weight": 0.1,
+  "rarity": "uncommon",
+  "fixed": false,
+  "equippable": false,
+  "usable": true,
+  "useEffect": "read"
+}

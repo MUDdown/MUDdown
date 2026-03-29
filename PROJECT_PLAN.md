@@ -91,8 +91,9 @@ The v0.1.0 draft covers:
   - **harbor** (4 rooms) — Warehouse, Pier, Lighthouse, Smuggler's Cove
   - **northroad** (7 rooms) — North Road, Crossroads, Old Farm, Forest Edge, Deep Forest, Ruins Entrance, Ruins Hall
   - **catacombs** (3 rooms) — Catacombs Entrance, Ossuary, Sealed Chamber
-- Commands: `go`, `look`, `examine`, `say`, `who`, `help`, directional shortcuts, `get`/`take`, `drop`, `inventory`, `equip`/`unequip`, `use`, `combine`
+- Commands: `go`, `look`, `examine`, `say`, `who`, `help`, directional shortcuts, `get`/`take`, `drop`, `inventory`, `equip`/`unequip`, `use`, `combine`, `talk`
 - Item system: 31 item definitions across 22 rooms, with pickup/drop, equip slots (weapon/armor/accessory), usable effects, and 2 combine recipes
+- NPC dialogue system: 16 NPCs with branching dialogue trees, `:::dialogue` block output, `talk` command with name matching
 - Multi-player: players see each other, broadcast chat per room, arrival/departure messages
 - All output is MUDdown format
 
@@ -101,7 +102,7 @@ The v0.1.0 draft covers:
 - **Specification** (`/spec`): Renders SPECIFICATION.md via `marked`
 - **Play** (`/play`): Full web MUD client with:
   - WebSocket connection to game server (auto-reconnect)
-  - MUDdown-to-HTML renderer (headings, bold, italic, code, lists, game links)
+  - MUDdown-to-HTML renderer (headings, bold, italic, code, lists, tables, blockquotes, game links)
   - Clickable game links (go:, cmd:, examine on npc:/item:)
   - Command input with history (up/down arrows)
   - Dark theme with monospace terminal aesthetic
@@ -166,7 +167,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 ### Phase 2 — Playable Game
 - [x] Expand Northkeep: 20+ rooms across multiple regions
 - [x] Item system: pick up, drop, use, combine, equip
-- [ ] NPC dialogue trees (MUDdown `:::dialogue` blocks)
+- [x] NPC dialogue trees (MUDdown `:::dialogue` blocks)
 - [ ] Basic combat system (MUDdown `:::combat` blocks)
 - [ ] Player persistence (save/load state, SQLite or JSON files)
 - [ ] Character creation (name, class, starting stats)

@@ -134,3 +134,25 @@ export interface CombineRecipe {
   result: string;
   description: string;
 }
+
+// ─── NPC & Dialogue System ───────────────────────────────────────────────────
+
+export interface DialogueResponse {
+  text: string;
+  next: string | null; // null = end conversation
+}
+
+export interface DialogueNode {
+  text: string;           // NPC speech (rendered as blockquote)
+  mood?: string;          // mood attribute for :::dialogue block
+  narrative?: string;     // descriptive text after the speech
+  responses: DialogueResponse[];
+}
+
+export interface NpcDefinition {
+  id: string;
+  name: string;
+  description: string;
+  location: string;       // room ID where this NPC resides
+  dialogue: Record<string, DialogueNode>; // node-id → node ("start" is entry point)
+}

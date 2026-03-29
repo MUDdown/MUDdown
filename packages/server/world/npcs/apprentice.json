@@ -1,0 +1,34 @@
+{
+  "id": "apprentice",
+  "name": "Merchant's Apprentice",
+  "description": "A gangly youth with ink-stained fingers and an eager expression, arranging goods on a display table.",
+  "location": "market-entrance",
+  "dialogue": {
+    "start": {
+      "text": "Welcome to the Northkeep Market! First time? I can point you to the best shops!",
+      "mood": "eager",
+      "narrative": "The apprentice nearly trips over a crate in his enthusiasm.",
+      "responses": [
+        { "text": "Show me around.", "next": "guide" },
+        { "text": "No thanks.", "next": null }
+      ]
+    },
+    "guide": {
+      "text": "The market square's straight ahead — busiest place in town! Gorath's forge is north if you need weapons or repairs. And Aldric's jewel shop is south — expensive but beautiful stuff. Oh, and watch your coin purse in the square. There's a pickpocket about.",
+      "mood": "helpful",
+      "narrative": "He points eagerly in each direction.",
+      "responses": [
+        { "text": "A pickpocket?", "next": "pickpocket" },
+        { "text": "Thanks for the tips!", "next": null }
+      ]
+    },
+    "pickpocket": {
+      "text": "Yeah, small quick fingers. Haven't caught 'em yet. If you see anything suspicious, let me know!",
+      "mood": "conspiratorial",
+      "narrative": "He puffs up importantly.",
+      "responses": [
+        { "text": "I'll keep my eyes open.", "next": null }
+      ]
+    }
+  }
+}

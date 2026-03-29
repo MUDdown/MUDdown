@@ -1,0 +1,55 @@
+{
+  "id": "crier",
+  "name": "Town Crier",
+  "description": "A stout man in a feathered cap, clutching a brass bell and a scroll of announcements.",
+  "location": "town-square",
+  "dialogue": {
+    "start": {
+      "text": "Hear ye, hear ye! Welcome to Northkeep, traveller! What news do you seek?",
+      "mood": "enthusiastic",
+      "narrative": "The town crier straightens his cap and peers at you expectantly.",
+      "responses": [
+        { "text": "What's happening in town?", "next": "news" },
+        { "text": "Where should I go?", "next": "directions" },
+        { "text": "Never mind.", "next": null }
+      ]
+    },
+    "news": {
+      "text": "Strange lights have been seen near the old ruins to the north! And the docks have been busy — rumour has it smugglers are using the cove east of the lighthouse.",
+      "mood": "conspiratorial",
+      "narrative": "He leans in and lowers his voice.",
+      "responses": [
+        { "text": "Tell me about the ruins.", "next": "ruins" },
+        { "text": "Smugglers, you say?", "next": "smugglers" },
+        { "text": "Thanks for the news.", "next": null }
+      ]
+    },
+    "directions": {
+      "text": "The market lies to the east — fine goods and Gorath's forge. South leads to the docks and harbour. The Iron Gate stands to the north, and beyond it the open road. And the Temple of the Silver Moon? Just west of here.",
+      "mood": "helpful",
+      "narrative": "He gestures grandly in each direction.",
+      "responses": [
+        { "text": "What's happening in town?", "next": "news" },
+        { "text": "Thanks for the directions.", "next": null }
+      ]
+    },
+    "ruins": {
+      "text": "Old Eltharan ruins, they are. Been sealed for centuries. But folk say the ground shakes at night now, and there's a glow from the catacombs beneath. The priestess at the temple knows more, I'd wager.",
+      "mood": "worried",
+      "narrative": "The crier glances nervously northward.",
+      "responses": [
+        { "text": "I'll look into it.", "next": null },
+        { "text": "What about the smugglers?", "next": "smugglers" }
+      ]
+    },
+    "smugglers": {
+      "text": "Old Nell at the lighthouse sees everything, but she keeps her secrets. The harbour master turns a blind eye — or so they say. If you're brave, the cove is east of the lighthouse. But mind you don't get caught.",
+      "mood": "hushed",
+      "narrative": "He taps the side of his nose.",
+      "responses": [
+        { "text": "I'll check it out.", "next": null },
+        { "text": "Tell me about the ruins instead.", "next": "ruins" }
+      ]
+    }
+  }
+}

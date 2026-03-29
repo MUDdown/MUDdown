@@ -1,0 +1,55 @@
+{
+  "id": "aldric",
+  "name": "Aldric the Jeweler",
+  "description": "A thin, precise man with a jeweler's loupe perpetually perched on his forehead. His fingers are stained with polishing compound.",
+  "location": "jeweler",
+  "dialogue": {
+    "start": {
+      "text": "Ah, a customer! Or... merely curious? Either way, do be careful around the display cases.",
+      "mood": "cautious",
+      "narrative": "Aldric looks up from a gemstone he's been examining under a magnifying glass.",
+      "responses": [
+        { "text": "What do you sell?", "next": "wares" },
+        { "text": "I heard you've been buying strange gems.", "next": "gems" },
+        { "text": "Just looking.", "next": null }
+      ]
+    },
+    "wares": {
+      "text": "Rings, amulets, circlets — all crafted with the finest stones. I also appraise magical items, if you've found anything unusual in your travels.",
+      "mood": "professional",
+      "narrative": "He gestures to the gleaming display cases.",
+      "responses": [
+        { "text": "Magical items?", "next": "magical" },
+        { "text": "I'll browse.", "next": null }
+      ]
+    },
+    "gems": {
+      "text": "Who told you— Never mind. Yes, I've acquired some... unusual specimens. They pulse with inner light. Definitely Eltharan in origin. I'm studying their properties.",
+      "mood": "nervous",
+      "narrative": "He glances around quickly and lowers his voice.",
+      "responses": [
+        { "text": "Where did they come from?", "next": "source" },
+        { "text": "Can I see one?", "next": "magical" },
+        { "text": "Your secret's safe.", "next": null }
+      ]
+    },
+    "source": {
+      "text": "The peddler at the crossroads brought them. Says he found them at the forest edge. But I know Eltharan work when I see it — these came from the ruins, mark my words.",
+      "mood": "certain",
+      "narrative": "He holds up a faintly glowing stone between thumb and forefinger.",
+      "responses": [
+        { "text": "What do they do?", "next": "magical" },
+        { "text": "Interesting. I'll be going.", "next": null }
+      ]
+    },
+    "magical": {
+      "text": "They resonate with something. When I bring two close together, they hum. I believe they're fragments of an Eltharan seal — the same kind that's said to be weakening beneath the ruins.",
+      "mood": "fascinated",
+      "narrative": "His scholarly curiosity overcomes his caution.",
+      "responses": [
+        { "text": "That sounds important.", "next": null },
+        { "text": "Be careful with those.", "next": null }
+      ]
+    }
+  }
+}

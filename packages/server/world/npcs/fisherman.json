@@ -1,0 +1,36 @@
+{
+  "id": "fisherman",
+  "name": "Old Fisherman",
+  "description": "A weathered man with sun-darkened skin and salt-stiff clothes. He mends a net with practised fingers.",
+  "location": "docks",
+  "dialogue": {
+    "start": {
+      "text": "Mornin'. Fish ain't bitin' today. You here for somethin', or just watchin' the water?",
+      "mood": "laconic",
+      "narrative": "The old fisherman barely looks up from his net.",
+      "responses": [
+        { "text": "Know anything about the harbour?", "next": "harbour" },
+        { "text": "Heard about any smugglers?", "next": "smugglers" },
+        { "text": "Just passing through.", "next": null }
+      ]
+    },
+    "harbour": {
+      "text": "Harbour master runs a tight ship — mostly. Warehouse is always busy. The pier's where the real trade happens, if you catch my meaning.",
+      "mood": "knowing",
+      "narrative": "He ties off a knot and glances toward the pier.",
+      "responses": [
+        { "text": "What do you mean, real trade?", "next": "smugglers" },
+        { "text": "Thanks.", "next": null }
+      ]
+    },
+    "smugglers": {
+      "text": "I didn't say nothin' about smugglers. But if I did... I'd say a fellow might find interesting things in the cove east of the lighthouse. Late at night. If he wasn't afraid of the dark.",
+      "mood": "guarded",
+      "narrative": "He keeps his eyes fixed on his net, but his voice drops.",
+      "responses": [
+        { "text": "I'm not afraid.", "next": null },
+        { "text": "Your secret's safe with me.", "next": null }
+      ]
+    }
+  }
+}

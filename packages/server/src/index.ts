@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { ClientMessage, ServerMessage, EquipSlot } from "@muddown/shared";
+import type { ClientMessage, ServerMessage, EquipSlot, NpcDefinition, DialogueNode } from "@muddown/shared";
 import { loadWorld, type WorldMap } from "./world.js";
+import { dirAliases, findItemByName, findNpcInRoom, findUnclaimedIndex, escapeMarkdownLinkLabel, escapeMarkdownLinkDest } from "./helpers.js";
 
 // ─── Player Session ──────────────────────────────────────────────────────────
 
@@ -83,11 +84,6 @@ function handleCommand(ws: WebSocket, msg: ClientMessage): void {
   const [verb, ...rest] = raw.split(/\s+/);
   const arg = rest.join(" ");
 
-  const dirAliases: Record<string, string> = {
-    n: "north", s: "south", e: "east", w: "west", u: "up", d: "down",
-    ne: "northeast", nw: "northwest", se: "southeast", sw: "southwest",
-  };
-
   switch (verb) {
     case "go":
     case "north":
@@ -161,6 +157,10 @@ function handleCommand(ws: WebSocket, msg: ClientMessage): void {
     }
     case "combine": {
       handleCombine(ws, session, arg);
+      break;
+    }
+    case "talk": {
+      handleTalk(ws, session, arg);
       break;
     }
     default:
@@ -291,6 +291,7 @@ function sendHelp(ws: WebSocket): void {
 | \`look\` | Look around the current room |
 | \`go <direction>\` | Move in a direction (n, s, e, w, u, d, ne, nw, se, sw) |
 | \`examine <thing>\` | Examine something in the room |
+| \`talk <npc>\` | Talk to an NPC |
 | \`get <item>\` | Pick up an item |
 | \`drop <item>\` | Drop an item from your inventory |
 | \`inventory\` | Show your inventory and equipment |
@@ -332,7 +333,7 @@ function sendExamine(ws: WebSocket, session: PlayerSession, target: string): voi
 
   // Check inventory first, then room items
   const allItems = [...session.inventory, ...(world.roomItems.get(session.currentRoom) ?? [])];
-  const def = findItemByName(target, allItems);
+  const def = findItemByName(target, allItems, world.itemDefs);
   if (def) {
     const tags: string[] = [];
     if (def.fixed) tags.push("fixed");
@@ -349,6 +350,19 @@ function sendExamine(ws: WebSocket, session: PlayerSession, target: string): voi
     return;
   }
 
+  // Check NPCs in the room
+  const npc = findNpcInRoom(target, session.currentRoom, world.roomNpcs, world.npcDefs);
+  if (npc) {
+    send(ws, {
+      v: 1,
+      id: randomUUID(),
+      type: "narrative",
+      timestamp: new Date().toISOString(),
+      muddown: `:::npc{id="${npc.id}" name="${npc.name}"}\n**${npc.name}** — ${npc.description}\n:::`,
+    });
+    return;
+  }
+
   send(ws, {
     v: 1,
     id: randomUUID(),
@@ -358,22 +372,97 @@ function sendExamine(ws: WebSocket, session: PlayerSession, target: string): voi
   });
 }
 
-// ─── Item Helpers ────────────────────────────────────────────────────────────
+// ─── NPC & Dialogue ──────────────────────────────────────────────────────────
 
-function findItemByName(query: string, itemIds: string[]) {
-  const q = query.toLowerCase();
-  for (const id of itemIds) {
-    const def = world.itemDefs.get(id);
-    if (!def) continue;
-    if (def.id === q || def.name.toLowerCase() === q) return def;
+function handleTalk(ws: WebSocket, session: PlayerSession, arg: string): void {
+  if (!arg) {
+    send(ws, systemMessage("Talk to whom? Usage: `talk <npc>`"));
+    return;
   }
-  // Partial match fallback
-  for (const id of itemIds) {
-    const def = world.itemDefs.get(id);
-    if (!def) continue;
-    if (def.id.includes(q) || def.name.toLowerCase().includes(q)) return def;
+
+  // Parse: "talk <npc>" or "talk <npc-id> <node-id>" (from cmd: links)
+  const parts = arg.split(/\s+/);
+
+  // First try: exact NPC ID match on first token (for cmd: links like "talk guard-7 friendly")
+  let npc: NpcDefinition | undefined = undefined;
+  let nodeId = "start";
+
+  const directNpc = world.npcDefs.get(parts[0]);
+  if (directNpc && directNpc.location === session.currentRoom) {
+    npc = directNpc;
+    nodeId = parts.length > 1 ? parts.slice(1).join(" ") : "start";
   }
-  return null;
+
+  // Fallback: name-based search using the full arg
+  if (!npc) {
+    npc = findNpcInRoom(arg, session.currentRoom, world.roomNpcs, world.npcDefs);
+    nodeId = "start";
+  }
+
+  if (!npc) {
+    send(ws, systemMessage(`There's no one called **${arg}** here to talk to.`));
+    return;
+  }
+
+  // Explicit "end" sentinel — conversation is over
+  if (nodeId === "end") {
+    send(ws, {
+      v: 1,
+      id: randomUUID(),
+      type: "dialogue",
+      timestamp: new Date().toISOString(),
+      muddown: `:::dialogue{npc="${npc.id}" mood="neutral"}\n**${npc.name}** nods and turns away.\n:::`,
+    });
+    return;
+  }
+
+  const node = npc.dialogue[nodeId];
+  if (!node) {
+    console.warn(`Unknown dialogue node "${nodeId}" for NPC "${npc.id}"`);
+    send(ws, {
+      v: 1,
+      id: randomUUID(),
+      type: "dialogue",
+      timestamp: new Date().toISOString(),
+      muddown: `:::dialogue{npc="${npc.id}" mood="neutral"}\n**${npc.name}** has nothing more to say.\n:::`,
+    });
+    return;
+  }
+
+  sendDialogueNode(ws, npc, nodeId, node);
+}
+
+function sendDialogueNode(ws: WebSocket, npc: NpcDefinition, nodeId: string, node: DialogueNode): void {
+  const mood = node.mood ?? "neutral";
+  const lines: string[] = [];
+  lines.push(`:::dialogue{npc="${npc.id}" mood="${mood}"}`);
+  lines.push(`> "${node.text}"`);
+  if (node.narrative) {
+    lines.push("");
+    lines.push(node.narrative);
+  }
+  if (node.responses.length > 0) {
+    lines.push("");
+    lines.push("## Responses");
+    for (const resp of node.responses) {
+      const label = escapeMarkdownLinkLabel(resp.text);
+      if (resp.next === null) {
+        lines.push(`- ["${label}"](cmd:talk ${npc.id} end)`);
+      } else {
+        const dest = escapeMarkdownLinkDest(`cmd:talk ${npc.id} ${resp.next}`);
+        lines.push(`- ["${label}"](${dest})`);
+      }
+    }
+  }
+  lines.push(":::");
+
+  send(ws, {
+    v: 1,
+    id: randomUUID(),
+    type: "dialogue",
+    timestamp: new Date().toISOString(),
+    muddown: lines.join("\n"),
+  });
 }
 
 // ─── Item Commands ───────────────────────────────────────────────────────────
@@ -385,7 +474,7 @@ function handleGet(ws: WebSocket, session: PlayerSession, arg: string): void {
   }
 
   const roomItemIds = world.roomItems.get(session.currentRoom) ?? [];
-  const def = findItemByName(arg, roomItemIds);
+  const def = findItemByName(arg, roomItemIds, world.itemDefs);
   if (!def) {
     send(ws, systemMessage(`You don't see **${arg}** here.`));
     return;
@@ -412,7 +501,7 @@ function handleDrop(ws: WebSocket, session: PlayerSession, arg: string): void {
     return;
   }
 
-  const def = findItemByName(arg, session.inventory);
+  const def = findItemByName(arg, session.inventory, world.itemDefs);
   if (!def) {
     send(ws, systemMessage(`You don't have **${arg}**.`));
     return;
@@ -477,7 +566,7 @@ function handleEquip(ws: WebSocket, session: PlayerSession, arg: string): void {
     return;
   }
 
-  const def = findItemByName(arg, session.inventory);
+  const def = findItemByName(arg, session.inventory, world.itemDefs);
   if (!def) {
     send(ws, systemMessage(`You don't have **${arg}**.`));
     return;
@@ -546,7 +635,7 @@ function handleUse(ws: WebSocket, session: PlayerSession, arg: string): void {
 
   // Check inventory first, then room (for fixed usable items)
   const allItems = [...session.inventory, ...(world.roomItems.get(session.currentRoom) ?? [])];
-  const def = findItemByName(arg, allItems);
+  const def = findItemByName(arg, allItems, world.itemDefs);
   if (!def) {
     send(ws, systemMessage(`You don't see **${arg}** here and don't have it.`));
     return;
@@ -610,8 +699,8 @@ function handleCombine(ws: WebSocket, session: PlayerSession, arg: string): void
 
   const [name1, name2] = parts.map((p) => p.trim());
   const allItems = [...session.inventory, ...(world.roomItems.get(session.currentRoom) ?? [])];
-  const def1 = findItemByName(name1, allItems);
-  const def2 = findItemByName(name2, allItems);
+  const def1 = findItemByName(name1, allItems, world.itemDefs);
+  const def2 = findItemByName(name2, allItems, world.itemDefs);
 
   if (!def1) {
     send(ws, systemMessage(`You don't see **${name1}** here and don't have it.`));
@@ -642,17 +731,6 @@ function handleCombine(ws: WebSocket, session: PlayerSession, arg: string): void
   }
 
   // Pre-check: locate both ingredients before mutating any state
-  function findUnclaimedIndex(arr: string[], target: string, claimed: Set<number>): number {
-    let searchFrom = 0;
-    while (searchFrom < arr.length) {
-      const idx = arr.indexOf(target, searchFrom);
-      if (idx === -1) break;
-      if (!claimed.has(idx)) return idx;
-      searchFrom = idx + 1;
-    }
-    return -1;
-  }
-
   const removalPlan: Array<{ id: string; source: "inventory"; index: number } | { id: string; source: "room"; array: string[]; index: number }> = [];
   const claimedInvIndices = new Set<number>();
   const claimedRoomIndices = new Set<number>();

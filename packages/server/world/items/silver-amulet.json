@@ -1,0 +1,11 @@
+{
+  "id": "silver-amulet",
+  "name": "Silver Amulet",
+  "description": "An amulet on a tarnished chain. A crescent moon is engraved on its face.",
+  "weight": 0.2,
+  "rarity": "rare",
+  "fixed": false,
+  "equippable": true,
+  "slot": "accessory",
+  "usable": false
+}

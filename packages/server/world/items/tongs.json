@@ -1,0 +1,10 @@
+{
+  "id": "tongs",
+  "name": "Iron Tongs",
+  "description": "Heavy blacksmith's tongs, warm to the touch. The grips are wrapped in leather.",
+  "weight": 1.5,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": false,
+  "usable": false
+}

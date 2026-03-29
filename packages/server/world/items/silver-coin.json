@@ -1,0 +1,10 @@
+{
+  "id": "silver-coin",
+  "name": "Silver Coin",
+  "description": "A silver coin stamped with the seal of Northkeep. Worth a decent meal at any tavern.",
+  "weight": 0.1,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": false,
+  "usable": false
+}

@@ -1,0 +1,10 @@
+{
+  "id": "rope",
+  "name": "Coil of Rope",
+  "description": "Fifty feet of sturdy hemp rope, coiled neatly. Useful for climbing or binding.",
+  "weight": 2.0,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": false,
+  "usable": false
+}

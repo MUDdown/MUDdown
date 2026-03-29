@@ -1,0 +1,11 @@
+{
+  "id": "shortsword",
+  "name": "Dull Shortsword",
+  "description": "A short blade with a nicked edge. It needs sharpening, but it's still steel.",
+  "weight": 1.5,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": true,
+  "slot": "weapon",
+  "usable": false
+}

@@ -1,0 +1,11 @@
+{
+  "id": "shield",
+  "name": "Chipped Shield",
+  "description": "A round wooden shield with an iron boss. The rim is chipped and the paint has worn away.",
+  "weight": 3.0,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": true,
+  "slot": "armor",
+  "usable": false
+}

@@ -1,0 +1,11 @@
+{
+  "id": "arrow-quiver",
+  "name": "Quiver of Arrows",
+  "description": "A leather quiver holding a dozen iron-tipped arrows. The fletching is slightly ragged.",
+  "weight": 1.0,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": true,
+  "slot": "accessory",
+  "usable": false
+}

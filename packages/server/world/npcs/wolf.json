@@ -1,0 +1,16 @@
+{
+  "id": "wolf",
+  "name": "Grey Wolf",
+  "description": "A large grey wolf with yellow eyes that track your every movement. It growls low in its throat.",
+  "location": "deep-forest",
+  "dialogue": {
+    "start": {
+      "text": "*Grrrrrrr...*",
+      "mood": "hostile",
+      "narrative": "The wolf bares its teeth and backs away, hackles raised. It doesn't seem interested in conversation.",
+      "responses": [
+        { "text": "Easy there...", "next": null }
+      ]
+    }
+  }
+}

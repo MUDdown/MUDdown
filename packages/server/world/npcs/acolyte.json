@@ -1,0 +1,66 @@
+{
+  "id": "acolyte",
+  "name": "Hooded Acolyte",
+  "description": "A gaunt figure in dark robes, hunched over ancient texts. His eyes gleam with feverish intensity in the dim light.",
+  "location": "ossuary",
+  "dialogue": {
+    "start": {
+      "text": "You shouldn't be here. The dead deserve their rest. But since you've come... what do you want?",
+      "mood": "suspicious",
+      "narrative": "The acolyte peers at you from beneath his hood, one hand resting protectively on an open book.",
+      "responses": [
+        { "text": "What are you studying?", "next": "studies" },
+        { "text": "Tell me about the sealed chamber.", "next": "chamber" },
+        { "text": "The priestess is worried about you.", "next": "priestess" },
+        { "text": "I'll leave you be.", "next": null }
+      ]
+    },
+    "studies": {
+      "text": "The Eltharan binding texts. Rituals of containment, seal construction, ward maintenance. Someone must understand them, or we're all doomed when the last seal cracks.",
+      "mood": "intense",
+      "narrative": "He turns the ancient pages with trembling fingers.",
+      "responses": [
+        { "text": "The seals are failing?", "next": "chamber" },
+        { "text": "Can you fix them?", "next": "fix" },
+        { "text": "Sounds dangerous work.", "next": null }
+      ]
+    },
+    "chamber": {
+      "text": "Below us. Below everything. The sealed chamber holds what the Eltharans couldn't kill. I've felt it stirring — a presence, pressing against the wards. Three seals remain, and the third is cracking.",
+      "mood": "fearful",
+      "narrative": "His voice drops to barely a whisper. The candles seem to dim.",
+      "responses": [
+        { "text": "Can the seals be restored?", "next": "fix" },
+        { "text": "What happens if they break?", "next": "break" },
+        { "text": "I need to go.", "next": null }
+      ]
+    },
+    "fix": {
+      "text": "Theoretically. The seal-stones — fragments of the original binding — are scattered. The forest, the ruins, perhaps the smugglers have some. Gather them, bring them to the chamber, and the ritual might hold. Might.",
+      "mood": "desperate",
+      "narrative": "He grips your arm with surprising strength.",
+      "responses": [
+        { "text": "I'll search for the seal-stones.", "next": null },
+        { "text": "What if it doesn't work?", "next": "break" }
+      ]
+    },
+    "break": {
+      "text": "Then the shadow wakes. And Northkeep — perhaps more — falls into darkness. The old texts describe it as a hunger that devours light itself. We must not let that happen.",
+      "mood": "terrified",
+      "narrative": "The acolyte's face is pale, his eyes wide with genuine fear.",
+      "responses": [
+        { "text": "I'll find the seal-stones.", "next": null },
+        { "text": "We'll stop it.", "next": null }
+      ]
+    },
+    "priestess": {
+      "text": "Sera means well, but she doesn't understand. Reading about the seals from temple scrolls isn't the same as *feeling* them weaken. I'm down here because I must be. Someone has to watch.",
+      "mood": "bitter",
+      "narrative": "He softens slightly at the mention of the priestess.",
+      "responses": [
+        { "text": "Tell me about the sealed chamber.", "next": "chamber" },
+        { "text": "She cares about you.", "next": null }
+      ]
+    }
+  }
+}

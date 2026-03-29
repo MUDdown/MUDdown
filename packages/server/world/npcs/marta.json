@@ -1,0 +1,55 @@
+{
+  "id": "marta",
+  "name": "Marta the Baker",
+  "description": "A plump, flour-dusted woman with rosy cheeks and a warm smile. The scent of fresh bread follows her everywhere.",
+  "location": "bakery",
+  "dialogue": {
+    "start": {
+      "text": "Welcome, welcome! Fresh bread just out of the oven. Can I tempt you?",
+      "mood": "cheerful",
+      "narrative": "Marta wipes her hands on her apron and beams at you.",
+      "responses": [
+        { "text": "Smells wonderful. What do you have?", "next": "wares" },
+        { "text": "Heard any gossip lately?", "next": "gossip" },
+        { "text": "Just browsing, thanks.", "next": null }
+      ]
+    },
+    "wares": {
+      "text": "Sourdough loaves, honey cakes, and my famous cinnamon rolls. The fisherman trades me fresh catch for bread — I make a lovely fish pie too, if I do say so myself.",
+      "mood": "proud",
+      "narrative": "She gestures to the counter laden with baked goods.",
+      "responses": [
+        { "text": "Any gossip around town?", "next": "gossip" },
+        { "text": "Everything looks delicious.", "next": null }
+      ]
+    },
+    "gossip": {
+      "text": "Well now... Aldric the jeweler's been buying strange gems from that peddler at the crossroads. And I hear the acolyte in the catacombs has been acting odd — chanting at all hours. Oh, and Gorath finally forged that blade he's been working on for months.",
+      "mood": "conspiratorial",
+      "narrative": "She leans across the counter, lowering her voice with relish.",
+      "responses": [
+        { "text": "Strange gems?", "next": "gems" },
+        { "text": "What about the acolyte?", "next": "acolyte" },
+        { "text": "Thanks for the gossip.", "next": null }
+      ]
+    },
+    "gems": {
+      "text": "Glowing things, they were. Not natural, if you ask me. The peddler claims they came from the forest, but I reckon they're from the ruins. Aldric won't say what he's doing with them.",
+      "mood": "suspicious",
+      "narrative": "She purses her lips and shakes her head.",
+      "responses": [
+        { "text": "Interesting. What about the acolyte?", "next": "acolyte" },
+        { "text": "I'll keep my eyes open.", "next": null }
+      ]
+    },
+    "acolyte": {
+      "text": "Hooded figure, lurks down in the ossuary. Used to be quiet and pious, but lately? Muttering about seals and bindings. The priestess is worried — she told me herself over tea.",
+      "mood": "worried",
+      "narrative": "Marta wrings her hands absently.",
+      "responses": [
+        { "text": "Maybe I should visit the temple.", "next": null },
+        { "text": "Thanks, Marta.", "next": null }
+      ]
+    }
+  }
+}

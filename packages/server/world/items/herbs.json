@@ -1,0 +1,11 @@
+{
+  "id": "herbs",
+  "name": "Bundle of Herbs",
+  "description": "A fragrant bundle of wild herbs — rosemary, thyme, and something you don't recognize.",
+  "weight": 0.2,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": false,
+  "usable": true,
+  "useEffect": "eat"
+}

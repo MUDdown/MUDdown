@@ -1,0 +1,35 @@
+{
+  "id": "harbor-master",
+  "name": "Harbour Master Voss",
+  "description": "A broad-shouldered man in a naval coat, his expression carefully neutral. A ring of keys jangles at his belt.",
+  "location": "pier",
+  "dialogue": {
+    "start": {
+      "text": "State your business. The pier is for authorized personnel and registered passengers.",
+      "mood": "officious",
+      "narrative": "The harbour master blocks your path with folded arms.",
+      "responses": [
+        { "text": "I'm just looking around.", "next": "looking" },
+        { "text": "I've heard about the cove.", "next": "cove" },
+        { "text": "My mistake.", "next": null }
+      ]
+    },
+    "looking": {
+      "text": "Look all you want, but don't touch the cargo. Ships come and go on tide and schedule. Everything here is properly documented and above board.",
+      "mood": "firm",
+      "narrative": "His eyes don't quite match his confident tone.",
+      "responses": [
+        { "text": "What about the Smuggler's Cove?", "next": "cove" },
+        { "text": "Of course.", "next": null }
+      ]
+    },
+    "cove": {
+      "text": "There's no such place. And if there were, it would be no concern of yours. Now, if you'll excuse me, I have a harbour to run.",
+      "mood": "defensive",
+      "narrative": "A muscle twitches in his jaw.",
+      "responses": [
+        { "text": "If you say so.", "next": null }
+      ]
+    }
+  }
+}

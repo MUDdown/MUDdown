@@ -1,0 +1,11 @@
+{
+  "id": "telescope",
+  "name": "Brass Telescope",
+  "description": "A fine telescope mounted on a brass swivel. It's bolted to the railing and won't budge.",
+  "weight": 5.0,
+  "rarity": "uncommon",
+  "fixed": true,
+  "equippable": false,
+  "usable": true,
+  "useEffect": "look-through"
+}

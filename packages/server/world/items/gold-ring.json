@@ -1,0 +1,11 @@
+{
+  "id": "gold-ring",
+  "name": "Gold Ring",
+  "description": "A simple gold band, surprisingly untarnished. There's an inscription inside too small to read.",
+  "weight": 0.1,
+  "rarity": "rare",
+  "fixed": false,
+  "equippable": true,
+  "slot": "accessory",
+  "usable": false
+}

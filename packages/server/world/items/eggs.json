@@ -1,0 +1,11 @@
+{
+  "id": "eggs",
+  "name": "Basket of Eggs",
+  "description": "A small wicker basket holding half a dozen brown eggs. They're still warm.",
+  "weight": 0.8,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": false,
+  "usable": true,
+  "useEffect": "eat"
+}

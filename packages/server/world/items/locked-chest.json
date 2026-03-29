@@ -1,0 +1,10 @@
+{
+  "id": "locked-chest",
+  "name": "Locked Chest",
+  "description": "A battered iron-bound chest. The lock is rusted but holds firm. Something rattles inside.",
+  "weight": 15.0,
+  "rarity": "uncommon",
+  "fixed": true,
+  "equippable": false,
+  "usable": false
+}

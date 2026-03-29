@@ -1,0 +1,11 @@
+{
+  "id": "candle",
+  "name": "Tallow Candle",
+  "description": "A stubby candle of rendered animal fat. It gives off a faint, smoky light.",
+  "weight": 0.2,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": false,
+  "usable": true,
+  "useEffect": "light"
+}

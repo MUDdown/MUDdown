@@ -1,0 +1,10 @@
+{
+  "id": "lamp-oil",
+  "name": "Jar of Lamp Oil",
+  "description": "A sealed clay jar of whale oil, used to fuel the lighthouse lantern.",
+  "weight": 1.5,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": false,
+  "usable": false
+}

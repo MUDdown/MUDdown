@@ -1,0 +1,11 @@
+{
+  "id": "prayer-book",
+  "name": "Prayer Book",
+  "description": "A slim book bound in white leather. The prayers inside are written in silver ink on vellum.",
+  "weight": 0.5,
+  "rarity": "uncommon",
+  "fixed": false,
+  "equippable": false,
+  "usable": true,
+  "useEffect": "read"
+}

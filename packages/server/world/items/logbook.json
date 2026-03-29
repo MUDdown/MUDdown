@@ -1,0 +1,11 @@
+{
+  "id": "logbook",
+  "name": "Worn Logbook",
+  "description": "A guard's logbook with faded entries. The last entry reads: \"Nothing to report. Gate holds.\"",
+  "weight": 0.5,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": false,
+  "usable": true,
+  "useEffect": "read"
+}

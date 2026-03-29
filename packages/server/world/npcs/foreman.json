@@ -1,0 +1,34 @@
+{
+  "id": "foreman",
+  "name": "Dock Foreman",
+  "description": "A stocky man with a clipboard, barking orders at dock workers between bites of a sandwich.",
+  "location": "warehouse",
+  "dialogue": {
+    "start": {
+      "text": "Can't talk long — shipment coming in. What d'you need?",
+      "mood": "busy",
+      "narrative": "The foreman checks his clipboard without looking up.",
+      "responses": [
+        { "text": "What goes through this warehouse?", "next": "cargo" },
+        { "text": "I won't keep you.", "next": null }
+      ]
+    },
+    "cargo": {
+      "text": "Grain, timber, fish, wool — the usual. Sometimes special orders from the jeweler or the blacksmith. And some crates I'm told not to ask about. That's above my pay grade.",
+      "mood": "resigned",
+      "narrative": "He shrugs and takes another bite of his sandwich.",
+      "responses": [
+        { "text": "Crates you can't ask about?", "next": "mystery" },
+        { "text": "Thanks.", "next": null }
+      ]
+    },
+    "mystery": {
+      "text": "Look, I just move boxes. Harbour master handles the manifests. Some come in unmarked from the cove side. I load 'em, I don't look inside. Healthier that way.",
+      "mood": "nervous",
+      "narrative": "He lowers his voice and glances around.",
+      "responses": [
+        { "text": "Understood.", "next": null }
+      ]
+    }
+  }
+}

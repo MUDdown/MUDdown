@@ -1,0 +1,11 @@
+{
+  "id": "crowbar",
+  "name": "Crowbar",
+  "description": "A heavy iron crowbar. Good for prying things open — or as an improvised weapon.",
+  "weight": 2.5,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": true,
+  "slot": "weapon",
+  "usable": false
+}

@@ -1,0 +1,11 @@
+{
+  "id": "glass-necklace",
+  "name": "Glass Bead Necklace",
+  "description": "A string of colored glass beads. Pretty but not valuable — a trinket for tourists.",
+  "weight": 0.1,
+  "rarity": "common",
+  "fixed": false,
+  "equippable": true,
+  "slot": "accessory",
+  "usable": false
+}

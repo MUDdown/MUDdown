@@ -1,0 +1,76 @@
+{
+  "id": "priestess",
+  "name": "Priestess Sera",
+  "description": "A serene woman in silver-white robes, her eyes hold an ancient wisdom. A crescent moon pendant hangs at her throat.",
+  "location": "temple",
+  "dialogue": {
+    "start": {
+      "text": "Welcome to the Temple of the Silver Moon, traveller. You carry the dust of the road and the weight of questions. How may I help?",
+      "mood": "serene",
+      "narrative": "The priestess inclines her head, candlelight catching her silver pendant.",
+      "responses": [
+        { "text": "Tell me about the temple.", "next": "temple" },
+        { "text": "What do you know about the ruins?", "next": "ruins" },
+        { "text": "I've heard about strange lights.", "next": "lights" },
+        { "text": "I seek a blessing.", "next": "blessing" },
+        { "text": "Just visiting.", "next": null }
+      ]
+    },
+    "temple": {
+      "text": "This temple has stood since before the founding of Northkeep. We serve the Silver Moon — goddess of wisdom, healing, and the tides. In times of darkness, the faithful come here for guidance.",
+      "mood": "reverent",
+      "narrative": "She gestures to the ancient stone arches above.",
+      "responses": [
+        { "text": "What about the ruins?", "next": "ruins" },
+        { "text": "May I have a blessing?", "next": "blessing" },
+        { "text": "A beautiful place.", "next": null }
+      ]
+    },
+    "ruins": {
+      "text": "The Eltharan ruins predate even this temple. The Eltharans were master artificers — they bound a great evil beneath their city with seals of starforged metal. I fear those seals are failing.",
+      "mood": "grave",
+      "narrative": "Her expression grows troubled.",
+      "responses": [
+        { "text": "What was sealed away?", "next": "sealed" },
+        { "text": "Can the seals be restored?", "next": "restore" },
+        { "text": "That's concerning.", "next": null }
+      ]
+    },
+    "lights": {
+      "text": "The lights are magical energy escaping through cracks in the ancient seals. Each night they grow brighter. If the seals fail completely... I dare not think what will emerge.",
+      "mood": "worried",
+      "narrative": "She clasps her pendant tightly.",
+      "responses": [
+        { "text": "What was sealed?", "next": "sealed" },
+        { "text": "What can be done?", "next": "restore" },
+        { "text": "I'll keep watch.", "next": null }
+      ]
+    },
+    "sealed": {
+      "text": "The texts speak of a shadow — an entity of pure malice that fed on fear. The Eltharans couldn't destroy it, so they bound it beneath their city in a chamber of starforged seals. The acolyte in the catacombs may know more — he's been studying the old texts.",
+      "mood": "solemn",
+      "narrative": "She pulls an ancient tome from a shelf and opens it to a page of Eltharan script.",
+      "responses": [
+        { "text": "Can the seals be restored?", "next": "restore" },
+        { "text": "I'll speak to the acolyte.", "next": null }
+      ]
+    },
+    "restore": {
+      "text": "Perhaps. Fragments of the original seal-stones have been scattered — some may still be found in the ruins or the forest. If they could be gathered and brought to the sealed chamber... but it would be terribly dangerous.",
+      "mood": "hopeful",
+      "narrative": "A flicker of hope crosses her face.",
+      "responses": [
+        { "text": "I'll try to find them.", "next": null },
+        { "text": "That sounds like a quest for another day.", "next": null }
+      ]
+    },
+    "blessing": {
+      "text": "May the Silver Moon light your path and shield you from the darkness. Go with courage, traveller.",
+      "mood": "warm",
+      "narrative": "She touches her pendant and a soft glow surrounds you momentarily.",
+      "responses": [
+        { "text": "Thank you, Priestess.", "next": null }
+      ]
+    }
+  }
+}

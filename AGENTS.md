@@ -71,7 +71,7 @@ Narrative description of the room.
 
 ## Item Definitions
 
-Items are defined in `packages/server/world/items.json` with this shape:
+Each item is a separate JSON file in `packages/server/world/items/<item-id>.json`:
 
 ```json
 {
@@ -86,7 +86,11 @@ Items are defined in `packages/server/world/items.json` with this shape:
 }
 ```
 
-Equippable items add `"slot": "weapon|armor|accessory"`. Usable items add `"useEffect": "eat|light|read|bless|fish|look-through"`. Combine recipes are in the same file under `"recipes"`.
+Equippable items add `"slot": "weapon|armor|accessory"`. Usable items add `"useEffect": "eat|light|read|bless|fish|look-through"`.
+
+Combine recipes live in `packages/server/world/recipes.json`.
+
+NPC definitions are per-file in `packages/server/world/npcs/<npc-id>.json`.
 
 ## Wire Protocol
 
@@ -110,6 +114,18 @@ cd apps/website && npm run dev                       # Start Astro dev server (p
 ```
 
 Parser tests: `cd packages/parser && npm test` (56 tests via Node.js test runner).
+Server tests: `cd packages/server && npm test` (70 tests via vitest).
+
+## Testing
+
+Both `packages/parser` and `packages/server` have unit test suites. Tests use **vitest** (server) and the Node.js test runner (parser).
+
+- **When adding a new feature**, add or update tests in the relevant package. New server helpers belong in `packages/server/src/helpers.ts` (exported, pure functions) so they can be unit tested without WebSocket mocking.
+- **When modifying existing behavior**, update any tests that cover the changed code path. Run `npx turbo run test` before considering work complete.
+- **Test file organization**: Each test file covers a single concern. Server tests live in `packages/server/tests/` with one file per topic (e.g., `load-rooms.test.ts`, `find-item.test.ts`). Shared fixture helpers live in `packages/server/tests/fixtures.ts`.
+- **World loader tests** use temporary fixture directories (via `mkdtempSync`) so they don't depend on production world data. The `world-integrity.test.ts` file validates production data (counts, bidirectional exits, cross-references).
+- **Pure helpers** (`findItemByName`, `findNpcInRoom`, `findUnclaimedIndex`, `dirAliases`) are in `packages/server/src/helpers.ts` — keep new game-logic helpers here so they stay testable.
+- All tests must pass (`npx turbo run test`) before committing.
 
 ## Accessibility
 
