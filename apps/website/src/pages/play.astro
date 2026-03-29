@@ -48,8 +48,18 @@ import Base from "../layouts/Base.astro";
         }
       }
 
+      function escapeHtml(s: string): string {
+        return s
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
       function inlineFormat(line: string): string {
-        return line
+        // Escape HTML first so only our generated markup is injected
+        const safe = escapeHtml(line);
+        return safe
           .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
           .replace(/\*([^*]+)\*/g, "<em>$1</em>")
           .replace(/`([^`]+)`/g, "<code>$1</code>")
@@ -103,19 +113,22 @@ import Base from "../layouts/Base.astro";
       const div = document.createElement("div");
       div.className = className;
 
-      // ARIA role mapping per MUDdown spec §8
+      // ARIA: group each block type with a descriptive label.
+      // Landmark/live-region roles (main, alert, log, dialog) are NOT used here
+      // because #game-output already has role="log" aria-live="polite" — nesting
+      // those roles would cause duplicate announcements or landmark violations.
       const blockMatch = muddown.match(/^:::(\w[\w-]*)/m);
       if (blockMatch) {
-        const ariaMap: Record<string, { role: string; live?: string }> = {
-          room: { role: "main" },
-          system: { role: "alert" },
-          combat: { role: "log", live: "polite" },
-          dialogue: { role: "dialog" },
+        const blockLabels: Record<string, string> = {
+          room: "Room description",
+          system: "System message",
+          combat: "Combat update",
+          dialogue: "NPC dialogue",
         };
-        const mapping = ariaMap[blockMatch[1]];
-        if (mapping) {
-          div.setAttribute("role", mapping.role);
-          if (mapping.live) div.setAttribute("aria-live", mapping.live);
+        const label = blockLabels[blockMatch[1]];
+        if (label) {
+          div.setAttribute("role", "group");
+          div.setAttribute("aria-label", label);
         }
       }
 
