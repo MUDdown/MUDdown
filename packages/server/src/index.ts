@@ -642,35 +642,28 @@ function handleCombine(ws: WebSocket, session: PlayerSession, arg: string): void
   }
 
   // Pre-check: locate both ingredients before mutating any state
+  function findUnclaimedIndex(arr: string[], target: string, claimed: Set<number>): number {
+    let searchFrom = 0;
+    while (searchFrom < arr.length) {
+      const idx = arr.indexOf(target, searchFrom);
+      if (idx === -1) break;
+      if (!claimed.has(idx)) return idx;
+      searchFrom = idx + 1;
+    }
+    return -1;
+  }
+
   const removalPlan: Array<{ id: string; source: "inventory"; index: number } | { id: string; source: "room"; array: string[]; index: number }> = [];
   const claimedInvIndices = new Set<number>();
   const claimedRoomIndices = new Set<number>();
   for (const ingredient of [def1.id, def2.id]) {
-    // Find unclaimed inventory slot
-    let invIdx = -1;
-    let searchFrom = 0;
-    while (searchFrom < session.inventory.length) {
-      const idx = session.inventory.indexOf(ingredient, searchFrom);
-      if (idx === -1) break;
-      if (!claimedInvIndices.has(idx)) { invIdx = idx; break; }
-      searchFrom = idx + 1;
-    }
+    const invIdx = findUnclaimedIndex(session.inventory, ingredient, claimedInvIndices);
     if (invIdx !== -1) {
       claimedInvIndices.add(invIdx);
       removalPlan.push({ id: ingredient, source: "inventory", index: invIdx });
     } else {
-      // Find unclaimed room slot
       const roomItems = world.roomItems.get(session.currentRoom);
-      let roomIdx = -1;
-      if (roomItems) {
-        let roomSearch = 0;
-        while (roomSearch < roomItems.length) {
-          const idx = roomItems.indexOf(ingredient, roomSearch);
-          if (idx === -1) break;
-          if (!claimedRoomIndices.has(idx)) { roomIdx = idx; break; }
-          roomSearch = idx + 1;
-        }
-      }
+      const roomIdx = roomItems ? findUnclaimedIndex(roomItems, ingredient, claimedRoomIndices) : -1;
       if (roomItems && roomIdx !== -1) {
         claimedRoomIndices.add(roomIdx);
         removalPlan.push({ id: ingredient, source: "room", array: roomItems, index: roomIdx });
