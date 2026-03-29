@@ -113,6 +113,7 @@ describe("findItemByName", () => {
 Use a temp directory with a real SQLite file. Close the DB and remove the dir in teardown:
 
 ```typescript
+import { beforeAll, afterAll } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -138,6 +139,7 @@ afterAll(() => {
 Call `clearHooks()` (and `resetGreetings()` if testing greeting hooks) in `beforeEach` to isolate tests:
 
 ```typescript
+import { beforeEach } from "vitest";
 import { clearHooks, resetGreetings } from "../src/hooks.js";
 
 beforeEach(() => {

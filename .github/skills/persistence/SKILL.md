@@ -110,7 +110,7 @@ function rowToPlayer(row: PlayerRow): PlayerRecord {
 
 ### Named Parameters
 
-SQLite statements use `@` prefixed named parameters:
+Prefer `@`-prefixed named parameters in SQLite statements (the codebase also uses positional `?` placeholders in some queries):
 
 ```typescript
 const stmt = this.db.prepare(`
@@ -121,7 +121,7 @@ stmt.run({ id, currentRoom: "town-square" });
 
 ## Save/Load Lifecycle
 
-1. **Server startup**: Open DB → `getAllRoomItems()` to restore room inventories → `getDefeatedNpcs()` to rebuild defeated set → `getAllNpcHp()` to restore damaged NPC HP.
+1. **Server startup**: Open DB, then use `getAllRoomItems()` to restore room inventories, `getAllNpcHp()` to restore damaged NPC HP, and `getDefeatedNpcs()` to rebuild the defeated set.
 2. **Player login**: `getPlayerByGithubId()` to find existing player or `upsertPlayer()` to create.
 3. **During play**: `savePlayerState()` on meaningful changes (room change, inventory change, combat).
 4. **Periodic auto-save**: Timer saves all connected players' state plus `saveAllRoomItems()` and `saveAllNpcHp()`.
@@ -147,6 +147,7 @@ Tests live in `packages/server/tests/db.test.ts`. Key patterns:
 Use a temp directory with a real SQLite file. Note: better-sqlite3 *does* support in-memory databases via `:memory:` (each connection gets its own isolated DB) and shared in-memory databases via `file::memory:?cache=shared`. We use a temp file instead so the DB can be inspected on disk after a failed test run and to mirror the production file-based code path:
 
 ```typescript
+import { beforeAll, afterAll } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
