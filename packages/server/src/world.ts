@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { RoomAttributes, ItemDefinition, CombineRecipe } from "@muddown/shared";
+import type { RoomAttributes, ItemDefinition, CombineRecipe, EquipSlot } from "@muddown/shared";
 
 export interface Room {
   attributes: RoomAttributes;
@@ -19,7 +19,7 @@ export interface WorldMap {
 // ─── YAML Frontmatter Parser (minimal, no dependencies) ─────────────────────
 
 interface RoomFrontmatter {
-  id: string;
+  id?: string;
   region?: string;
   lighting?: string;
   connections?: Record<string, string>;
@@ -129,13 +129,44 @@ export function loadWorld(worldDir?: string): WorldMap {
         console.warn(`Skipping item "${raw.id}": missing name or description`);
         continue;
       }
+      if (typeof raw.weight !== "number" || typeof raw.fixed !== "boolean") {
+        console.warn(`Skipping item "${raw.id}": missing or invalid weight/fixed`);
+        continue;
+      }
+      const validRarities = ["common", "uncommon", "rare", "legendary"] as const;
+      if (typeof raw.rarity !== "string" || !validRarities.includes(raw.rarity as typeof validRarities[number])) {
+        console.warn(`Skipping item "${raw.id}": invalid rarity "${raw.rarity}"`);
+        continue;
+      }
       if (itemDefs.has(raw.id)) {
         console.warn(`Duplicate item ID "${raw.id}" — overwriting previous definition`);
       }
-      if (raw.equippable && !raw.slot) {
-        console.warn(`Item "${raw.id}" is equippable but has no slot defined`);
-      }
-      itemDefs.set(raw.id, raw as unknown as ItemDefinition);
+
+      const base = {
+        id: raw.id,
+        name: raw.name,
+        description: raw.description,
+        weight: raw.weight,
+        rarity: raw.rarity as ItemDefinition["rarity"],
+        fixed: raw.fixed,
+      };
+
+      const validSlots: EquipSlot[] = ["weapon", "armor", "accessory"];
+      const equip = raw.equippable === true
+        ? validSlots.includes(raw.slot as EquipSlot)
+          ? { equippable: true as const, slot: raw.slot as EquipSlot }
+          : (() => { console.warn(`Item "${raw.id}" is equippable but has invalid slot "${raw.slot}"`); return null; })()
+        : { equippable: false as const };
+      if (!equip) continue;
+
+      const use = raw.usable === true
+        ? typeof raw.useEffect === "string"
+          ? { usable: true as const, useEffect: raw.useEffect }
+          : (() => { console.warn(`Item "${raw.id}" is usable but has no useEffect`); return null; })()
+        : { usable: false as const };
+      if (!use) continue;
+
+      itemDefs.set(raw.id, { ...base, ...equip, ...use } as ItemDefinition);
     }
     if (Array.isArray(itemsRaw.recipes)) {
       for (const raw of itemsRaw.recipes as Record<string, unknown>[]) {
@@ -145,7 +176,7 @@ export function loadWorld(worldDir?: string): WorldMap {
           typeof raw.result === "string" &&
           typeof raw.description === "string"
         ) {
-          recipes.push(raw as unknown as CombineRecipe);
+          recipes.push({ item1: raw.item1, item2: raw.item2, result: raw.result, description: raw.description });
         } else {
           console.warn("Skipping invalid recipe (missing item1, item2, result, or description):", raw);
         }

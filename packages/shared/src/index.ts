@@ -109,7 +109,7 @@ export type ConformanceLevel = "text" | "interactive" | "full";
 
 export type EquipSlot = "weapon" | "armor" | "accessory";
 
-interface ItemBase {
+export interface ItemBase {
   id: string;
   name: string;
   description: string;
@@ -118,11 +118,11 @@ interface ItemBase {
   fixed: boolean;
 }
 
-type EquippableItem = { equippable: true; slot: EquipSlot };
-type NonEquippableItem = { equippable: false; slot?: never };
+export type EquippableItem = { equippable: true; slot: EquipSlot };
+export type NonEquippableItem = { equippable: false; slot?: never };
 
-type UsableItem = { usable: true; useEffect: string };
-type NonUsableItem = { usable: false; useEffect?: never };
+export type UsableItem = { usable: true; useEffect: string };
+export type NonUsableItem = { usable: false; useEffect?: never };
 
 export type ItemDefinition = ItemBase &
   (EquippableItem | NonEquippableItem) &
