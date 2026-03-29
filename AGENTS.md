@@ -37,7 +37,7 @@ Room files live in `packages/server/world/<region>/<room-id>.md` and follow this
 ---
 id: room-id
 region: region-name
-lighting: bright|dim|dark
+lighting: bright
 connections:
   north: target-room-id
   south: other-room-id
@@ -113,12 +113,12 @@ cd packages/server && node dist/index.js             # Start game server (port 3
 cd apps/website && npm run dev                       # Start Astro dev server (port 4321)
 ```
 
-Parser tests: `cd packages/parser && npm test` (56 tests via Node.js test runner).
+Parser tests: `cd packages/parser && npm test` (56 tests via vitest).
 Server tests: `cd packages/server && npm test` (70 tests via vitest).
 
 ## Testing
 
-Both `packages/parser` and `packages/server` have unit test suites. Tests use **vitest** (server) and the Node.js test runner (parser).
+Both `packages/parser` and `packages/server` have unit test suites. Both use **vitest**.
 
 - **When adding a new feature**, add or update tests in the relevant package. New server helpers belong in `packages/server/src/helpers.ts` (exported, pure functions) so they can be unit tested without WebSocket mocking.
 - **When modifying existing behavior**, update any tests that cover the changed code path. Run `npx turbo run test` before considering work complete.
@@ -133,9 +133,21 @@ The spec (§8) requires ARIA role mapping for container blocks:
 - `room` → `role="main"`
 - `system` → `role="alert"`
 - `combat` → `role="log"` with `aria-live="polite"`
-- `dialogue` → `role="dialog"`
+- `dialogue` → `role="group"` with `aria-label="NPC dialogue"`
 
 The web client applies these roles in `apps/website/src/pages/play.astro`. Do not remove them.
+
+## Skills
+
+Detailed how-to guides live in `.github/skills/<name>/SKILL.md` (canonical) with symlinks at `.claude/skills/<name>/SKILL.md` for Claude Code. Each skill is a Markdown file with YAML frontmatter (`name`, `description`) in a kebab-case directory.
+
+| Skill | Purpose |
+|-------|---------|
+| `room-creation` | Create MUDdown room files (frontmatter, exits, sections) |
+| `item-creation` | Create item definition JSON files (equippable, usable, fixed, recipes) |
+| `npc-creation` | Create NPC definitions with dialogue trees |
+| `muddown-format` | MUDdown markup format (container blocks, link schemes, wire protocol) |
+| `testing` | Testing conventions (vitest, fixtures, world integrity) |
 
 ## What NOT to Do
 

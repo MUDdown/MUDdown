@@ -1,0 +1,1 @@
+../../../.github/skills/room-creation/SKILL.md

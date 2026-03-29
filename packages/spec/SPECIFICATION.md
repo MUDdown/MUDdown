@@ -2,7 +2,7 @@
 
 **Version**: 0.1.0-draft  
 **Status**: Draft  
-**Date**: 2026-03-27
+**Date**: 2026-03-28
 
 ## 1. Introduction
 
@@ -284,7 +284,7 @@ player: Tharion
 
 - Container block types map to ARIA landmarks/roles
 - Room blocks → `role="main"`
-- Dialogue blocks → `role="dialog"`
+- Dialogue blocks → `role="group"` with `aria-label="NPC dialogue"`
 - Combat blocks → `role="log"` with `aria-live="polite"`
 - System blocks → `role="alert"`
 - Interactive links include descriptive text suitable for screenreaders
