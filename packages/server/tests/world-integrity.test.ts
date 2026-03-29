@@ -143,7 +143,7 @@ describe("loadWorld — production Northkeep data", () => {
       expect(stats.maxHp, `NPC "${npc.id}" maxHp`).toBe(stats.hp);
       expect(stats.ac, `NPC "${npc.id}" ac`).toBeGreaterThan(0);
       expect(stats.attackBonus, `NPC "${npc.id}" attackBonus`).toBeGreaterThanOrEqual(0);
-      expect(stats.damage, `NPC "${npc.id}" damage`).toMatch(/^\d+d\d+([+-]\d+)?$/);
+      expect(stats.damage, `NPC "${npc.id}" damage`).toMatch(/^[1-9]\d*d[1-9]\d*([+-]\d+)?$/);
       expect(stats.xp, `NPC "${npc.id}" xp`).toBeGreaterThan(0);
     }
   });
@@ -165,7 +165,7 @@ describe("loadWorld — production Northkeep data", () => {
     expect(weapons.length).toBeGreaterThan(0);
     for (const weapon of weapons) {
       if (!weapon.equippable) continue; // type narrowing
-      expect(weapon.damage, `Item "${weapon.id}" damage`).toMatch(/^\d+d\d+([+-]\d+)?$/);
+      expect(weapon.damage, `Item "${weapon.id}" damage`).toMatch(/^[1-9]\d*d[1-9]\d*([+-]\d+)?$/);
       expect(weapon.attackBonus ?? 0, `Item "${weapon.id}" attackBonus`).toBeGreaterThanOrEqual(0);
     }
   });

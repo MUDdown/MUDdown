@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { RoomAttributes, ItemDefinition, CombineRecipe, EquipSlot, NpcDefinition, NpcCombatStats, DialogueNode, DialogueResponse } from "@muddown/shared";
+import type { RoomAttributes, ItemDefinition, CombineRecipe, EquipSlot, NpcDefinition, DialogueNode, DialogueResponse } from "@muddown/shared";
 
 // Dice expression format: NdS or NdS+M or NdS-M (e.g., "2d6+3", "1d8-1")
 // N >= 1, S >= 1 (no leading zeros)
@@ -151,22 +151,40 @@ export function loadWorld(worldDir?: string): WorldMap {
       };
 
       const validSlots: EquipSlot[] = ["weapon", "armor", "accessory"];
-      const equip = raw.equippable === true
-        ? validSlots.includes(raw.slot as EquipSlot)
-          ? {
-              equippable: true as const,
-              slot: raw.slot as EquipSlot,
-              ...(typeof raw.attackBonus === "number" ? { attackBonus: raw.attackBonus } : {}),
-              ...(typeof raw.damage === "string" && DICE_EXPRESSION_REGEX.test(raw.damage)
-                ? { damage: raw.damage }
-                : (typeof raw.damage === "string"
-                    ? (console.warn(`Item "${raw.id}" has invalid damage expression "${raw.damage}" — ignoring damage`), {})
-                    : {})),
-              ...(typeof raw.acBonus === "number" ? { acBonus: raw.acBonus } : {}),
-            }
-          : (() => { console.warn(`Item "${raw.id}" is equippable but has invalid slot "${raw.slot}"`); return null; })()
-        : { equippable: false as const };
-      if (!equip) continue;
+      let equip: Record<string, unknown>;
+      if (raw.equippable !== true) {
+        equip = { equippable: false as const };
+      } else if (!validSlots.includes(raw.slot as EquipSlot)) {
+        console.warn(`Item "${raw.id}" is equippable but has invalid slot "${raw.slot}"`);
+        continue;
+      } else {
+        const slot = raw.slot as EquipSlot;
+        equip = { equippable: true as const, slot };
+
+        if (typeof raw.attackBonus === "number") {
+          if (raw.attackBonus >= 0) {
+            equip.attackBonus = raw.attackBonus;
+          } else {
+            console.warn(`Item "${raw.id}" has negative attackBonus ${raw.attackBonus} — ignoring attackBonus`);
+          }
+        }
+
+        if (typeof raw.damage === "string") {
+          if (DICE_EXPRESSION_REGEX.test(raw.damage)) {
+            equip.damage = raw.damage;
+          } else {
+            console.warn(`Item "${raw.id}" has invalid damage expression "${raw.damage}" — ignoring damage`);
+          }
+        }
+
+        if (typeof raw.acBonus === "number") {
+          if (raw.acBonus >= 0 && (slot === "armor" || slot === "accessory")) {
+            equip.acBonus = raw.acBonus;
+          } else {
+            console.warn(`Item "${raw.id}" has invalid acBonus ${raw.acBonus} for slot "${slot}" — ignoring acBonus`);
+          }
+        }
+      }
 
       const use = raw.usable === true
         ? typeof raw.useEffect === "string"
@@ -278,8 +296,8 @@ export function loadWorld(worldDir?: string): WorldMap {
           // Validate dice expression
           if (!DICE_EXPRESSION_REGEX.test(c.damage)) {
             console.warn(`NPC "${raw.id}" has invalid damage expression "${c.damage}" — ignoring combat block`);
-          } else if (c.hp <= 0 || c.maxHp <= 0 || c.hp > c.maxHp || c.ac < 0 || c.xp < 0) {
-            console.warn(`NPC "${raw.id}" has out-of-range combat stats (hp=${c.hp}, maxHp=${c.maxHp}, ac=${c.ac}, xp=${c.xp}) — ignoring combat block`);
+          } else if (c.hp <= 0 || c.maxHp <= 0 || c.hp > c.maxHp || c.ac <= 0 || c.attackBonus < 0 || c.xp <= 0) {
+            console.warn(`NPC "${raw.id}" has out-of-range combat stats (hp=${c.hp}, maxHp=${c.maxHp}, ac=${c.ac}, attackBonus=${c.attackBonus}, xp=${c.xp}) — ignoring combat block`);
           } else {
             npc.combat = {
               hp: c.hp,

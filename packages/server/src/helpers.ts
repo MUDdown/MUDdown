@@ -93,7 +93,7 @@ export function rollD20(): number {
  * Returns { rolls, modifier, total }.
  */
 export function rollDice(expr: string): { rolls: number[]; modifier: number; total: number } {
-  const match = expr.match(/^(\d+)d(\d+)([+-]\d+)?$/);
+  const match = expr.match(/^([1-9]\d*)d([1-9]\d*)([+-]\d+)?$/);
   if (!match) {
     console.error(`rollDice: invalid dice expression "${expr}" — defaulting to 0`);
     return { rolls: [0], modifier: 0, total: 0 };
