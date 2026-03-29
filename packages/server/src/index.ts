@@ -148,7 +148,7 @@ for (const [npcId, npc] of world.npcDefs) {
   if (startNode) {
     registerHook(
       "npc", npcId, "onContact",
-      createGreetingHook(npcId, `:::dialogue{npc="${npcId}" mood="${startNode.mood ?? "neutral"}"}\n**${npc.name}** says, "${startNode.text}"\n:::`),
+      createGreetingHook(npcId, `:::dialogue{npc="${npcId}" mood="${startNode.mood ?? "neutral"}"}\n> **${npc.name}** says, "${escapeDialogueText(startNode.text)}"\n:::`),
     );
   }
 }
@@ -706,7 +706,7 @@ function sendDialogueNode(ws: WebSocket, npc: NpcDefinition, nodeId: string, nod
   const mood = node.mood ?? "neutral";
   const lines: string[] = [];
   lines.push(`:::dialogue{npc="${npc.id}" mood="${mood}"}`);
-  lines.push(`**${npc.name}** says, "${escapeDialogueText(node.text)}"`);
+  lines.push(`> **${npc.name}** says, "${escapeDialogueText(node.text)}"`);
   if (node.narrative) {
     lines.push("");
     lines.push(node.narrative);

@@ -76,7 +76,7 @@ export function stripHtmlComments(text: string): string {
 // ─── Dialogue Text Escaping ──────────────────────────────────────────────────
 
 export function escapeDialogueText(text: string): string {
-  return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return text.replace(/"/g, "'");
 }
 
 // ─── Markdown Link Escaping ──────────────────────────────────────────────────
