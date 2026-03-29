@@ -38,7 +38,7 @@ Content goes here.
 ### System Block Attributes
 
 ```markdown
-:::system{type="info"}
+:::system{type="notification"}
 You picked up the **rusty key**.
 :::
 ```
@@ -68,7 +68,8 @@ MUDdown extends standard Markdown links with game-specific URI schemes:
 The web client in `apps/website/src/pages/play.astro` handles these links:
 - `go:` → sends `go <direction>` command
 - `cmd:` → sends the command directly
-- `item:` / `npc:` → sends `examine <target>` command
+- `item:` → sends `examine <target>` command
+- `npc:` → sends `talk <target>` command
 - `help:` → sends `help <topic>` command
 
 ## Wire Protocol

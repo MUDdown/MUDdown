@@ -140,4 +140,4 @@ beforeAll(() => {
 2. **Not cleaning up temp dirs** — always call `cleanupFixtureDir` in `afterAll`.
 3. **Duplicate `loadWorld()` calls** — use `beforeAll` to load once per describe block.
 4. **Missing assertions** — every `it` block should have at least one `expect`.
-5. **Forgetting to build first** — `npm test` runs against compiled JS; build before testing.
+5. **Build vs test** — `npm test` runs vitest against TypeScript sources directly and does not require a prior `tsc` build. `npx turbo run test` may trigger builds first via Turbo task dependencies.

@@ -51,7 +51,7 @@ Each dialogue node has:
 |-------|------|----------|-------------|
 | `text` | string | Yes | What the NPC says |
 | `mood` | string | No | Emotional tone (e.g., `"friendly"`, `"worried"`, `"conspiratorial"`) |
-| `narrative` | string | No | Third-person action description (italicized in output) |
+| `narrative` | string | No | Third-person action description; supports Markdown (use `*...*` for italics) |
 | `responses` | array | Yes | Player response choices |
 
 Each response has:

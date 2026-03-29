@@ -9,7 +9,7 @@ You are creating room files for the MUDdown game server. Room files are Markdown
 
 ## File Location
 
-Room files live in `packages/server/world/<region>/<room-id>.md`. Regions are subdirectories (can be nested). The loader walks the directory tree recursively, skipping `items/`, `npcs/`, and files not ending in `.md`.
+Room files live in `packages/server/world/<region>/<room-id>.md`. Regions are subdirectories (can be nested). The loader walks the directory tree recursively; at the world root it skips the top-level `items/` and `npcs/` directories and any files not ending in `.md`, but it recurses into all other subdirectories.
 
 ## Room File Structure
 
