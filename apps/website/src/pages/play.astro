@@ -25,6 +25,14 @@ import Base from "../layouts/Base.astro";
 
     // ── Markdown-lite renderer (handles basic MUDdown for display) ──────
 
+    function escapeHtml(s: string): string {
+      return s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
     function renderMuddown(muddown: string): string {
       // Strip container block fences
       let text = muddown
@@ -46,14 +54,6 @@ import Base from "../layouts/Base.astro";
           if (content.trim()) html.push(`<p>${content}</p>`);
           paraLines = [];
         }
-      }
-
-      function escapeHtml(s: string): string {
-        return s
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/"/g, "&quot;");
       }
 
       function inlineFormat(line: string): string {
@@ -139,6 +139,16 @@ import Base from "../layouts/Base.astro";
       });
     }
 
+    function appendRawHtml(html: string, className: string) {
+      const div = document.createElement("div");
+      div.className = className;
+      div.innerHTML = html;
+      output.appendChild(div);
+      requestAnimationFrame(() => {
+        output.scrollTop = output.scrollHeight;
+      });
+    }
+
     // ── Game link handler (exposed globally for onclick) ────────────────
 
     (window as any).handleGameLink = function (el: HTMLElement) {
@@ -216,7 +226,7 @@ import Base from "../layouts/Base.astro";
         if (!cmd) return;
         history.unshift(cmd);
         historyIndex = -1;
-        appendMessage(`<span style="color:var(--green)">&gt; ${cmd}</span>`, "input-echo");
+        appendRawHtml(`<span style="color:var(--green)">&gt; ${escapeHtml(cmd)}</span>`, "input-echo");
         sendCommand(cmd);
         input.value = "";
       } else if (e.key === "ArrowUp") {
