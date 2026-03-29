@@ -107,30 +107,31 @@ function respawnDefeatedNpcs(): void {
   for (const record of defeated) {
     if (new Date(record.respawnAt) <= now) {
       try {
-        // Restore NPC to its room
+        // Restore NPC to its home room
         const npc = world.npcDefs.get(record.npcId);
         if (npc) {
-          const roomNpcList = world.roomNpcs.get(record.roomId) ?? [];
+          const homeRoom = npc.location;
+          const roomNpcList = world.roomNpcs.get(homeRoom) ?? [];
           if (!roomNpcList.includes(record.npcId)) {
             roomNpcList.push(record.npcId);
-            world.roomNpcs.set(record.roomId, roomNpcList);
+            world.roomNpcs.set(homeRoom, roomNpcList);
           }
           // Reset HP to max
           if (npc.combat) {
-            const hpKey = getNpcHpKey(record.roomId, record.npcId);
+            const hpKey = getNpcHpKey(homeRoom, record.npcId);
             npcHpMap.delete(hpKey);
-            db.removeNpcHp(record.roomId, record.npcId);
+            db.removeNpcHp(homeRoom, record.npcId);
           }
           // Fire onReset hook
           fireHook({
             event: "onReset",
             entityId: record.npcId,
             entityType: "npc",
-            roomId: record.roomId,
+            roomId: homeRoom,
           });
         }
         db.removeDefeatedNpc(record.npcId);
-        console.log(`Respawned NPC "${record.npcId}" in room "${record.roomId}"`);
+        console.log(`Respawned NPC "${record.npcId}" in room "${npc?.location ?? record.roomId}"`);
       } catch (err) {
         console.error(`Failed to respawn NPC "${record.npcId}" in room "${record.roomId}":`, err);
       }
@@ -1393,16 +1394,30 @@ function shutdown(): void {
   clearInterval(saveTimer);
   saveAllState();
   db.cleanExpiredSessions();
-  db.close();
-  server.close(() => {
-    console.log("HTTP server closed.");
-    process.exit(0);
-  });
-  // Force exit if server.close hangs (e.g., lingering connections)
-  setTimeout(() => {
+
+  // Force exit if shutdown hangs (e.g., lingering connections)
+  const forceExitTimer = setTimeout(() => {
     console.warn("Forced shutdown after timeout.");
     process.exit(1);
-  }, 5000).unref();
+  }, 5000);
+  forceExitTimer.unref();
+
+  // Close all WebSocket connections first
+  for (const ws of wss.clients) {
+    try {
+      ws.close(1001, "Server shutting down");
+    } catch { /* ignore */ }
+  }
+
+  wss.close(() => {
+    console.log("WebSocket server closed.");
+    server.close(() => {
+      console.log("HTTP server closed.");
+      db.close();
+      clearTimeout(forceExitTimer);
+      process.exit(0);
+    });
+  });
 }
 
 process.on("SIGTERM", shutdown);

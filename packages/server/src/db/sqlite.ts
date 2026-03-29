@@ -25,8 +25,8 @@ export class SqliteDatabase implements GameDatabase {
         hp          INTEGER NOT NULL DEFAULT 20,
         max_hp      INTEGER NOT NULL DEFAULT 20,
         xp          INTEGER NOT NULL DEFAULT 0,
-        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
       );
 
       CREATE TABLE IF NOT EXISTS room_items (
@@ -105,8 +105,8 @@ export class SqliteDatabase implements GameDatabase {
   }
 
   savePlayerState(id: string, state: PlayerStateUpdate): void {
-    const sets: string[] = ["updated_at = datetime('now')"];
-    const params: Record<string, unknown> = { id };
+    const sets: string[] = ["updated_at = @updatedAt"];
+    const params: Record<string, unknown> = { id, updatedAt: new Date().toISOString() };
 
     if (state.currentRoom !== undefined) {
       sets.push("current_room = @currentRoom");
@@ -296,14 +296,30 @@ interface DefeatedNpcRow {
 }
 
 function rowToPlayer(row: PlayerRow): PlayerRecord {
+  let inventory: string[];
+  try {
+    inventory = JSON.parse(row.inventory) as string[];
+  } catch {
+    console.error(`Corrupt inventory JSON for player ${row.id}, resetting to []`);
+    inventory = [];
+  }
+
+  let equipped: Record<EquipSlot, string | null>;
+  try {
+    equipped = JSON.parse(row.equipped) as Record<EquipSlot, string | null>;
+  } catch {
+    console.error(`Corrupt equipped JSON for player ${row.id}, resetting to defaults`);
+    equipped = { weapon: null, armor: null, accessory: null };
+  }
+
   return {
     id: row.id,
     githubId: row.github_id,
     username: row.username,
     displayName: row.display_name,
     currentRoom: row.current_room,
-    inventory: JSON.parse(row.inventory) as string[],
-    equipped: JSON.parse(row.equipped) as Record<EquipSlot, string | null>,
+    inventory,
+    equipped,
     hp: row.hp,
     maxHp: row.max_hp,
     xp: row.xp,
