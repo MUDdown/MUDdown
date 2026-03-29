@@ -229,9 +229,14 @@ export function loadWorld(worldDir?: string): WorldMap {
           continue;
         }
         const responses: DialogueResponse[] = [];
-        for (const resp of node.responses as Record<string, unknown>[]) {
-          if (typeof resp.text === "string" && (resp.next === null || typeof resp.next === "string")) {
-            responses.push({ text: resp.text, next: resp.next as string | null });
+        for (const resp of node.responses as unknown[]) {
+          if (!resp || typeof resp !== "object") {
+            console.warn(`Skipping malformed dialogue response in node "${nodeId}" for NPC "${raw.id}":`, JSON.stringify(resp));
+            continue;
+          }
+          const respObj = resp as Record<string, unknown>;
+          if (typeof respObj.text === "string" && (respObj.next === null || typeof respObj.next === "string")) {
+            responses.push({ text: respObj.text, next: respObj.next as string | null });
           } else {
             console.warn(`Skipping malformed dialogue response in node "${nodeId}" for NPC "${raw.id}":`, JSON.stringify(resp));
           }

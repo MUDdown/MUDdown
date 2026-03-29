@@ -447,7 +447,8 @@ function sendDialogueNode(ws: WebSocket, npc: NpcDefinition, nodeId: string, nod
     for (const resp of node.responses) {
       const label = escapeMarkdownLinkLabel(resp.text);
       if (resp.next === null) {
-        lines.push(`- ["${label}"](cmd:talk ${npc.id} end)`);
+        const dest = escapeMarkdownLinkDest(`cmd:talk ${npc.id} end`);
+        lines.push(`- ["${label}"](${dest})`);
       } else {
         const dest = escapeMarkdownLinkDest(`cmd:talk ${npc.id} ${resp.next}`);
         lines.push(`- ["${label}"](${dest})`);
