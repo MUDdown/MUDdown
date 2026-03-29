@@ -3,6 +3,14 @@
   "name": "Grey Wolf",
   "description": "A large grey wolf with yellow eyes that track your every movement. It growls low in its throat.",
   "location": "deep-forest",
+  "combat": {
+    "hp": 12,
+    "maxHp": 12,
+    "ac": 13,
+    "attackBonus": 2,
+    "damage": "1d6+2",
+    "xp": 25
+  },
   "dialogue": {
     "start": {
       "text": "*Grrrrrrr...*",

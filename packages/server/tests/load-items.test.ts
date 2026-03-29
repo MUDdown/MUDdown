@@ -170,4 +170,54 @@ describe("loadWorld — items", () => {
     const world = loadWorld(dir);
     expect(world.itemDefs.size).toBe(0);
   });
+
+  it("loads equippable weapon with combat stats", () => {
+    writeItem(dir, "sword.json", {
+      id: "sword",
+      name: "Iron Sword",
+      description: "A sturdy blade.",
+      weight: 1.5,
+      rarity: "common",
+      fixed: false,
+      equippable: true,
+      slot: "weapon",
+      attackBonus: 2,
+      damage: "1d8+1",
+      usable: false,
+    });
+
+    const world = loadWorld(dir);
+    const item = world.itemDefs.get("sword");
+    expect(item).toBeDefined();
+    expect(item!.equippable).toBe(true);
+    if (item!.equippable) {
+      expect(item!.slot).toBe("weapon");
+      expect(item!.attackBonus).toBe(2);
+      expect(item!.damage).toBe("1d8+1");
+    }
+  });
+
+  it("loads equippable armor with AC bonus", () => {
+    writeItem(dir, "shield.json", {
+      id: "shield",
+      name: "Shield",
+      description: "A wooden shield.",
+      weight: 3.0,
+      rarity: "common",
+      fixed: false,
+      equippable: true,
+      slot: "armor",
+      acBonus: 2,
+      usable: false,
+    });
+
+    const world = loadWorld(dir);
+    const item = world.itemDefs.get("shield");
+    expect(item).toBeDefined();
+    expect(item!.equippable).toBe(true);
+    if (item!.equippable) {
+      expect(item!.slot).toBe("armor");
+      expect(item!.acBonus).toBe(2);
+    }
+  });
 });

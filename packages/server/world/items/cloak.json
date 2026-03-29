@@ -7,5 +7,6 @@
   "fixed": false,
   "equippable": true,
   "slot": "armor",
+  "acBonus": 1,
   "usable": false
 }

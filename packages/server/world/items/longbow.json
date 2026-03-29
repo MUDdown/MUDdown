@@ -7,5 +7,7 @@
   "fixed": false,
   "equippable": true,
   "slot": "weapon",
+  "attackBonus": 0,
+  "damage": "1d8",
   "usable": false
 }

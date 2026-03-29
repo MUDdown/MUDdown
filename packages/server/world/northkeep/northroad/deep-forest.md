@@ -19,6 +19,7 @@ at the base of the largest trunk.
 ## Exits
 - [South](go:south) — Forest Edge
 
+<!-- Static: this section is a template and won't update after NPC defeat -->
 ## Present
 - A [grey wolf](npc:wolf) watches you from the shadows, ears flat.
 

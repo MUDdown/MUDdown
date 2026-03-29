@@ -118,8 +118,8 @@ export interface ItemBase {
   fixed: boolean;
 }
 
-export type EquippableItem = { equippable: true; slot: EquipSlot };
-export type NonEquippableItem = { equippable: false; slot?: never };
+export type EquippableItem = { equippable: true; slot: EquipSlot; attackBonus?: number; damage?: string; acBonus?: number };
+export type NonEquippableItem = { equippable: false; slot?: never; attackBonus?: never; damage?: never; acBonus?: never };
 
 export type UsableItem = { usable: true; useEffect: string };
 export type NonUsableItem = { usable: false; useEffect?: never };
@@ -136,6 +136,23 @@ export interface CombineRecipe {
 }
 
 // ─── NPC & Dialogue System ───────────────────────────────────────────────────
+
+export interface NpcCombatStats {
+  hp: number;
+  maxHp: number;
+  ac: number;
+  attackBonus: number;
+  damage: string;       // dice expression, e.g. "1d6+1"
+  xp: number;
+}
+
+export const PLAYER_DEFAULTS = {
+  hp: 20,
+  maxHp: 20,
+  ac: 10,
+  attackBonus: 2,
+  damage: "1d4",        // unarmed
+} as const satisfies Omit<NpcCombatStats, "xp">;
 
 export interface DialogueResponse {
   text: string;
@@ -155,4 +172,5 @@ export interface NpcDefinition {
   description: string;
   location: string;       // room ID where this NPC resides
   dialogue: Record<string, DialogueNode>; // node-id → node ("start" is entry point)
+  combat?: NpcCombatStats;
 }

@@ -163,4 +163,64 @@ describe("loadWorld — NPCs", () => {
     const npc = world.npcDefs.get("npc");
     expect(npc!.dialogue["start"].responses).toHaveLength(2);
   });
+
+  it("loads NPC combat stats when present", () => {
+    writeNpc(dir, "wolf.json", {
+      id: "wolf",
+      name: "Wolf",
+      description: "A wolf.",
+      location: "forest",
+      combat: {
+        hp: 12,
+        maxHp: 12,
+        ac: 13,
+        attackBonus: 4,
+        damage: "1d6+2",
+        xp: 25,
+      },
+      dialogue: { start: { text: "*Grrr*", responses: [] } },
+    });
+
+    const world = loadWorld(dir);
+    const npc = world.npcDefs.get("wolf");
+    expect(npc).toBeDefined();
+    expect(npc!.combat).toBeDefined();
+    expect(npc!.combat!.hp).toBe(12);
+    expect(npc!.combat!.maxHp).toBe(12);
+    expect(npc!.combat!.ac).toBe(13);
+    expect(npc!.combat!.attackBonus).toBe(4);
+    expect(npc!.combat!.damage).toBe("1d6+2");
+    expect(npc!.combat!.xp).toBe(25);
+  });
+
+  it("ignores invalid combat stats (missing fields)", () => {
+    writeNpc(dir, "bad-combat.json", {
+      id: "bad-combat",
+      name: "Bad Combat NPC",
+      description: "An NPC with bad combat data.",
+      location: "room",
+      combat: { hp: 10 }, // missing other required fields
+      dialogue: { start: { text: "Hi", responses: [] } },
+    });
+
+    const world = loadWorld(dir);
+    const npc = world.npcDefs.get("bad-combat");
+    expect(npc).toBeDefined();
+    expect(npc!.combat).toBeUndefined();
+  });
+
+  it("loads NPC without combat stats as non-combatant", () => {
+    writeNpc(dir, "baker.json", {
+      id: "baker",
+      name: "Baker",
+      description: "A baker.",
+      location: "bakery",
+      dialogue: { start: { text: "Hi!", responses: [] } },
+    });
+
+    const world = loadWorld(dir);
+    const npc = world.npcDefs.get("baker");
+    expect(npc).toBeDefined();
+    expect(npc!.combat).toBeUndefined();
+  });
 });

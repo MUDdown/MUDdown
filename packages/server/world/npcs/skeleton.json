@@ -3,6 +3,14 @@
   "name": "Skeletal Guardian",
   "description": "An animated skeleton in corroded Eltharan armour. Empty eye sockets glow with faint green light.",
   "location": "ruins-hall",
+  "combat": {
+    "hp": 18,
+    "maxHp": 18,
+    "ac": 14,
+    "attackBonus": 3,
+    "damage": "1d8+1",
+    "xp": 50
+  },
   "dialogue": {
     "start": {
       "text": "T-t-turn... back... the living... must not... enter...",
