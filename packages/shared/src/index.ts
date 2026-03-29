@@ -174,3 +174,56 @@ export interface NpcDefinition {
   dialogue: Record<string, DialogueNode>; // node-id → node ("start" is entry point)
   combat?: NpcCombatStats;
 }
+
+// ─── Player Persistence ──────────────────────────────────────────────────────
+
+export interface PlayerRecord {
+  id: string;             // stable UUID (primary key)
+  githubId: string;       // GitHub user ID (unique)
+  username: string;       // GitHub login (for display fallback)
+  displayName: string;    // chosen or GitHub display name
+  currentRoom: string;
+  inventory: string[];    // item IDs
+  equipped: Record<EquipSlot, string | null>;
+  hp: number;
+  maxHp: number;
+  xp: number;
+  createdAt: string;      // ISO 8601
+  updatedAt: string;      // ISO 8601
+}
+
+export interface DefeatedNpcRecord {
+  npcId: string;
+  roomId: string;
+  defeatedAt: string;     // ISO 8601
+  respawnAt: string;      // ISO 8601
+}
+
+// ─── Entity Lifecycle Hooks ──────────────────────────────────────────────────
+
+export type HookEvent =
+  | "onCreate"            // entity first added to the world
+  | "onReset"             // entity respawned / restored
+  | "onContact";          // entity comes in contact with another (e.g., player enters room)
+
+interface HookContextBase {
+  entityId: string;       // the entity that owns this hook
+  entityType: "npc" | "item" | "room";
+  roomId: string;
+}
+
+export interface OnContactHookContext extends HookContextBase {
+  event: "onContact";
+  contactId: string;
+  contactType: "player" | "npc" | "item";
+}
+
+export interface OnCreateHookContext extends HookContextBase {
+  event: "onCreate";
+}
+
+export interface OnResetHookContext extends HookContextBase {
+  event: "onReset";
+}
+
+export type HookContext = OnContactHookContext | OnCreateHookContext | OnResetHookContext;
