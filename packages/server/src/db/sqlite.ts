@@ -318,7 +318,7 @@ export class SqliteDatabase implements GameDatabase {
   // ── Auth Sessions ────────────────────────────────────────────────────────
 
   getSession(token: string): AuthSession | undefined {
-    const row = this.db.prepare("SELECT token, account_id, active_character_id, expires_at FROM auth_sessions WHERE token = ? AND expires_at > ?").get(token, new Date().toISOString()) as { token: string; account_id: string; active_character_id: string | null; expires_at: string } | undefined;
+    const row = this.db.prepare("SELECT token, account_id, active_character_id, expires_at FROM auth_sessions WHERE token = ?").get(token) as { token: string; account_id: string; active_character_id: string | null; expires_at: string } | undefined;
     if (!row) return undefined;
     return { token: row.token, accountId: row.account_id, activeCharacterId: row.active_character_id, expiresAt: row.expires_at };
   }

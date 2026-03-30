@@ -29,7 +29,7 @@ const GITHUB_FETCH_TIMEOUT_MS = 10_000; // 10 seconds
 const MAX_CHARACTERS_PER_ACCOUNT = 10;
 const CHARACTER_NAME_MIN = 2;
 const CHARACTER_NAME_MAX = 24;
-export const CHARACTER_NAME_RE = /^[a-zA-Z]([a-zA-Z0-9 '\-]{0,22}[a-zA-Z0-9])?$/;
+export const CHARACTER_NAME_RE = /^[a-zA-Z][a-zA-Z0-9 '\-]{0,22}[a-zA-Z0-9]$/;
 
 // ─── OAuth State (CSRF protection) ──────────────────────────────────────────
 
@@ -300,7 +300,7 @@ async function handleCallback(
     if (link) {
       account = db.getAccountById(link.accountId);
       if (account) {
-        // Update provider username on each login
+        // Update account display name on each login based on GitHub profile
         account.displayName = ghUser.name ?? ghUser.login;
         account.updatedAt = now;
         db.updateAccountDisplayName(account.id, account.displayName);
@@ -338,9 +338,8 @@ async function handleCallback(
     db.createSession({ token: sessionToken, accountId: account.id, activeCharacterId: null, expiresAt });
 
     const secureSuffix = config.callbackUrl.startsWith("https://") ? "; Secure" : "";
-    const redirectUrl = process.env.WEBSITE_ORIGIN
-      ? `${process.env.WEBSITE_ORIGIN}/play`
-      : "/play";
+    const websiteOrigin = process.env.WEBSITE_ORIGIN ?? "http://localhost:4321";
+    const redirectUrl = `${websiteOrigin.replace(/\/+$/, "")}/play`;
 
     res.writeHead(302, {
       Location: redirectUrl,

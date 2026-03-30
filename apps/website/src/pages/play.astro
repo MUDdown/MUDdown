@@ -20,7 +20,7 @@ import Base from "../layouts/Base.astro";
         <label for="char-name">Name</label>
         <input id="char-name" type="text" minlength="2" maxlength="24"
           placeholder="2–24 characters"
-          pattern="^[a-zA-Z][a-zA-Z0-9 '\-]{0,22}[a-zA-Z0-9]$"
+          pattern="[a-zA-Z][a-zA-Z0-9 '\-]{0,22}[a-zA-Z0-9]"
           required aria-label="Character name" />
 
         <fieldset>
@@ -436,8 +436,9 @@ import Base from "../layouts/Base.astro";
 
     // ── WebSocket connection ───────────────────────────────────────────
 
-    const wsProtocol = location.protocol === "https:" ? "wss:" : "ws:";
-    const wsHost = `${wsProtocol}//${location.hostname}:3300`;
+    const apiUrl = new URL(API_BASE);
+    const wsProtocol = apiUrl.protocol === "https:" ? "wss:" : "ws:";
+    const wsHost = `${wsProtocol}//${apiUrl.host}`;
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout>;
     let lastTicket: string | undefined;

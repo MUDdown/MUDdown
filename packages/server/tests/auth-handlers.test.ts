@@ -143,8 +143,8 @@ describe("character name validation", () => {
     expect(CHARACTER_NAME_RE.test("Anne-Marie")).toBe(true);
   });
 
-  it("accepts single character (letter only)", () => {
-    expect(CHARACTER_NAME_RE.test("A")).toBe(true);
+  it("rejects single character (below minimum length)", () => {
+    expect(CHARACTER_NAME_RE.test("A")).toBe(false);
   });
 
   it("rejects empty string", () => {
