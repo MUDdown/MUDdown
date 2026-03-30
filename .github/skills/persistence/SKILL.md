@@ -1,11 +1,11 @@
 ---
 name: persistence
-description: Work with the database abstraction layer and player/world persistence. Covers the GameDatabase interface, SQLite adapter, PlayerRecord, save/load lifecycle, auth sessions, and testing patterns.
+description: Work with the database abstraction layer and account/character/world persistence. Covers the GameDatabase interface, SQLite adapter, save/load lifecycle, auth sessions, and testing patterns.
 ---
 
 # Persistence Skill
 
-You are working with the MUDdown persistence layer — the database abstraction and save/load patterns that keep player and world state across server restarts.
+You are working with the MUDdown persistence layer — the database abstraction and save/load patterns that keep account, character, and world state across server restarts.
 
 ## Architecture
 
@@ -24,17 +24,21 @@ Defined in `packages/server/src/db/types.ts`:
 | Group | Methods |
 |-------|---------|
 | Lifecycle | `close()` |
-| Players | `getPlayerByGithubId()`, `getPlayerById()`, `upsertPlayer()`, `savePlayerState()` |
+| Accounts | `getAccountById()`, `createAccount()`, `updateAccountDisplayName()` |
+| Identity Links | `getIdentityLink()`, `getIdentityLinksByAccount()`, `createIdentityLink()`, `deleteIdentityLink()` |
+| Characters | `getCharacterById()`, `getCharactersByAccount()`, `getCharacterByName()`, `createCharacter()`, `saveCharacterState()` |
 | Room Items | `getRoomItems()`, `setRoomItems()`, `getAllRoomItems()`, `saveAllRoomItems()` |
 | Defeated NPCs | `getDefeatedNpcs()`, `addDefeatedNpc()`, `removeDefeatedNpc()` |
 | NPC HP | `getNpcHp()`, `setNpcHp()`, `removeNpcHp()`, `getAllNpcHp()`, `saveAllNpcHp()` |
-| Auth Sessions | `getSession()`, `createSession()`, `deleteSession()`, `cleanExpiredSessions()` |
+| Auth Sessions | `getSession()`, `createSession()`, `updateSessionCharacter()`, `deleteSession()`, `cleanExpiredSessions()` |
 
 ### Supporting Types
 
-- **`PlayerStateUpdate`** — partial update for `savePlayerState()` (currentRoom, inventory, equipped, hp, maxHp, xp).
-- **`AuthSession`** — token, playerId, expiresAt (ISO 8601).
-- **`PlayerRecord`** — from `@muddown/shared`: full player model with `id`, `githubId`, `username`, `displayName`, `currentRoom`, `inventory`, `equipped`, `hp`, `maxHp`, `xp`, `createdAt`, `updatedAt`.
+- **`CharacterStateUpdate`** — partial update for `saveCharacterState()` (currentRoom, inventory, equipped, hp, maxHp, xp).
+- **`AuthSession`** — token, accountId, activeCharacterId, expiresAt (ISO 8601).
+- **`AccountRecord`** — from `@muddown/shared`: account with `id`, `displayName`, `createdAt`, `updatedAt`.
+- **`CharacterRecord`** — from `@muddown/shared`: character with `id`, `accountId`, `name`, `characterClass`, `currentRoom`, `inventory`, `equipped`, `hp`, `maxHp`, `xp`, `createdAt`, `updatedAt`.
+- **`IdentityLinkRecord`** — from `@muddown/shared`: links an account to an OAuth provider with `accountId`, `provider`, `providerId`, `providerUsername`, `linkedAt`.
 
 ## SQLite Implementation Patterns
 
@@ -50,7 +54,7 @@ constructor(filepath: string) {
 ```
 
 - WAL mode for concurrent reads during writes.
-- Foreign keys enforced (e.g., `auth_sessions.player_id` → `players.id`).
+- Foreign keys enforced (e.g., `auth_sessions.account_id` → `accounts.id`).
 - `migrate()` uses `CREATE TABLE IF NOT EXISTS` — idempotent, safe to re-run.
 
 ### ISO 8601 Timestamps
@@ -60,13 +64,13 @@ constructor(filepath: string) {
 
 ```typescript
 // ✅ Correct — app code
-savePlayerState(id, state) {
+saveCharacterState(id, state) {
   // ... build SET clauses ...
   stmt.run({ ...params, updatedAt: new Date().toISOString() });
 }
 
 // ✅ Correct — DDL
-CREATE TABLE IF NOT EXISTS players (
+CREATE TABLE IF NOT EXISTS characters (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
@@ -76,17 +80,17 @@ DEFAULT (datetime('now'))
 
 ### JSON Columns
 
-`inventory` (a `string[]`) and `equipped` (a `Record<EquipSlot, string | null>` with keys `weapon`, `armor`, `accessory`) are stored as JSON text in the `players` table. The `rowToPlayer()` function in `sqlite.ts` deserializes them when reading a `PlayerRow` into a `PlayerRecord`.
+`inventory` (a `string[]`) and `equipped` (a `Record<EquipSlot, string | null>` with keys `weapon`, `armor`, `accessory`) are stored as JSON text in the `characters` table. The `rowToCharacter()` function in `sqlite.ts` deserializes them when reading a `CharacterRow` into a `CharacterRecord`.
 
 Always guard `JSON.parse` with try/catch and log the failure:
 
 ```typescript
-function rowToPlayer(row: PlayerRow): PlayerRecord {
+function rowToCharacter(row: CharacterRow): CharacterRecord {
   let inventory: string[];
   try {
     inventory = JSON.parse(row.inventory) as string[];
   } catch {
-    console.error(`Corrupt inventory JSON for player ${row.id}, resetting to []`);
+    console.error(`Corrupt inventory JSON for character ${row.id}, resetting to []`);
     inventory = [];
   }
 
@@ -94,19 +98,19 @@ function rowToPlayer(row: PlayerRow): PlayerRecord {
   try {
     equipped = JSON.parse(row.equipped) as Record<EquipSlot, string | null>;
   } catch {
-    console.error(`Corrupt equipped JSON for player ${row.id}, resetting to defaults`);
+    console.error(`Corrupt equipped JSON for character ${row.id}, resetting to defaults`);
     equipped = { weapon: null, armor: null, accessory: null };
   }
 
-  return { id: row.id, githubId: row.github_id, /* ... */ inventory, equipped };
+  return { id: row.id, accountId: row.account_id, /* ... */ inventory, equipped };
 }
 ```
 
-**Why silent fallbacks are acceptable:** A corrupt `inventory` or `equipped` value means the player loses items/equipment — inconvenient but not security-critical. Crashing the login flow would lock the player out entirely, which is worse. The safe defaults (`[]` and all-null slots) let the player continue playing.
+**Why silent fallbacks are acceptable:** A corrupt `inventory` or `equipped` value means the character loses items/equipment — inconvenient but not security-critical. Crashing the login flow would lock the player out entirely, which is worse. The safe defaults (`[]` and all-null slots) let the player continue playing.
 
 **When corruption can occur:** Manual DB edits, interrupted writes during an OS crash, or future schema migrations that alter the JSON shape without a data migration step.
 
-**Observability:** Parse failures are logged to `console.error` with the player ID. In production, pipe server output to a log aggregator and alert on `Corrupt inventory JSON` or `Corrupt equipped JSON` so corrupted records can be investigated and repaired manually (e.g., `UPDATE players SET inventory = '[]' WHERE id = '...'`).
+**Observability:** Parse failures are logged to `console.error` with the character ID. In production, pipe server output to a log aggregator and alert on `Corrupt inventory JSON` or `Corrupt equipped JSON` so corrupted records can be investigated and repaired manually (e.g., `UPDATE characters SET inventory = '[]' WHERE id = '...'`).
 
 ### Named Parameters
 
@@ -114,7 +118,7 @@ Prefer `@`-prefixed named parameters in SQLite statements (the codebase also use
 
 ```typescript
 const stmt = this.db.prepare(`
-  UPDATE players SET current_room = @currentRoom WHERE id = @id
+  UPDATE characters SET current_room = @currentRoom WHERE id = @id
 `);
 stmt.run({ id, currentRoom: "town-square" });
 ```
@@ -122,10 +126,10 @@ stmt.run({ id, currentRoom: "town-square" });
 ## Save/Load Lifecycle
 
 1. **Server startup**: Open DB, then use `getAllRoomItems()` to restore room inventories, `getAllNpcHp()` to restore damaged NPC HP, and `getDefeatedNpcs()` to rebuild the defeated set.
-2. **Player login**: `getPlayerByGithubId()` to find existing player or `upsertPlayer()` to create.
-3. **During play**: `savePlayerState()` on meaningful changes (room change, inventory change, combat).
-4. **Periodic auto-save**: Timer saves all connected players' state plus `saveAllRoomItems()` and `saveAllNpcHp()`.
-5. **Server shutdown**: Save all connected players → save room items → save NPC HP → close WS clients → close WSS → close HTTP → `db.close()` (DB closes **last**).
+2. **Player login**: `getIdentityLink()` to find existing account or `createAccount()` + `createIdentityLink()` to create. Then `getCharactersByAccount()` to list characters.
+3. **During play**: `saveCharacterState()` on meaningful changes (room change, inventory change, combat).
+4. **Periodic auto-save**: Timer saves all connected characters' state plus `saveAllRoomItems()` and `saveAllNpcHp()`.
+5. **Server shutdown**: Save all connected characters → save room items → save NPC HP → close WS clients → close WSS → close HTTP → `db.close()` (DB closes **last**).
 
 ### Shutdown Ordering
 
@@ -170,7 +174,9 @@ afterAll(() => {
 
 ### Test Categories
 
-- **Player CRUD**: upsert, retrieve by ID, retrieve by GitHub ID, update partial state.
+- **Account CRUD**: create, retrieve by ID, update display name.
+- **Identity Links**: create, retrieve by provider, list by account, delete.
+- **Character CRUD**: create, retrieve by ID/name, list by account, update partial state.
 - **Room items**: set/get per room, bulk save/load.
 - **Defeated NPCs**: add, list, remove, respawn tracking.
 - **NPC HP**: set/get/remove individual, bulk save/load.
@@ -178,9 +184,9 @@ afterAll(() => {
 
 ### Key Assertions
 
-- After `upsertPlayer`, verify `getPlayerById` and `getPlayerByGithubId` both return the record.
+- After `createCharacter`, verify `getCharacterById` and `getCharacterByName` both return the record.
 - JSON columns (`inventory`, `equipped`) round-trip correctly as arrays/objects, not strings.
-- `savePlayerState` partial updates don't overwrite unrelated fields.
+- `saveCharacterState` partial updates don't overwrite unrelated fields.
 - `cleanExpiredSessions` removes only expired rows.
 
 ## When to Use This Skill
@@ -188,5 +194,5 @@ afterAll(() => {
 - Adding new persistent data (new table, new column, new method on `GameDatabase`).
 - Modifying save/load logic or the server startup/shutdown sequence.
 - Writing or updating `db.test.ts`.
-- Extending the `PlayerRecord` type or `PlayerStateUpdate` type.
+- Extending the `AccountRecord`, `CharacterRecord`, or `CharacterStateUpdate` types.
 - Debugging timestamp or JSON serialization issues.

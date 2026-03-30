@@ -2,6 +2,9 @@
   --bg: #0a0e14;
   --bg-surface: #111820;
   --bg-elevated: #1a2230;
+  --bg-hover: #243040;
+  --border: #1e2a38;
+  --border-elevated: #2a3444;
   --text: #c8d0d8;
   --text-bright: #e8eef4;
   --text-dim: #6e7a88;
@@ -90,6 +93,34 @@ header nav a {
   font-size: 0.9rem;
 }
 header nav a:hover { color: var(--text-bright); }
+header nav .auth-link { color: var(--green); }
+header nav .auth-link:hover { color: var(--text-bright); }
+header nav .auth-btn {
+  background: none;
+  border: 1px solid var(--text-dim);
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  padding: 0.2em 0.6em;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 0.5rem;
+  font-family: var(--font-body);
+}
+header nav .auth-btn:hover {
+  color: var(--text-bright);
+  border-color: var(--text-bright);
+}
+header nav .auth-btn:focus-visible {
+  color: var(--text-bright);
+  border-color: var(--text-bright);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+header nav .auth-display-name {
+  color: var(--text);
+  font-size: 0.85rem;
+  margin-left: 1rem;
+}
 
 footer {
   border-top: 1px solid #1e2a38;

@@ -1,4 +1,4 @@
-import type { PlayerRecord, DefeatedNpcRecord, EquipSlot } from "@muddown/shared";
+import type { DefeatedNpcRecord, EquipSlot, AccountRecord, CharacterRecord, IdentityLinkRecord, OAuthProvider } from "@muddown/shared";
 
 // ─── Database Abstraction ────────────────────────────────────────────────────
 // All persistence goes through this interface so the storage backend
@@ -9,11 +9,23 @@ export interface GameDatabase {
   // ── Lifecycle ────────────────────────────────────────────────────────────
   close(): void;
 
-  // ── Players ──────────────────────────────────────────────────────────────
-  getPlayerByGithubId(githubId: string): PlayerRecord | undefined;
-  getPlayerById(id: string): PlayerRecord | undefined;
-  upsertPlayer(player: PlayerRecord): void;
-  savePlayerState(id: string, state: PlayerStateUpdate): void;
+  // ── Accounts ─────────────────────────────────────────────────────────────
+  getAccountById(id: string): AccountRecord | undefined;
+  createAccount(account: AccountRecord): void;
+  updateAccountDisplayName(id: string, displayName: string): void;
+
+  // ── Identity Links ───────────────────────────────────────────────────────
+  getIdentityLink(provider: OAuthProvider, providerId: string): IdentityLinkRecord | undefined;
+  getIdentityLinksByAccount(accountId: string): IdentityLinkRecord[];
+  createIdentityLink(link: IdentityLinkRecord): void;
+  deleteIdentityLink(provider: OAuthProvider, providerId: string): void;
+
+  // ── Characters ───────────────────────────────────────────────────────────
+  getCharacterById(id: string): CharacterRecord | undefined;
+  getCharactersByAccount(accountId: string): CharacterRecord[];
+  getCharacterByName(name: string): CharacterRecord | undefined;
+  createCharacter(character: CharacterRecord): void;
+  saveCharacterState(id: string, state: CharacterStateUpdate): void;
 
   // ── World State: Room Items ──────────────────────────────────────────────
   getRoomItems(roomId: string): string[];
@@ -36,13 +48,15 @@ export interface GameDatabase {
   // ── Auth Sessions ────────────────────────────────────────────────────────
   getSession(token: string): AuthSession | undefined;
   createSession(session: AuthSession): void;
+  updateSessionCharacter(token: string, characterId: string): void;
   deleteSession(token: string): void;
   cleanExpiredSessions(): void;
 }
 
 // ── Supporting Types ──────────────────────────────────────────────────────────
 
-export interface PlayerStateUpdate {
+
+export interface CharacterStateUpdate {
   currentRoom?: string;
   inventory?: string[];
   equipped?: Record<EquipSlot, string | null>;
@@ -53,6 +67,7 @@ export interface PlayerStateUpdate {
 
 export interface AuthSession {
   token: string;
-  playerId: string;
+  accountId: string;
+  activeCharacterId: string | null;
   expiresAt: string; // ISO 8601
 }

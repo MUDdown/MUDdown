@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { SqliteDatabase } from "../src/db/sqlite.js";
 import type { GameDatabase } from "../src/db/types.js";
-import type { PlayerRecord, DefeatedNpcRecord, EquipSlot } from "@muddown/shared";
+import type { DefeatedNpcRecord, AccountRecord, CharacterRecord } from "@muddown/shared";
 
 let db: GameDatabase;
 let tmpDir: string;
@@ -17,67 +17,6 @@ beforeAll(() => {
 afterAll(() => {
   db.close();
   rmSync(tmpDir, { recursive: true, force: true });
-});
-
-// ─── Player CRUD ─────────────────────────────────────────────────────────────
-
-describe("player operations", () => {
-  const player: PlayerRecord = {
-    id: "p-1",
-    githubId: "gh-123",
-    username: "testuser",
-    displayName: "Test User",
-    currentRoom: "town-square",
-    inventory: ["sword", "shield"],
-    equipped: { weapon: "sword", armor: null, accessory: null },
-    hp: 18,
-    maxHp: 20,
-    xp: 50,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  it("upserts and retrieves a player by ID", () => {
-    db.upsertPlayer(player);
-    const found = db.getPlayerById("p-1");
-    expect(found).toBeDefined();
-    expect(found!.username).toBe("testuser");
-    expect(found!.inventory).toEqual(["sword", "shield"]);
-    expect(found!.equipped.weapon).toBe("sword");
-  });
-
-  it("retrieves by GitHub ID", () => {
-    const found = db.getPlayerByGithubId("gh-123");
-    expect(found).toBeDefined();
-    expect(found!.id).toBe("p-1");
-  });
-
-  it("returns undefined for unknown IDs", () => {
-    expect(db.getPlayerById("no-such-id")).toBeUndefined();
-    expect(db.getPlayerByGithubId("no-such-gh")).toBeUndefined();
-  });
-
-  it("saves partial player state", () => {
-    db.savePlayerState("p-1", { currentRoom: "bakery", hp: 15, xp: 100 });
-    const found = db.getPlayerById("p-1");
-    expect(found!.currentRoom).toBe("bakery");
-    expect(found!.hp).toBe(15);
-    expect(found!.xp).toBe(100);
-    // Unchanged fields stay the same
-    expect(found!.inventory).toEqual(["sword", "shield"]);
-  });
-
-  it("upsert updates existing player on conflict", () => {
-    const updated: PlayerRecord = {
-      ...player,
-      displayName: "Updated User",
-      hp: 20,
-      updatedAt: new Date().toISOString(),
-    };
-    db.upsertPlayer(updated);
-    const found = db.getPlayerById("p-1");
-    expect(found!.displayName).toBe("Updated User");
-  });
 });
 
 // ─── Room Items ──────────────────────────────────────────────────────────────
@@ -189,16 +128,24 @@ describe("NPC HP", () => {
 // ─── Auth Sessions ───────────────────────────────────────────────────────────
 
 describe("auth sessions", () => {
+  const testAccountId = "acc-sess-test";
+
+  beforeAll(() => {
+    const now = new Date().toISOString();
+    db.createAccount({ id: testAccountId, displayName: "SessionTester", createdAt: now, updatedAt: now });
+  });
+
   it("creates and retrieves a session", () => {
     db.createSession({
       token: "tok-1",
-      playerId: "p-1",
+      accountId: testAccountId,
+      activeCharacterId: null,
       expiresAt: new Date(Date.now() + 86400000).toISOString(),
     });
 
     const session = db.getSession("tok-1");
     expect(session).toBeDefined();
-    expect(session!.playerId).toBe("p-1");
+    expect(session!.accountId).toBe(testAccountId);
   });
 
   it("returns undefined for unknown token", () => {
@@ -214,13 +161,15 @@ describe("auth sessions", () => {
     // Create an expired session
     db.createSession({
       token: "tok-expired",
-      playerId: "p-1",
+      accountId: testAccountId,
+      activeCharacterId: null,
       expiresAt: new Date(Date.now() - 1000).toISOString(),
     });
     // Create a valid session
     db.createSession({
       token: "tok-valid",
-      playerId: "p-1",
+      accountId: testAccountId,
+      activeCharacterId: null,
       expiresAt: new Date(Date.now() + 86400000).toISOString(),
     });
 
@@ -228,5 +177,272 @@ describe("auth sessions", () => {
 
     expect(db.getSession("tok-expired")).toBeUndefined();
     expect(db.getSession("tok-valid")).toBeDefined();
+  });
+
+  it("updates active character on a session", () => {
+    const now = new Date().toISOString();
+    db.createCharacter({
+      id: "char-xyz",
+      accountId: testAccountId,
+      name: "TestChar",
+      characterClass: "warrior",
+      currentRoom: "town-square",
+      inventory: [],
+      equipped: { weapon: null, armor: null, accessory: null },
+      hp: 25,
+      maxHp: 25,
+      xp: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    db.createSession({
+      token: "tok-update-char",
+      accountId: testAccountId,
+      activeCharacterId: null,
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+    });
+
+    db.updateSessionCharacter("tok-update-char", "char-xyz");
+    const session = db.getSession("tok-update-char");
+    expect(session).toBeDefined();
+    expect(session!.activeCharacterId).toBe("char-xyz");
+  });
+});
+
+// ─── Account Operations ──────────────────────────────────────────────────────
+
+describe("account operations", () => {
+  const now = new Date().toISOString();
+  const account: AccountRecord = {
+    id: "acc-op-1",
+    displayName: "Adventurer",
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  it("creates and retrieves an account", () => {
+    db.createAccount(account);
+    const found = db.getAccountById("acc-op-1");
+    expect(found).toBeDefined();
+    expect(found!.displayName).toBe("Adventurer");
+  });
+
+  it("returns undefined for unknown account", () => {
+    expect(db.getAccountById("no-such-account")).toBeUndefined();
+  });
+
+  it("updates display name", () => {
+    db.updateAccountDisplayName("acc-op-1", "Brave Adventurer");
+    const found = db.getAccountById("acc-op-1");
+    expect(found!.displayName).toBe("Brave Adventurer");
+  });
+});
+
+// ─── Identity Link Operations ────────────────────────────────────────────────
+
+describe("identity link operations", () => {
+  const accountId = "acc-link-ops";
+
+  beforeAll(() => {
+    const now = new Date().toISOString();
+    db.createAccount({ id: accountId, displayName: "LinkTester", createdAt: now, updatedAt: now });
+  });
+
+  it("creates and retrieves an identity link", () => {
+    db.createIdentityLink({
+      accountId,
+      provider: "github",
+      providerId: "gh-42",
+      providerUsername: "hero42",
+      linkedAt: new Date().toISOString(),
+    });
+
+    const link = db.getIdentityLink("github", "gh-42");
+    expect(link).toBeDefined();
+    expect(link!.accountId).toBe(accountId);
+    expect(link!.providerUsername).toBe("hero42");
+  });
+
+  it("returns undefined for unknown provider/id pair", () => {
+    expect(db.getIdentityLink("github", "unknown")).toBeUndefined();
+  });
+
+  it("lists all links for an account", () => {
+    const before = db.getIdentityLinksByAccount(accountId);
+    const initialCount = before.length;
+
+    db.createIdentityLink({
+      accountId,
+      provider: "github",
+      providerId: "gh-99",
+      providerUsername: "hero_alt",
+      linkedAt: new Date().toISOString(),
+    });
+
+    const after = db.getIdentityLinksByAccount(accountId);
+    expect(after).toHaveLength(initialCount + 1);
+    expect(after.map(l => l.providerId)).toContain("gh-99");
+  });
+
+  it("deletes an identity link", () => {
+    db.createIdentityLink({
+      accountId,
+      provider: "github",
+      providerId: "gh-delete-test",
+      providerUsername: "hero_del",
+      linkedAt: new Date().toISOString(),
+    });
+    expect(db.getIdentityLink("github", "gh-delete-test")).toBeDefined();
+
+    db.deleteIdentityLink("github", "gh-delete-test");
+    expect(db.getIdentityLink("github", "gh-delete-test")).toBeUndefined();
+  });
+
+  it("deleteIdentityLink is a no-op for missing link", () => {
+    // Should not throw
+    db.deleteIdentityLink("github", "nonexistent");
+  });
+});
+
+// ─── Character Operations ────────────────────────────────────────────────────
+
+describe("character operations", () => {
+  const accountId = "acc-char-ops";
+  const now = new Date().toISOString();
+
+  beforeAll(() => {
+    db.createAccount({ id: accountId, displayName: "CharTester", createdAt: now, updatedAt: now });
+  });
+
+  const character: CharacterRecord = {
+    id: "char-1",
+    accountId,
+    name: "Thorin",
+    characterClass: "warrior",
+    currentRoom: "town-square",
+    inventory: ["shortsword"],
+    equipped: { weapon: "shortsword", armor: null, accessory: null },
+    hp: 25,
+    maxHp: 25,
+    xp: 0,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  it("creates and retrieves a character by ID", () => {
+    db.createCharacter(character);
+    const found = db.getCharacterById("char-1");
+    expect(found).toBeDefined();
+    expect(found!.name).toBe("Thorin");
+    expect(found!.characterClass).toBe("warrior");
+    expect(found!.inventory).toEqual(["shortsword"]);
+    expect(found!.equipped.weapon).toBe("shortsword");
+  });
+
+  it("retrieves a character by name (case-insensitive)", () => {
+    const found = db.getCharacterByName("thorin");
+    expect(found).toBeDefined();
+    expect(found!.id).toBe("char-1");
+  });
+
+  it("returns undefined for unknown character", () => {
+    expect(db.getCharacterById("no-such-char")).toBeUndefined();
+    expect(db.getCharacterByName("Nobody")).toBeUndefined();
+  });
+
+  it("lists characters for an account", () => {
+    const listAccountId = "acc-list-chars";
+    const listNow = new Date().toISOString();
+    db.createAccount({ id: listAccountId, displayName: "Lister", createdAt: listNow, updatedAt: listNow });
+
+    const first: CharacterRecord = {
+      id: "char-list-1",
+      accountId: listAccountId,
+      name: "Thorin List",
+      characterClass: "warrior",
+      currentRoom: "town-square",
+      inventory: [],
+      equipped: { weapon: null, armor: null, accessory: null },
+      hp: 25,
+      maxHp: 25,
+      xp: 0,
+      createdAt: listNow,
+      updatedAt: listNow,
+    };
+    const second: CharacterRecord = {
+      id: "char-list-2",
+      accountId: listAccountId,
+      name: "Elara List",
+      characterClass: "mage",
+      currentRoom: "town-square",
+      inventory: [],
+      equipped: { weapon: null, armor: null, accessory: null },
+      hp: 15,
+      maxHp: 15,
+      xp: 0,
+      createdAt: listNow,
+      updatedAt: listNow,
+    };
+    db.createCharacter(first);
+    db.createCharacter(second);
+
+    const chars = db.getCharactersByAccount(listAccountId);
+    expect(chars).toHaveLength(2);
+    const names = chars.map(c => c.name).sort();
+    expect(names).toEqual(["Elara List", "Thorin List"]);
+  });
+
+  it("saves character state updates", () => {
+    db.saveCharacterState("char-1", {
+      currentRoom: "bakery",
+      inventory: ["shortsword", "bread"],
+      equipped: { weapon: "shortsword", armor: null, accessory: null },
+      hp: 20,
+      xp: 100,
+    });
+
+    const found = db.getCharacterById("char-1");
+    expect(found!.currentRoom).toBe("bakery");
+    expect(found!.inventory).toEqual(["shortsword", "bread"]);
+    expect(found!.hp).toBe(20);
+    expect(found!.xp).toBe(100);
+  });
+});
+
+// ─── Migration / Schema Validation ───────────────────────────────────────────
+
+describe("schema migration", () => {
+  it("creates a fresh database with all expected tables", () => {
+    const freshDir = mkdtempSync(join(tmpdir(), "muddown-db-migrate-"));
+    const freshDb = new SqliteDatabase(join(freshDir, "fresh.sqlite"));
+    try {
+      // Verify core tables exist by performing basic operations without error
+      freshDb.getRoomItems("x");
+      freshDb.getDefeatedNpcs();
+      freshDb.getNpcHp("x", "x");
+      freshDb.getSession("x");
+      freshDb.getAccountById("x");
+      freshDb.getIdentityLink("github", "x");
+      freshDb.getCharacterById("x");
+    } finally {
+      freshDb.close();
+      rmSync(freshDir, { recursive: true, force: true });
+    }
+  });
+
+  it("reopening an existing database does not error", () => {
+    const reuseDir = mkdtempSync(join(tmpdir(), "muddown-db-reopen-"));
+    const dbPath = join(reuseDir, "reuse.sqlite");
+    try {
+      const first = new SqliteDatabase(dbPath);
+      first.close();
+
+      // Re-open — migrations should be idempotent
+      const second = new SqliteDatabase(dbPath);
+      second.getAccountById("x");
+      second.close();
+    } finally {
+      rmSync(reuseDir, { recursive: true, force: true });
+    }
   });
 });

@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { ClientMessage, ServerMessage, EquipSlot, NpcDefinition, DialogueNode, PlayerRecord } from "@muddown/shared";
-import { PLAYER_DEFAULTS } from "@muddown/shared";
+import type { ClientMessage, ServerMessage, EquipSlot, NpcDefinition, DialogueNode, CharacterRecord, CharacterClass } from "@muddown/shared";
+import { PLAYER_DEFAULTS, CLASS_STATS } from "@muddown/shared";
 import { loadWorld, type WorldMap } from "./world.js";
 import {
   dirAliases, findItemByName, findNpcInRoom, findUnclaimedIndex,
@@ -12,7 +12,7 @@ import {
 } from "./helpers.js";
 import { SqliteDatabase } from "./db/index.js";
 import type { GameDatabase } from "./db/types.js";
-import { handleAuthRoute, resolveTicket, type OAuthConfig } from "./auth.js";
+import { handleAuthRoute, resolveTicket, setCorsHeaders, type OAuthConfig } from "./auth.js";
 import { fireHook, registerHook, createGreetingHook } from "./hooks.js";
 
 // ─── Player Session ──────────────────────────────────────────────────────────
@@ -34,7 +34,12 @@ interface PlayerSession {
   hp: number;
   maxHp: number;
   combat: CombatState | null;
-  playerId: string | null;  // DB player ID (null = anonymous guest)
+  characterId: string | null;  // DB character ID (null = anonymous guest)
+  accountId: string | null;    // DB account ID (null = anonymous guest)
+  characterClass: CharacterClass | null;
+  baseAc: number;
+  baseAttackBonus: number;
+  baseDamage: string;
   xp: number;
 }
 
@@ -175,10 +180,13 @@ if (!oauthConfig) {
 
 const server = createServer((req, res) => {
   const handleRequest = async (): Promise<void> => {
-    // Handle auth routes if OAuth is configured
+    // Handle auth routes if OAuth is configured (CORS handled inside handleAuthRoute)
     if (oauthConfig && await handleAuthRoute(req, res, oauthConfig, db)) {
       return;
     }
+
+    // CORS for non-auth routes
+    setCorsHeaders(req, res);
 
     // Health check
     if (req.url === "/health") {
@@ -215,7 +223,7 @@ server.listen(PORT, () => {
 
 wss.on("connection", (ws, req: IncomingMessage) => {
   // Authenticate via short-lived single-use ticket: ws://host/?ticket=...
-  let player: PlayerRecord | undefined;
+  let character: CharacterRecord | undefined;
   let ticket: string | undefined;
   try {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
@@ -225,28 +233,33 @@ wss.on("connection", (ws, req: IncomingMessage) => {
   }
 
   if (ticket) {
-    const playerId = resolveTicket(ticket);
-    if (playerId) {
-      player = db.getPlayerById(playerId);
-      if (!player) {
-        console.warn(`Player referenced by ticket not found [ticket=${ticket}] [playerId=${playerId}]`);
+    const characterId = resolveTicket(ticket);
+    if (characterId) {
+      character = db.getCharacterById(characterId);
+      if (!character) {
+        console.warn(`Character referenced by ticket not found [ticket=${ticket}] [characterId=${characterId}]`);
       }
     }
   }
 
-  const session: PlayerSession = player
+  const session: PlayerSession = character
     ? {
         id: randomUUID(),
-        name: player.displayName,
-        currentRoom: player.currentRoom,
+        name: character.name,
+        currentRoom: character.currentRoom,
         ws,
-        inventory: [...player.inventory],
-        equipped: { ...player.equipped },
-        hp: player.hp,
-        maxHp: player.maxHp,
+        inventory: [...character.inventory],
+        equipped: { ...character.equipped },
+        hp: character.hp,
+        maxHp: character.maxHp,
         combat: null,
-        playerId: player.id,
-        xp: player.xp,
+        characterId: character.id,
+        accountId: character.accountId,
+        characterClass: character.characterClass,
+        baseAc: CLASS_STATS[character.characterClass].ac,
+        baseAttackBonus: CLASS_STATS[character.characterClass].attackBonus,
+        baseDamage: CLASS_STATS[character.characterClass].damage,
+        xp: character.xp,
       }
     : {
         id: randomUUID(),
@@ -258,7 +271,12 @@ wss.on("connection", (ws, req: IncomingMessage) => {
         hp: PLAYER_DEFAULTS.hp,
         maxHp: PLAYER_DEFAULTS.maxHp,
         combat: null,
-        playerId: null,
+        characterId: null,
+        accountId: null,
+        characterClass: null,
+        baseAc: PLAYER_DEFAULTS.ac,
+        baseAttackBonus: PLAYER_DEFAULTS.attackBonus,
+        baseDamage: PLAYER_DEFAULTS.damage,
         xp: 0,
       };
   sessions.set(ws, session);
@@ -298,8 +316,8 @@ Type commands or click links to explore. Try: \`look\`, \`go north\`, \`help\`
 
   ws.on("close", () => {
     const s = sessions.get(ws);
-    if (s?.playerId) {
-      savePlayerSession(s);
+    if (s?.characterId) {
+      saveCharacterSession(s);
     }
     sessions.delete(ws);
   });
@@ -443,7 +461,7 @@ function move(ws: WebSocket, session: PlayerSession, direction: string): void {
       event: "onContact",
       entityId: npcId,
       entityType: "npc",
-      contactId: session.playerId ?? session.id,
+      contactId: session.characterId ?? session.id,
       contactType: "player",
       roomId: targetRoom,
     });
@@ -789,10 +807,10 @@ function handleAttack(ws: WebSocket, session: PlayerSession, arg: string): void 
   }
   combat.round++;
 
-  // Calculate player stats (equipment bonuses)
-  const playerAtk = getPlayerAttackBonus(PLAYER_DEFAULTS.attackBonus, session.equipped.weapon, world.itemDefs);
-  const playerDmg = getPlayerDamage(PLAYER_DEFAULTS.damage, session.equipped.weapon, world.itemDefs);
-  const playerAc = getPlayerAc(PLAYER_DEFAULTS.ac, session.equipped.armor, session.equipped.accessory, world.itemDefs);
+  // Calculate player stats (class base + equipment bonuses)
+  const playerAtk = getPlayerAttackBonus(session.baseAttackBonus, session.equipped.weapon, world.itemDefs);
+  const playerDmg = getPlayerDamage(session.baseDamage, session.equipped.weapon, world.itemDefs);
+  const playerAc = getPlayerAc(session.baseAc, session.equipped.armor, session.equipped.accessory, world.itemDefs);
 
   // Get shared NPC HP
   const hpKey = getNpcHpKey(combat.roomId, combat.npcId);
@@ -836,7 +854,7 @@ function handleAttack(ws: WebSocket, session: PlayerSession, arg: string): void 
     // Victory message
     send(ws, systemMessage(`You defeated the **${npc.name}**! (+${npcStats.xp} XP)`));
 
-    // Award XP (persisted for authenticated players via savePlayerSession)
+    // Award XP (persisted for authenticated characters via saveCharacterSession)
     session.xp += npcStats.xp;
 
     // Remove NPC from room and clean up shared HP
@@ -922,7 +940,7 @@ function handleFlee(ws: WebSocket, session: PlayerSession): void {
 
   // NPC gets a free attack as you flee
   if (npc && npcStats) {
-    const playerAc = getPlayerAc(PLAYER_DEFAULTS.ac, session.equipped.armor, session.equipped.accessory, world.itemDefs);
+    const playerAc = getPlayerAc(session.baseAc, session.equipped.armor, session.equipped.accessory, world.itemDefs);
     const result = resolveAttack(npcStats.attackBonus, npcStats.damage, playerAc);
     if (result.hit) {
       session.hp = Math.max(0, session.hp - result.damage);
@@ -1346,10 +1364,10 @@ function systemMessage(text: string): ServerMessage {
 
 // ─── Persistence Helpers ─────────────────────────────────────────────────────
 
-function savePlayerSession(session: PlayerSession): void {
-  if (!session.playerId) return;
+function saveCharacterSession(session: PlayerSession): void {
+  if (!session.characterId) return;
   try {
-    db.savePlayerState(session.playerId, {
+    db.saveCharacterState(session.characterId, {
       currentRoom: session.currentRoom,
       inventory: session.inventory,
       equipped: session.equipped,
@@ -1359,16 +1377,16 @@ function savePlayerSession(session: PlayerSession): void {
     });
   } catch (err) {
     console.error(
-      `Failed to save player state [player=${session.playerId}] [name=${session.name}] [room=${session.currentRoom}] [inventory=${JSON.stringify(session.inventory)}]:`,
+      `Failed to save character state [character=${session.characterId}] [name=${session.name}] [room=${session.currentRoom}] [inventory=${JSON.stringify(session.inventory)}]:`,
       err,
     );
   }
 }
 
 function saveAllState(): void {
-  // Save all authenticated player sessions
+  // Save all authenticated character sessions
   for (const [, session] of sessions) {
-    savePlayerSession(session);
+    saveCharacterSession(session);
   }
   // Save world state (independent try/catch so one failure doesn't block the other)
   try {
@@ -1406,7 +1424,9 @@ function shutdown(): void {
   for (const ws of wss.clients) {
     try {
       ws.close(1001, "Server shutting down");
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.warn("Error closing WebSocket during shutdown:", err);
+    }
   }
 
   wss.close(() => {

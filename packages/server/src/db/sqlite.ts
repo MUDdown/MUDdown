@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
-import type { PlayerRecord, DefeatedNpcRecord, EquipSlot } from "@muddown/shared";
-import type { GameDatabase, PlayerStateUpdate, AuthSession } from "./types.js";
+import type { DefeatedNpcRecord, EquipSlot, AccountRecord, CharacterRecord, CharacterClass, IdentityLinkRecord, OAuthProvider } from "@muddown/shared";
+import { isCharacterClass, isOAuthProvider } from "@muddown/shared";
+import type { GameDatabase, CharacterStateUpdate, AuthSession } from "./types.js";
 
 export class SqliteDatabase implements GameDatabase {
   private db: Database.Database;
@@ -14,21 +15,6 @@ export class SqliteDatabase implements GameDatabase {
 
   private migrate(): void {
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS players (
-        id          TEXT PRIMARY KEY,
-        github_id   TEXT UNIQUE NOT NULL,
-        username    TEXT NOT NULL,
-        display_name TEXT NOT NULL,
-        current_room TEXT NOT NULL DEFAULT 'town-square',
-        inventory   TEXT NOT NULL DEFAULT '[]',
-        equipped    TEXT NOT NULL DEFAULT '{"weapon":null,"armor":null,"accessory":null}',
-        hp          INTEGER NOT NULL DEFAULT 20,
-        max_hp      INTEGER NOT NULL DEFAULT 20,
-        xp          INTEGER NOT NULL DEFAULT 0,
-        created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-        updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-      );
-
       CREATE TABLE IF NOT EXISTS room_items (
         room_id  TEXT PRIMARY KEY,
         item_ids TEXT NOT NULL DEFAULT '[]'
@@ -48,10 +34,47 @@ export class SqliteDatabase implements GameDatabase {
         PRIMARY KEY (room_id, npc_id)
       );
 
+      CREATE TABLE IF NOT EXISTS accounts (
+        id           TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL,
+        created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS identity_links (
+        account_id        TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        provider          TEXT NOT NULL,
+        provider_id       TEXT NOT NULL,
+        provider_username TEXT NOT NULL,
+        linked_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        PRIMARY KEY (provider, provider_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_identity_links_account ON identity_links(account_id);
+
+      CREATE TABLE IF NOT EXISTS characters (
+        id              TEXT PRIMARY KEY,
+        account_id      TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        name            TEXT NOT NULL UNIQUE,
+        character_class TEXT NOT NULL DEFAULT 'warrior',
+        current_room    TEXT NOT NULL DEFAULT 'town-square',
+        inventory       TEXT NOT NULL DEFAULT '[]',
+        equipped        TEXT NOT NULL DEFAULT '{"weapon":null,"armor":null,"accessory":null}',
+        hp              INTEGER NOT NULL DEFAULT 20,
+        max_hp          INTEGER NOT NULL DEFAULT 20,
+        xp              INTEGER NOT NULL DEFAULT 0,
+        created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_characters_account ON characters(account_id);
+      CREATE INDEX IF NOT EXISTS idx_characters_name ON characters(name COLLATE NOCASE);
+
       CREATE TABLE IF NOT EXISTS auth_sessions (
-        token      TEXT PRIMARY KEY,
-        player_id  TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
-        expires_at TEXT NOT NULL
+        token               TEXT PRIMARY KEY,
+        account_id          TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        active_character_id TEXT REFERENCES characters(id) ON DELETE SET NULL,
+        expires_at          TEXT NOT NULL
       );
 
       CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions(expires_at);
@@ -62,49 +85,91 @@ export class SqliteDatabase implements GameDatabase {
     this.db.close();
   }
 
-  // ── Players ──────────────────────────────────────────────────────────────
+  // ── Accounts ─────────────────────────────────────────────────────────────
 
-  getPlayerByGithubId(githubId: string): PlayerRecord | undefined {
-    const row = this.db.prepare("SELECT * FROM players WHERE github_id = ?").get(githubId) as PlayerRow | undefined;
-    return row ? rowToPlayer(row) : undefined;
+  getAccountById(id: string): AccountRecord | undefined {
+    const row = this.db.prepare("SELECT * FROM accounts WHERE id = ?").get(id) as AccountRow | undefined;
+    return row ? { id: row.id, displayName: row.display_name, createdAt: row.created_at, updatedAt: row.updated_at } : undefined;
   }
 
-  getPlayerById(id: string): PlayerRecord | undefined {
-    const row = this.db.prepare("SELECT * FROM players WHERE id = ?").get(id) as PlayerRow | undefined;
-    return row ? rowToPlayer(row) : undefined;
+  createAccount(account: AccountRecord): void {
+    this.db.prepare("INSERT INTO accounts (id, display_name, created_at, updated_at) VALUES (?, ?, ?, ?)").run(
+      account.id, account.displayName, account.createdAt, account.updatedAt,
+    );
   }
 
-  upsertPlayer(player: PlayerRecord): void {
+  updateAccountDisplayName(id: string, displayName: string): void {
+    this.db.prepare("UPDATE accounts SET display_name = ?, updated_at = ? WHERE id = ?").run(
+      displayName, new Date().toISOString(), id,
+    );
+  }
+
+  // ── Identity Links ───────────────────────────────────────────────────────
+
+  getIdentityLink(provider: OAuthProvider, providerId: string): IdentityLinkRecord | undefined {
+    const row = this.db.prepare("SELECT * FROM identity_links WHERE provider = ? AND provider_id = ?").get(provider, providerId) as IdentityLinkRow | undefined;
+    return row ? { accountId: row.account_id, provider: isOAuthProvider(row.provider) ? row.provider : (() => {
+      console.error(`Unknown OAuth provider "${row.provider}" for account ${row.account_id}`);
+      return "github" as OAuthProvider;
+    })(), providerId: row.provider_id, providerUsername: row.provider_username, linkedAt: row.linked_at } : undefined;
+  }
+
+  getIdentityLinksByAccount(accountId: string): IdentityLinkRecord[] {
+    const rows = this.db.prepare("SELECT * FROM identity_links WHERE account_id = ?").all(accountId) as IdentityLinkRow[];
+    return rows.map(row => ({ accountId: row.account_id, provider: isOAuthProvider(row.provider) ? row.provider : (() => {
+      console.error(`Unknown OAuth provider "${row.provider}" for account ${row.account_id}`);
+      return "github" as OAuthProvider;
+    })(), providerId: row.provider_id, providerUsername: row.provider_username, linkedAt: row.linked_at }));
+  }
+
+  createIdentityLink(link: IdentityLinkRecord): void {
+    this.db.prepare("INSERT INTO identity_links (account_id, provider, provider_id, provider_username, linked_at) VALUES (?, ?, ?, ?, ?)").run(
+      link.accountId, link.provider, link.providerId, link.providerUsername, link.linkedAt,
+    );
+  }
+
+  deleteIdentityLink(provider: OAuthProvider, providerId: string): void {
+    this.db.prepare("DELETE FROM identity_links WHERE provider = ? AND provider_id = ?").run(provider, providerId);
+  }
+
+  // ── Characters ───────────────────────────────────────────────────────────
+
+  getCharacterById(id: string): CharacterRecord | undefined {
+    const row = this.db.prepare("SELECT * FROM characters WHERE id = ?").get(id) as CharacterRow | undefined;
+    return row ? rowToCharacter(row) : undefined;
+  }
+
+  getCharactersByAccount(accountId: string): CharacterRecord[] {
+    const rows = this.db.prepare("SELECT * FROM characters WHERE account_id = ? ORDER BY created_at ASC").all(accountId) as CharacterRow[];
+    return rows.map(rowToCharacter);
+  }
+
+  getCharacterByName(name: string): CharacterRecord | undefined {
+    const row = this.db.prepare("SELECT * FROM characters WHERE name = ? COLLATE NOCASE").get(name) as CharacterRow | undefined;
+    return row ? rowToCharacter(row) : undefined;
+  }
+
+  createCharacter(character: CharacterRecord): void {
     this.db.prepare(`
-      INSERT INTO players (id, github_id, username, display_name, current_room, inventory, equipped, hp, max_hp, xp, created_at, updated_at)
-      VALUES (@id, @githubId, @username, @displayName, @currentRoom, @inventory, @equipped, @hp, @maxHp, @xp, @createdAt, @updatedAt)
-      ON CONFLICT(id) DO UPDATE SET
-        username = @username,
-        display_name = @displayName,
-        current_room = @currentRoom,
-        inventory = @inventory,
-        equipped = @equipped,
-        hp = @hp,
-        max_hp = @maxHp,
-        xp = @xp,
-        updated_at = @updatedAt
+      INSERT INTO characters (id, account_id, name, character_class, current_room, inventory, equipped, hp, max_hp, xp, created_at, updated_at)
+      VALUES (@id, @accountId, @name, @characterClass, @currentRoom, @inventory, @equipped, @hp, @maxHp, @xp, @createdAt, @updatedAt)
     `).run({
-      id: player.id,
-      githubId: player.githubId,
-      username: player.username,
-      displayName: player.displayName,
-      currentRoom: player.currentRoom,
-      inventory: JSON.stringify(player.inventory),
-      equipped: JSON.stringify(player.equipped),
-      hp: player.hp,
-      maxHp: player.maxHp,
-      xp: player.xp,
-      createdAt: player.createdAt,
-      updatedAt: player.updatedAt,
+      id: character.id,
+      accountId: character.accountId,
+      name: character.name,
+      characterClass: character.characterClass,
+      currentRoom: character.currentRoom,
+      inventory: JSON.stringify(character.inventory),
+      equipped: JSON.stringify(character.equipped),
+      hp: character.hp,
+      maxHp: character.maxHp,
+      xp: character.xp,
+      createdAt: character.createdAt,
+      updatedAt: character.updatedAt,
     });
   }
 
-  savePlayerState(id: string, state: PlayerStateUpdate): void {
+  saveCharacterState(id: string, state: CharacterStateUpdate): void {
     const sets: string[] = ["updated_at = @updatedAt"];
     const params: Record<string, unknown> = { id, updatedAt: new Date().toISOString() };
 
@@ -133,7 +198,7 @@ export class SqliteDatabase implements GameDatabase {
       params.xp = state.xp;
     }
 
-    this.db.prepare(`UPDATE players SET ${sets.join(", ")} WHERE id = @id`).run(params);
+    this.db.prepare(`UPDATE characters SET ${sets.join(", ")} WHERE id = @id`).run(params);
   }
 
   // ── Room Items ───────────────────────────────────────────────────────────
@@ -253,13 +318,17 @@ export class SqliteDatabase implements GameDatabase {
   // ── Auth Sessions ────────────────────────────────────────────────────────
 
   getSession(token: string): AuthSession | undefined {
-    const row = this.db.prepare("SELECT token, player_id, expires_at FROM auth_sessions WHERE token = ? AND expires_at > ?").get(token, new Date().toISOString()) as { token: string; player_id: string; expires_at: string } | undefined;
+    const row = this.db.prepare("SELECT token, account_id, active_character_id, expires_at FROM auth_sessions WHERE token = ? AND expires_at > ?").get(token, new Date().toISOString()) as { token: string; account_id: string; active_character_id: string | null; expires_at: string } | undefined;
     if (!row) return undefined;
-    return { token: row.token, playerId: row.player_id, expiresAt: row.expires_at };
+    return { token: row.token, accountId: row.account_id, activeCharacterId: row.active_character_id, expiresAt: row.expires_at };
   }
 
   createSession(session: AuthSession): void {
-    this.db.prepare("INSERT INTO auth_sessions (token, player_id, expires_at) VALUES (?, ?, ?)").run(session.token, session.playerId, session.expiresAt);
+    this.db.prepare("INSERT INTO auth_sessions (token, account_id, active_character_id, expires_at) VALUES (?, ?, ?, ?)").run(session.token, session.accountId, session.activeCharacterId, session.expiresAt);
+  }
+
+  updateSessionCharacter(token: string, characterId: string): void {
+    this.db.prepare("UPDATE auth_sessions SET active_character_id = ? WHERE token = ?").run(characterId, token);
   }
 
   deleteSession(token: string): void {
@@ -273,11 +342,26 @@ export class SqliteDatabase implements GameDatabase {
 
 // ── Internal row types ────────────────────────────────────────────────────────
 
-interface PlayerRow {
+interface AccountRow {
   id: string;
-  github_id: string;
-  username: string;
   display_name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface IdentityLinkRow {
+  account_id: string;
+  provider: string;
+  provider_id: string;
+  provider_username: string;
+  linked_at: string;
+}
+
+interface CharacterRow {
+  id: string;
+  account_id: string;
+  name: string;
+  character_class: string;
   current_room: string;
   inventory: string;
   equipped: string;
@@ -295,12 +379,12 @@ interface DefeatedNpcRow {
   respawn_at: string;
 }
 
-function rowToPlayer(row: PlayerRow): PlayerRecord {
+function rowToCharacter(row: CharacterRow): CharacterRecord {
   let inventory: string[];
   try {
     inventory = JSON.parse(row.inventory) as string[];
   } catch {
-    console.error(`Corrupt inventory JSON for player ${row.id}, resetting to []`);
+    console.error(`Corrupt inventory JSON for character ${row.id}, resetting to []`);
     inventory = [];
   }
 
@@ -308,15 +392,25 @@ function rowToPlayer(row: PlayerRow): PlayerRecord {
   try {
     equipped = JSON.parse(row.equipped) as Record<EquipSlot, string | null>;
   } catch {
-    console.error(`Corrupt equipped JSON for player ${row.id}, resetting to defaults`);
+    console.error(`Corrupt equipped JSON for character ${row.id}, resetting to defaults`);
     equipped = { weapon: null, armor: null, accessory: null };
   }
 
   return {
     id: row.id,
-    githubId: row.github_id,
-    username: row.username,
-    displayName: row.display_name,
+    accountId: row.account_id,
+    name: row.name,
+    characterClass: (() => {
+      if (!isCharacterClass(row.character_class)) {
+        console.error(
+          `Character ${row.id} ("${row.name}") has unrecognized class ` +
+          `"${row.character_class}" — defaulting to warrior. ` +
+          `This indicates a data integrity issue.`
+        );
+        return "warrior" as CharacterClass;
+      }
+      return row.character_class;
+    })(),
     currentRoom: row.current_room,
     inventory,
     equipped,

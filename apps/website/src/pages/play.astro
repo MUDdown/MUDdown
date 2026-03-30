@@ -3,7 +3,59 @@ import Base from "../layouts/Base.astro";
 ---
 <Base title="Play MUDdown">
   <section class="play-section">
-    <div id="game-terminal">
+    <!-- Auth gate: shown when not logged in -->
+    <div id="auth-gate" class="panel" style="display:none">
+      <h2>Welcome to MUDdown</h2>
+      <p><a href="/login" class="panel-btn">Login</a> to play with a saved character, or continue as a guest.</p>
+      <button id="guest-play-btn" class="panel-btn panel-btn-secondary">Play as Guest</button>
+    </div>
+
+    <!-- Character selection: shown when logged in but no active character -->
+    <div id="character-panel" class="panel" style="display:none">
+      <h2>Choose a Character</h2>
+      <div id="character-list"></div>
+      <hr class="panel-divider" />
+      <h3>Create New Character</h3>
+      <form id="create-character-form">
+        <label for="char-name">Name</label>
+        <input id="char-name" type="text" minlength="2" maxlength="24"
+          placeholder="2–24 characters"
+          pattern="^[a-zA-Z][a-zA-Z0-9 '\-]{0,22}[a-zA-Z0-9]$"
+          required aria-label="Character name" />
+
+        <fieldset>
+          <legend>Class</legend>
+          <div class="class-options">
+            <label class="class-option">
+              <input type="radio" name="charClass" value="warrior" checked />
+              <span class="class-label">Warrior</span>
+              <span class="class-stats">HP 25 · AC 12 · ATK +3 · DMG 1d6+1</span>
+            </label>
+            <label class="class-option">
+              <input type="radio" name="charClass" value="mage" />
+              <span class="class-label">Mage</span>
+              <span class="class-stats">HP 15 · AC 8 · ATK +1 · DMG 1d4</span>
+            </label>
+            <label class="class-option">
+              <input type="radio" name="charClass" value="rogue" />
+              <span class="class-label">Rogue</span>
+              <span class="class-stats">HP 18 · AC 11 · ATK +2 · DMG 1d6</span>
+            </label>
+            <label class="class-option">
+              <input type="radio" name="charClass" value="cleric" />
+              <span class="class-label">Cleric</span>
+              <span class="class-stats">HP 20 · AC 10 · ATK +2 · DMG 1d4+1</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <div id="create-error" class="form-error" role="alert"></div>
+        <button type="submit" class="panel-btn">Create &amp; Play</button>
+      </form>
+    </div>
+
+    <!-- Game terminal: shown once connected -->
+    <div id="game-terminal" style="display:none">
       <div id="game-output" role="log" aria-live="polite"></div>
       <div id="game-input-row">
         <span id="game-prompt">&gt;</span>
@@ -12,7 +64,6 @@ import Base from "../layouts/Base.astro";
           type="text"
           placeholder="Type a command..."
           autocomplete="off"
-          autofocus
           aria-label="Game command input"
         />
       </div>
@@ -20,8 +71,212 @@ import Base from "../layouts/Base.astro";
   </section>
 
   <script>
+    const API_BASE = import.meta.env.PUBLIC_API_BASE || `${location.protocol}//${location.hostname}:3300`;
     const output = document.getElementById("game-output")!;
     const input = document.getElementById("game-input")! as HTMLInputElement;
+    const authGate = document.getElementById("auth-gate")!;
+    const characterPanel = document.getElementById("character-panel")!;
+    const gameTerminal = document.getElementById("game-terminal")!;
+
+    // ── Types ───────────────────────────────────────────────────────────
+
+    interface CharacterSummary {
+      id: string;
+      name: string;
+      characterClass: string;
+      hp: number;
+      maxHp: number;
+      xp: number;
+    }
+
+    // ── Auth flow ──────────────────────────────────────────────────────
+
+    let isGuest = false;
+
+    async function checkAuthAndRoute(): Promise<void> {
+      let me: { activeCharacter?: unknown } | null = null;
+      try {
+        const res = await fetch(`${API_BASE}/auth/me`, { credentials: "include" });
+        if (!res.ok) { showAuthGate(); return; }
+        try {
+          me = await res.json();
+        } catch (parseErr) {
+          console.error("checkAuthAndRoute: /auth/me returned non-JSON body:", parseErr);
+          showAuthGate();
+          return;
+        }
+      } catch (err) {
+        // Genuine network failure (fetch itself threw)
+        console.debug("checkAuthAndRoute: network error:", err);
+        showAuthGate();
+        return;
+      }
+
+      if (me?.activeCharacter) {
+        startGame();
+      } else {
+        await showCharacterPanel();
+      }
+    }
+
+    function showAuthGate(): void {
+      authGate.style.display = "";
+      characterPanel.style.display = "none";
+      gameTerminal.style.display = "none";
+    }
+
+    async function showCharacterPanel(): Promise<void> {
+      authGate.style.display = "none";
+      characterPanel.style.display = "";
+      gameTerminal.style.display = "none";
+      await loadCharacterList();
+    }
+
+    async function loadCharacterList(): Promise<void> {
+      const listEl = document.getElementById("character-list")!;
+      try {
+        const res = await fetch(`${API_BASE}/auth/characters`, { credentials: "include" });
+        if (res.status === 401) { showAuthGate(); return; }
+        if (!res.ok) {
+          console.error(`loadCharacterList: HTTP ${res.status}`);
+          listEl.innerHTML = `<p>Could not load characters (HTTP ${res.status}). <button onclick="location.reload()">Retry</button></p>`;
+          return;
+        }
+        const data = await res.json();
+        if (!data.characters?.length) {
+          listEl.innerHTML = "<p class=\"text-dim\">No characters yet — create one below.</p>";
+          return;
+        }
+        listEl.innerHTML = (data.characters as CharacterSummary[]).map((c) => `
+          <div class="char-row">
+            <div class="char-info">
+              <strong>${escapeHtml(c.name)}</strong>
+              <span class="text-dim">${escapeHtml(c.characterClass)} · HP ${c.hp}/${c.maxHp} · XP ${c.xp}</span>
+            </div>
+            <button class="panel-btn panel-btn-sm" data-char-id="${escapeHtml(c.id)}">Play</button>
+          </div>
+        `).join("");
+
+        listEl.querySelectorAll("button[data-char-id]").forEach(btn => {
+          btn.addEventListener("click", () => selectCharacter(btn.getAttribute("data-char-id")!));
+        });
+      } catch (err) {
+        console.error("loadCharacterList error:", err);
+        listEl.innerHTML = "<p>Could not load characters. <button onclick=\"location.reload()\">Retry</button></p>";
+      }
+    }
+
+    async function selectCharacter(characterId: string): Promise<void> {
+      try {
+        const res = await fetch(`${API_BASE}/auth/select-character`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ characterId }),
+        });
+        if (res.ok) {
+          startGame();
+        } else {
+          let errMsg = `HTTP ${res.status}`;
+          try {
+            const errBody = await res.json();
+            if (typeof errBody === "object" && errBody !== null && "error" in errBody) {
+              errMsg = String((errBody as { error: unknown }).error);
+            }
+          } catch { /* response was not JSON */ }
+          alert(errMsg);
+        }
+      } catch (err) {
+        console.error("selectCharacter: network error:", err);
+        alert("Failed to contact server.");
+      }
+    }
+
+    // ── Character creation form ────────────────────────────────────────
+
+    const createForm = document.getElementById("create-character-form")! as HTMLFormElement;
+    const createError = document.getElementById("create-error")!;
+
+    createForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      createError.textContent = "";
+
+      const name = (document.getElementById("char-name")! as HTMLInputElement).value.trim();
+      const charClass = (createForm.querySelector('input[name="charClass"]:checked') as HTMLInputElement)?.value;
+
+      if (!name || !charClass) {
+        createError.textContent = "Please enter a name and select a class.";
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/auth/create-character`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, characterClass: charClass }),
+        });
+
+        let data: { error?: string };
+        const responseText = await res.text();
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          data = { error: responseText.trim() || `Server returned non-JSON response (HTTP ${res.status})` };
+        }
+
+        if (!res.ok) {
+          createError.textContent = data.error || "Failed to create character.";
+          return;
+        }
+        // Auto-selected on server — go play
+        startGame();
+      } catch (err) {
+        console.error("createCharacter: network error:", err);
+        createError.textContent = "Failed to contact server.";
+      }
+    });
+
+    // ── Start game (get ticket + connect) ──────────────────────────────
+
+    async function startGame(): Promise<void> {
+      authGate.style.display = "none";
+      characterPanel.style.display = "none";
+      gameTerminal.style.display = "";
+      input.focus();
+
+      if (isGuest) {
+        connect();
+        return;
+      }
+
+      // Get a WS ticket for authenticated play
+      try {
+        const res = await fetch(`${API_BASE}/auth/ws-ticket`, { credentials: "include" });
+        if (res.ok) {
+          const { ticket } = await res.json();
+          connect(ticket);
+        } else {
+          const errBody = await res.json().catch(() => ({}));
+          const msg = (errBody as { error?: string }).error ?? `Server error (HTTP ${res.status})`;
+          appendMessage(`**Could not start session:** ${msg}. Please reload and try again.`, "system");
+          showAuthGate();
+          return;
+        }
+      } catch (err) {
+        console.error("startGame: failed to get WS ticket:", err);
+        appendMessage("**Could not contact server.** Please reload and try again.", "system");
+        showAuthGate();
+        return;
+      }
+    }
+
+    // ── Guest button ───────────────────────────────────────────────────
+
+    document.getElementById("guest-play-btn")!.addEventListener("click", () => {
+      isGuest = true;
+      startGame();
+    });
 
     // ── Markdown-lite renderer (handles basic MUDdown for display) ──────
 
@@ -182,13 +437,19 @@ import Base from "../layouts/Base.astro";
     // ── WebSocket connection ───────────────────────────────────────────
 
     const wsProtocol = location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${wsProtocol}//${location.hostname}:3300`;
+    const wsHost = `${wsProtocol}//${location.hostname}:3300`;
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout>;
+    let lastTicket: string | undefined;
 
-    function connect() {
+    function connect(ticket?: string) {
+      if (ticket) lastTicket = ticket;
+      const url = lastTicket ? `${wsHost}?ticket=${encodeURIComponent(lastTicket)}` : wsHost;
+      // Ticket is single-use; clear after first connect attempt
+      lastTicket = undefined;
+
       appendMessage("*Connecting to Northkeep...*", "system");
-      ws = new WebSocket(wsUrl);
+      ws = new WebSocket(url);
 
       ws.onopen = () => {
         appendMessage("*Connected!*", "system");
@@ -266,6 +527,83 @@ import Base from "../layouts/Base.astro";
 
     // ── Start ──────────────────────────────────────────────────────────
 
-    connect();
+    checkAuthAndRoute();
   </script>
+
+  <style>
+    .panel {
+      max-width: 520px;
+      margin: 2rem auto;
+      background: var(--bg-surface);
+      border: 1px solid #1e2a38;
+      border-radius: var(--radius);
+      padding: 2rem;
+    }
+    .panel h2 { margin-bottom: 0.5rem; }
+    .panel p { color: var(--text-dim); line-height: 1.5; margin-bottom: 1rem; }
+    .panel-btn {
+      display: inline-block;
+      padding: 0.5rem 1.25rem;
+      border: 1px solid var(--accent-dim);
+      border-radius: var(--radius);
+      background: var(--bg-elevated);
+      color: var(--text-bright);
+      font-family: var(--font-body);
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .panel-btn:hover { background: #243040; border-color: var(--green); }
+    .panel-btn-secondary { border-color: #2a3444; }
+    .panel-btn-sm { padding: 0.35rem 0.85rem; font-size: 0.85rem; }
+    .panel-divider { border: none; border-top: 1px solid #1e2a38; margin: 1.5rem 0; }
+
+    /* Character list */
+    .char-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.6rem 0;
+      border-bottom: 1px solid #1e2a38;
+    }
+    .char-row:last-child { border-bottom: none; }
+    .char-info { display: flex; flex-direction: column; gap: 0.2rem; }
+    .text-dim { color: var(--text-dim); font-size: 0.85rem; }
+
+    /* Create character form */
+    #create-character-form label { display: block; margin-top: 1rem; font-weight: 600; font-size: 0.9rem; }
+    #create-character-form input[type="text"] {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      margin-top: 0.25rem;
+      background: var(--bg-elevated);
+      border: 1px solid #2a3444;
+      border-radius: var(--radius);
+      color: var(--text-bright);
+      font-family: var(--font-body);
+      font-size: 0.9rem;
+      box-sizing: border-box;
+    }
+    #create-character-form fieldset { border: none; padding: 0; margin: 1rem 0; }
+    #create-character-form legend { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.5rem; }
+    .class-options { display: flex; flex-direction: column; gap: 0.4rem; }
+    .class-option {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      background: var(--bg-elevated);
+      border: 1px solid #2a3444;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .class-option:has(input:checked) { border-color: var(--green); }
+    .class-label { font-weight: 600; min-width: 5rem; }
+    .class-stats { color: var(--text-dim); font-size: 0.8rem; font-family: var(--font-mono); }
+    .form-error { color: #e55; font-size: 0.85rem; min-height: 1.2em; margin: 0.5rem 0; }
+    #create-character-form button[type="submit"] { margin-top: 0.5rem; }
+  </style>
 </Base>

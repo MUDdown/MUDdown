@@ -27,6 +27,13 @@ const { title } = Astro.props;
           <a href="/spec">Specification</a>
           <a href="/play">Play</a>
           <a href="https://github.com/MUDdown/MUDdown">GitHub</a>
+          <span id="auth-nav">
+            <a href="/login" id="auth-login-link" class="auth-link" style="display:none;">Login</a>
+            <span id="auth-user-info" style="display:none;">
+              <span id="auth-display-name" class="auth-display-name"></span>
+              <button id="auth-logout-btn" class="auth-btn">Logout</button>
+            </span>
+          </span>
         </nav>
       </div>
     </header>
@@ -40,5 +47,45 @@ const { title } = Astro.props;
         <p>&copy; 2026 MUDdown Contributors &middot; MIT License &middot; <a href="https://github.com/MUDdown/MUDdown">Source on GitHub</a></p>
       </div>
     </footer>
+
+    <script>
+      const API_BASE = import.meta.env.PUBLIC_API_BASE || `${location.protocol}//${location.hostname}:3300`;
+
+      async function checkAuth() {
+        try {
+          const res = await fetch(`${API_BASE}/auth/me`, { credentials: "include" });
+          const loginLink = document.getElementById("auth-login-link");
+          const userInfo = document.getElementById("auth-user-info");
+          const displayName = document.getElementById("auth-display-name");
+
+          if (res.ok) {
+            const data = await res.json();
+            if (loginLink) loginLink.style.display = "none";
+            if (userInfo) userInfo.style.display = "inline";
+            if (displayName) displayName.textContent = data.displayName;
+          } else {
+            if (loginLink) loginLink.style.display = "inline";
+            if (userInfo) userInfo.style.display = "none";
+          }
+        } catch (err) {
+          console.error("Failed to check auth status:", err);
+          // Server not reachable — show login link as fallback
+          const loginLink = document.getElementById("auth-login-link");
+          if (loginLink) loginLink.style.display = "inline";
+        }
+      }
+
+      document.getElementById("auth-logout-btn")?.addEventListener("click", async () => {
+        try {
+          const res = await fetch(`${API_BASE}/auth/logout`, { method: "POST", credentials: "include" });
+          if (!res.ok) console.warn(`Logout returned HTTP ${res.status}`);
+        } catch (err) {
+          console.warn("Logout request failed:", err);
+        }
+        window.location.reload();
+      });
+
+      checkAuth();
+    </script>
   </body>
 </html>

@@ -154,6 +154,9 @@ export const PLAYER_DEFAULTS = {
   damage: "1d4",        // unarmed
 } as const satisfies Omit<NpcCombatStats, "xp">;
 
+/** Alias for anonymous guest defaults */
+export const GUEST_DEFAULTS = PLAYER_DEFAULTS;
+
 export interface DialogueResponse {
   text: string;
   next: string | null; // null = end conversation
@@ -175,13 +178,59 @@ export interface NpcDefinition {
   combat?: NpcCombatStats;
 }
 
-// ─── Player Persistence ──────────────────────────────────────────────────────
+// ─── Character Classes ───────────────────────────────────────────────────────
 
-export interface PlayerRecord {
-  id: string;             // stable UUID (primary key)
-  githubId: string;       // GitHub user ID (unique)
-  username: string;       // GitHub login (for display fallback)
-  displayName: string;    // chosen or GitHub display name
+export type CharacterClass = "warrior" | "mage" | "rogue" | "cleric";
+
+export const CHARACTER_CLASSES: readonly CharacterClass[] = ["warrior", "mage", "rogue", "cleric"] as const;
+
+export function isCharacterClass(value: unknown): value is CharacterClass {
+  return typeof value === "string" && (CHARACTER_CLASSES as readonly string[]).includes(value);
+}
+
+export const CLASS_STATS: Record<CharacterClass, {
+  hp: number;
+  maxHp: number;
+  ac: number;
+  attackBonus: number;
+  damage: string;
+}> = {
+  warrior: { hp: 25, maxHp: 25, ac: 12, attackBonus: 3, damage: "1d6+1" },
+  mage:    { hp: 15, maxHp: 15, ac: 8,  attackBonus: 1, damage: "1d4" },
+  rogue:   { hp: 18, maxHp: 18, ac: 11, attackBonus: 2, damage: "1d6" },
+  cleric:  { hp: 20, maxHp: 20, ac: 10, attackBonus: 2, damage: "1d4+1" },
+};
+
+// ─── Account & Identity ──────────────────────────────────────────────────────
+
+export type OAuthProvider = "github";
+
+export function isOAuthProvider(v: unknown): v is OAuthProvider {
+  return v === "github";   // extend when new providers are added
+}
+
+export interface AccountRecord {
+  id: string;             // UUID (primary key)
+  displayName: string;    // from provider or user-chosen
+  createdAt: string;      // ISO 8601
+  updatedAt: string;      // ISO 8601
+}
+
+export interface IdentityLinkRecord {
+  accountId: string;      // FK → accounts
+  provider: OAuthProvider;
+  providerId: string;     // external user ID (unique per provider)
+  providerUsername: string; // e.g., GitHub login
+  linkedAt: string;       // ISO 8601
+}
+
+// ─── Character Persistence ───────────────────────────────────────────────────
+
+export interface CharacterRecord {
+  id: string;             // UUID (primary key)
+  accountId: string;      // FK → accounts
+  name: string;           // character name (unique per server)
+  characterClass: CharacterClass;
   currentRoom: string;
   inventory: string[];    // item IDs
   equipped: Record<EquipSlot, string | null>;
