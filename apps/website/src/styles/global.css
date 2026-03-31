@@ -553,7 +553,7 @@ body:has(.play-section) footer {
 .settings-option {
   margin-bottom: 0.2rem;
 }
-.settings-option button {
+.settings-option label {
   display: block;
   width: 100%;
   text-align: left;
@@ -566,15 +566,21 @@ body:has(.play-section) footer {
   font-family: var(--font-body);
   font-size: 0.85rem;
 }
-.settings-option button:hover {
+.settings-option input[type="radio"] {
+  accent-color: var(--accent);
+  margin-right: 0.4rem;
+  vertical-align: middle;
+}
+.settings-option label:hover {
   background: var(--bg-hover);
 }
-.settings-option button[aria-checked="true"] {
+.settings-option input[type="radio"]:checked + span,
+.settings-option label:has(input:checked) {
   color: var(--accent);
   border-color: var(--accent-dim);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
-.settings-option button:focus-visible {
+.settings-option label:focus-within {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }

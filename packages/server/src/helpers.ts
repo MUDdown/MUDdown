@@ -245,9 +245,6 @@ export function buildInventoryState(
 ): InventoryState {
   const items = inventory.map(id => {
     const def = itemDefs.get(id);
-    if (!def) {
-      console.error(`buildInventoryState: item ID "${id}" not found in itemDefs`);
-    }
     return {
       id,
       name: def?.name ?? id,
@@ -260,9 +257,6 @@ export function buildInventoryState(
   for (const [slot, id] of Object.entries(equipped)) {
     if (id) {
       const def = itemDefs.get(id);
-      if (!def) {
-        console.error(`buildInventoryState: equipped item "${id}" in slot "${slot}" not found in itemDefs`);
-      }
       equippedState[slot] = { id, name: def?.name ?? id };
     } else {
       equippedState[slot] = null;

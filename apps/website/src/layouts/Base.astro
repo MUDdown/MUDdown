@@ -38,16 +38,16 @@ const { title } = Astro.props;
           <span id="settings-wrap" class="settings-wrap" style="display:none;">
             <button id="settings-btn" class="auth-btn" aria-haspopup="true" aria-expanded="false" aria-label="Settings">⚙</button>
             <div id="settings-dropdown" class="settings-dropdown" style="display:none;">
-              <fieldset role="radiogroup">
+              <fieldset>
                 <legend>Inventory panel</legend>
                 <div class="settings-option">
-                  <button role="radio" data-inv-mode="off" aria-checked="false">Off</button>
+                  <label><input type="radio" name="inv-mode" value="off" /> Off</label>
                 </div>
                 <div class="settings-option">
-                  <button role="radio" data-inv-mode="persistent" aria-checked="true">Sidebar</button>
+                  <label><input type="radio" name="inv-mode" value="persistent" checked /> Sidebar</label>
                 </div>
                 <div class="settings-option">
-                  <button role="radio" data-inv-mode="overlay" aria-checked="false">Overlay</button>
+                  <label><input type="radio" name="inv-mode" value="overlay" /> Overlay</label>
                 </div>
               </fieldset>
             </div>

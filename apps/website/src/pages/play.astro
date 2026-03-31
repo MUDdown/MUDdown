@@ -584,7 +584,12 @@ import Base from "../layouts/Base.astro";
     type InvMode = "off" | "persistent" | "overlay";
     const STORAGE_KEY = "muddown_inv_mode";
     const VALID_INV_MODES = new Set<string>(["off", "persistent", "overlay"]);
-    const _storedMode = localStorage.getItem(STORAGE_KEY);
+    let _storedMode: string | null = null;
+    try {
+      _storedMode = localStorage.getItem(STORAGE_KEY);
+    } catch {
+      _storedMode = null;
+    }
     let currentInvMode: InvMode = (_storedMode && VALID_INV_MODES.has(_storedMode))
       ? (_storedMode as InvMode)
       : "persistent";
@@ -602,20 +607,39 @@ import Base from "../layouts/Base.astro";
     }
 
     function isInvState(v: unknown): v is InvState {
-      return (
-        v !== null &&
-        typeof v === "object" &&
-        Array.isArray((v as Record<string, unknown>).items) &&
-        typeof (v as Record<string, unknown>).equipped === "object" &&
-        (v as Record<string, unknown>).equipped !== null
-      );
+      if (v === null || typeof v !== "object") return false;
+      const obj = v as Record<string, unknown>;
+      if (!Array.isArray(obj.items)) return false;
+      const allItemsValid = obj.items.every(item => {
+        if (item === null || typeof item !== "object") return false;
+        const it = item as Record<string, unknown>;
+        return (
+          typeof it.id === "string" &&
+          typeof it.name === "string" &&
+          typeof it.equippable === "boolean" &&
+          typeof it.usable === "boolean"
+        );
+      });
+      if (!allItemsValid) return false;
+      const equipped = obj.equipped;
+      if (equipped === null || typeof equipped !== "object" || Array.isArray(equipped)) return false;
+      return Object.values(equipped as Record<string, unknown>).every(val => {
+        if (val === null) return true;
+        if (typeof val !== "object") return false;
+        const vObj = val as Record<string, unknown>;
+        return typeof vObj.id === "string" && typeof vObj.name === "string";
+      });
     }
 
     let lastInvState: InvState | null = null;
 
     function applyInvMode(mode: InvMode): void {
       currentInvMode = mode;
-      localStorage.setItem(STORAGE_KEY, mode);
+      try {
+        localStorage.setItem(STORAGE_KEY, mode);
+      } catch {
+        // SecurityError or QuotaExceededError — mode will not persist
+      }
 
       invPanel.classList.remove("inv-persistent", "inv-overlay", "inv-off");
 
@@ -660,9 +684,9 @@ import Base from "../layouts/Base.astro";
         }
       }
 
-      // Update settings radio buttons
-      document.querySelectorAll("[data-inv-mode]").forEach(btn => {
-        btn.setAttribute("aria-checked", btn.getAttribute("data-inv-mode") === mode ? "true" : "false");
+      // Update settings radio inputs
+      document.querySelectorAll<HTMLInputElement>("input[name='inv-mode']").forEach(radio => {
+        radio.checked = radio.value === mode;
       });
     }
 
@@ -877,19 +901,18 @@ import Base from "../layouts/Base.astro";
       }
     });
 
-    // Inventory mode radio buttons
-    document.querySelectorAll("[data-inv-mode]").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const raw = btn.getAttribute("data-inv-mode");
-        if (!raw || !VALID_INV_MODES.has(raw)) {
-          console.error(`Invalid inventory mode "${raw}" on settings button`, btn);
-          return;
-        }
-        const mode = raw as InvMode;
-        applyInvMode(mode);
+    // Inventory mode radio inputs
+    document.querySelectorAll<HTMLInputElement>("input[name='inv-mode']").forEach(radio => {
+      radio.addEventListener("change", () => {
+        const raw = radio.value;
+        if (!VALID_INV_MODES.has(raw)) return;
+        applyInvMode(raw as InvMode);
         if (lastInvState) renderInventoryState(lastInvState);
       });
     });
+
+    // Sync initial mode to UI (reflects persisted localStorage value)
+    applyInvMode(currentInvMode);
 
     // ── Start ──────────────────────────────────────────────────────────
 
