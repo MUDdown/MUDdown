@@ -8,7 +8,7 @@ import {
   dirAliases, findItemByName, findNpcInRoom, findUnclaimedIndex,
   escapeMarkdownLinkLabel, escapeMarkdownLinkDest, escapeDialogueText,
   resolveAttack, formatAttackLine, getPlayerAttackBonus, getPlayerDamage, getPlayerAc,
-  resetPlayerAfterDefeat, stripHtmlComments,
+  resetPlayerAfterDefeat, stripHtmlComments, buildInventoryState,
 } from "./helpers.js";
 import { SqliteDatabase } from "./db/index.js";
 import type { GameDatabase } from "./db/types.js";
@@ -296,6 +296,7 @@ Type commands or click links to explore. Try: \`look\`, \`go north\`, \`help\`
 
   // Send initial room
   sendRoom(ws, session.currentRoom);
+  sendInventoryState(ws, session);
 
   ws.on("message", (data) => {
     let msg: ClientMessage;
@@ -1004,6 +1005,7 @@ function handlePlayerDefeat(ws: WebSocket, session: PlayerSession): void {
   ));
   broadcastToRoom(RESPAWN_ROOM, session, `*${session.name} stumbles in, looking dazed.*`);
   sendRoom(ws, session.currentRoom);
+  sendInventoryState(ws, session);
 }
 
 // ─── Item Commands ───────────────────────────────────────────────────────────
@@ -1033,6 +1035,7 @@ function handleGet(ws: WebSocket, session: PlayerSession, arg: string): void {
   session.inventory.push(def.id);
 
   send(ws, systemMessage(`You pick up the **${def.name}**.`));
+  sendInventoryState(ws, session);
   broadcastToRoom(session.currentRoom, session, `*${session.name} picks up a ${def.name}.*`);
 }
 
@@ -1064,6 +1067,7 @@ function handleDrop(ws: WebSocket, session: PlayerSession, arg: string): void {
   world.roomItems.set(session.currentRoom, roomItemIds);
 
   send(ws, systemMessage(`You drop the **${def.name}**.`));
+  sendInventoryState(ws, session);
   broadcastToRoom(session.currentRoom, session, `*${session.name} drops a ${def.name}.*`);
 }
 
@@ -1101,6 +1105,18 @@ ${equippedLines.join("\n")}
   });
 }
 
+function sendInventoryState(ws: WebSocket, session: PlayerSession): void {
+  const state = buildInventoryState(session.inventory, session.equipped, world.itemDefs);
+  send(ws, {
+    v: 1,
+    id: randomUUID(),
+    type: "system",
+    timestamp: new Date().toISOString(),
+    muddown: "",
+    meta: { inventoryState: state },
+  });
+}
+
 function handleEquip(ws: WebSocket, session: PlayerSession, arg: string): void {
   if (!arg) {
     send(ws, systemMessage("Equip what? Usage: `equip <item>`"));
@@ -1132,6 +1148,7 @@ function handleEquip(ws: WebSocket, session: PlayerSession, arg: string): void {
   }
 
   session.equipped[def.slot] = def.id;
+  sendInventoryState(ws, session);
 }
 
 function handleUnequip(ws: WebSocket, session: PlayerSession, arg: string): void {
@@ -1151,6 +1168,7 @@ function handleUnequip(ws: WebSocket, session: PlayerSession, arg: string): void
       if (def && (def.id === lowered || def.name.toLowerCase() === lowered)) {
         session.equipped[s as EquipSlot] = null;
         send(ws, systemMessage(`You unequip the **${def.name}**.`));
+        sendInventoryState(ws, session);
         return;
       }
     }
@@ -1166,6 +1184,7 @@ function handleUnequip(ws: WebSocket, session: PlayerSession, arg: string): void
   const def = world.itemDefs.get(currentId);
   session.equipped[slot] = null;
   send(ws, systemMessage(`You unequip the **${def?.name ?? currentId}**.`));
+  sendInventoryState(ws, session);
 }
 
 function handleUse(ws: WebSocket, session: PlayerSession, arg: string): void {
@@ -1213,6 +1232,7 @@ function handleUse(ws: WebSocket, session: PlayerSession, arg: string): void {
     if (invIdx !== -1) {
       session.inventory.splice(invIdx, 1);
       send(ws, systemMessage(`The **${def.name}** is consumed.`));
+      sendInventoryState(ws, session);
     } else {
       const roomItems = world.roomItems.get(session.currentRoom);
       if (roomItems) {
@@ -1313,6 +1333,7 @@ function handleCombine(ws: WebSocket, session: PlayerSession, arg: string): void
     timestamp: new Date().toISOString(),
     muddown: `${recipe.description}\n\nYou now have: **${resultDef.name}**`,
   });
+  sendInventoryState(ws, session);
 }
 
 function broadcast(sender: PlayerSession, message: string): void {
