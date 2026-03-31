@@ -17,6 +17,7 @@
   --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
   --font-body: "Inter", system-ui, sans-serif;
   --radius: 8px;
+  --header-height: 80px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -289,6 +290,295 @@ body:has(.play-section) footer {
 }
 #game-input::placeholder { color: var(--text-dim); }
 
+/* ── Game Area (terminal + inventory sidebar) ── */
+
+.game-area {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.game-area #game-terminal {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Inventory Panel ────────────────────────── */
+
+.inv-panel {
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-elevated);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Persistent sidebar mode */
+.inv-panel.inv-persistent {
+  width: 280px;
+  min-width: 200px;
+  max-width: 400px;
+}
+
+/* Overlay floating mode */
+.inv-panel.inv-overlay {
+  position: fixed;
+  top: var(--header-height);
+  right: 24px;
+  width: 300px;
+  height: 420px;
+  min-width: 220px;
+  min-height: 200px;
+  border: 1px solid var(--border-elevated);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  resize: both;
+  overflow: hidden;
+}
+
+/* Off mode */
+.inv-panel.inv-off {
+  display: none;
+}
+
+/* Header / drag handle */
+.inv-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  cursor: default;
+  user-select: none;
+  flex-shrink: 0;
+}
+.inv-overlay .inv-header {
+  cursor: grab;
+}
+.inv-overlay .inv-header:active {
+  cursor: grabbing;
+}
+.inv-header h2 {
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.inv-icon-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0 0.25rem;
+  line-height: 1;
+}
+.inv-icon-btn:hover { color: var(--text-bright); }
+.inv-icon-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Body */
+.inv-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem 0.75rem;
+}
+
+/* Sections */
+.inv-section {
+  margin-bottom: 0.75rem;
+}
+.inv-section h3 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.2rem;
+}
+
+/* Equipment slots */
+.inv-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.inv-slot {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+}
+.inv-slot-label {
+  color: var(--text-dim);
+  min-width: 5.5em;
+  font-size: 0.8rem;
+}
+.inv-slot-value {
+  color: var(--text);
+}
+.inv-slot-value em {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* Item list */
+#inv-items {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.inv-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--border);
+  gap: 0.35rem;
+}
+.inv-item:last-child { border-bottom: none; }
+.inv-item-equipped {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+.inv-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.inv-equipped-badge {
+  color: var(--accent-dim);
+  font-size: 0.75rem;
+  margin-left: 0.25rem;
+}
+.inv-empty {
+  color: var(--text-dim);
+  font-style: italic;
+  padding: 0.25rem 0;
+  list-style: none;
+}
+
+/* Action buttons */
+.inv-actions {
+  display: flex;
+  gap: 0.15rem;
+  flex-shrink: 0;
+}
+.inv-action {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  line-height: 1;
+}
+.inv-action:hover {
+  color: var(--text-bright);
+  border-color: var(--border-elevated);
+  background: var(--bg-hover);
+}
+.inv-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.inv-item-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+.inv-item-btn:hover { color: var(--text-bright); text-decoration: underline; }
+.inv-item-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Status bar */
+.inv-status {
+  padding: 0.35rem 0.75rem;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+/* ── Settings dropdown ──────────────────────── */
+
+.settings-wrap {
+  position: relative;
+  display: inline-block;
+  margin-left: 0.75rem;
+}
+.settings-dropdown {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-elevated);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  min-width: 160px;
+  z-index: 200;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+.settings-dropdown fieldset {
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+.settings-dropdown legend {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin-bottom: 0.4rem;
+}
+.settings-option {
+  margin-bottom: 0.2rem;
+}
+.settings-option button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text);
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+}
+.settings-option button:hover {
+  background: var(--bg-hover);
+}
+.settings-option button[aria-checked="true"] {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.settings-option button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* ── Spec Page ──────────────────────────────── */
 
 .spec-content {
@@ -309,4 +599,20 @@ body:has(.play-section) footer {
   .hero h2 { font-size: 2rem; }
   .hero .cta { flex-direction: column; }
   header .container { flex-direction: column; gap: 0.75rem; }
+
+  :root { --header-height: 60px; }
+
+  /* Inventory panel collapses to overlay on small screens */
+  .inv-panel.inv-persistent {
+    position: fixed;
+    top: var(--header-height);
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: 320px;
+    border-left: 1px solid var(--border-elevated);
+    border-radius: 0;
+    z-index: 100;
+    box-shadow: -4px 0 16px rgba(0, 0, 0, 0.4);
+  }
 }

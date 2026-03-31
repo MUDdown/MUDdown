@@ -223,3 +223,51 @@ export function resetPlayerAfterDefeat(target: DefeatResetTarget, respawnRoom: s
   target.hp = target.maxHp;
   target.currentRoom = respawnRoom;
 }
+
+// ─── Inventory State Builder ─────────────────────────────────────────────────
+
+export interface InventoryItemState {
+  id: string;
+  name: string;
+  equippable: boolean;
+  usable: boolean;
+}
+
+export interface InventoryState {
+  items: InventoryItemState[];
+  equipped: Record<string, { id: string; name: string } | null>;
+}
+
+export function buildInventoryState(
+  inventory: string[],
+  equipped: Record<string, string | null>,
+  itemDefs: Map<string, ItemDefinition>,
+): InventoryState {
+  const items = inventory.map(id => {
+    const def = itemDefs.get(id);
+    if (!def) {
+      console.error(`buildInventoryState: item ID "${id}" not found in itemDefs`);
+    }
+    return {
+      id,
+      name: def?.name ?? id,
+      equippable: def?.equippable ?? false,
+      usable: def?.usable ?? false,
+    };
+  });
+
+  const equippedState: Record<string, { id: string; name: string } | null> = {};
+  for (const [slot, id] of Object.entries(equipped)) {
+    if (id) {
+      const def = itemDefs.get(id);
+      if (!def) {
+        console.error(`buildInventoryState: equipped item "${id}" in slot "${slot}" not found in itemDefs`);
+      }
+      equippedState[slot] = { id, name: def?.name ?? id };
+    } else {
+      equippedState[slot] = null;
+    }
+  }
+
+  return { items, equipped: equippedState };
+}

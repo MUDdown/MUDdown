@@ -34,6 +34,24 @@ const { title } = Astro.props;
               <button id="auth-logout-btn" class="auth-btn">Logout</button>
             </span>
           </span>
+          <!-- Settings (visible only on play page) -->
+          <span id="settings-wrap" class="settings-wrap" style="display:none;">
+            <button id="settings-btn" class="auth-btn" aria-haspopup="true" aria-expanded="false" aria-label="Settings">⚙</button>
+            <div id="settings-dropdown" class="settings-dropdown" style="display:none;">
+              <fieldset role="radiogroup">
+                <legend>Inventory panel</legend>
+                <div class="settings-option">
+                  <button role="radio" data-inv-mode="off" aria-checked="false">Off</button>
+                </div>
+                <div class="settings-option">
+                  <button role="radio" data-inv-mode="persistent" aria-checked="true">Sidebar</button>
+                </div>
+                <div class="settings-option">
+                  <button role="radio" data-inv-mode="overlay" aria-checked="false">Overlay</button>
+                </div>
+              </fieldset>
+            </div>
+          </span>
         </nav>
       </div>
     </header>
@@ -86,6 +104,12 @@ const { title } = Astro.props;
       });
 
       checkAuth();
+
+      // Show settings gear only on the play page
+      if (document.querySelector(".play-section")) {
+        const sw = document.getElementById("settings-wrap");
+        if (sw) sw.style.display = "inline";
+      }
     </script>
   </body>
 </html>

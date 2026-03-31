@@ -175,8 +175,8 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [x] World state persistence (room items, NPC HP, defeated NPC tracking)
 - [x] NPC respawn system (20-minute timer, restore to home room with full HP)
 - [x] Entity lifecycle hooks (onCreate, onReset, onContact — e.g., NPC greets player on room entry)
-- [ ] Character creation (name, class, starting stats)
-- [ ] Inventory and equipment UI in the web client
+- [x] Character creation (name, class, starting stats)
+- [x] Inventory and equipment UI in the web client
 - [ ] OIDC login providers (Microsoft, Google) — extend OAuth2 foundation
 
 ### Phase 3 — Deployment & Infrastructure

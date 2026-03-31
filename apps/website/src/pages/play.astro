@@ -54,19 +54,55 @@ import Base from "../layouts/Base.astro";
       </form>
     </div>
 
-    <!-- Game terminal: shown once connected -->
-    <div id="game-terminal" style="display:none">
-      <div id="game-output" role="log" aria-live="polite"></div>
-      <div id="game-input-row">
-        <span id="game-prompt">&gt;</span>
-        <input
-          id="game-input"
-          type="text"
-          placeholder="Type a command..."
-          autocomplete="off"
-          aria-label="Game command input"
-        />
+    <!-- Game area: terminal + optional inventory sidebar -->
+    <div id="game-area" class="game-area" style="display:none">
+      <div id="game-terminal">
+        <div id="game-output" role="log" aria-live="polite"></div>
+        <div id="game-input-row">
+          <span id="game-prompt">&gt;</span>
+          <input
+            id="game-input"
+            type="text"
+            placeholder="Type a command..."
+            autocomplete="off"
+            aria-label="Game command input"
+          />
+        </div>
       </div>
+
+      <!-- Inventory & equipment panel -->
+      <aside id="inventory-panel" class="inv-panel inv-persistent" role="complementary" aria-label="Inventory and equipment">
+        <div class="inv-header" id="inv-drag-handle">
+          <h2>Inventory</h2>
+          <button id="inv-close-btn" class="inv-icon-btn" aria-label="Close inventory panel">&times;</button>
+        </div>
+        <div class="inv-body">
+          <section class="inv-section">
+            <h3>Equipment</h3>
+            <div id="inv-equipment" class="inv-slots">
+              <div class="inv-slot" data-slot="weapon">
+                <span class="inv-slot-label">Weapon</span>
+                <span class="inv-slot-value" id="inv-slot-weapon"><em>empty</em></span>
+              </div>
+              <div class="inv-slot" data-slot="armor">
+                <span class="inv-slot-label">Armor</span>
+                <span class="inv-slot-value" id="inv-slot-armor"><em>empty</em></span>
+              </div>
+              <div class="inv-slot" data-slot="accessory">
+                <span class="inv-slot-label">Accessory</span>
+                <span class="inv-slot-value" id="inv-slot-accessory"><em>empty</em></span>
+              </div>
+            </div>
+          </section>
+          <section class="inv-section">
+            <h3>Items</h3>
+            <ul id="inv-items" aria-label="Inventory items">
+              <li class="inv-empty">Your inventory is empty.</li>
+            </ul>
+          </section>
+          <div id="inv-status" class="inv-status" aria-live="polite"></div>
+        </div>
+      </aside>
     </div>
   </section>
 
@@ -76,7 +112,10 @@ import Base from "../layouts/Base.astro";
     const input = document.getElementById("game-input")! as HTMLInputElement;
     const authGate = document.getElementById("auth-gate")!;
     const characterPanel = document.getElementById("character-panel")!;
-    const gameTerminal = document.getElementById("game-terminal")!;
+    const gameArea = document.getElementById("game-area")!;
+    const invPanel = document.getElementById("inventory-panel")!;
+    const invItemsList = document.getElementById("inv-items")!;
+    const invStatus = document.getElementById("inv-status")!;
 
     // ── Types ───────────────────────────────────────────────────────────
 
@@ -122,13 +161,13 @@ import Base from "../layouts/Base.astro";
     function showAuthGate(): void {
       authGate.style.display = "";
       characterPanel.style.display = "none";
-      gameTerminal.style.display = "none";
+      gameArea.style.display = "none";
     }
 
     async function showCharacterPanel(): Promise<void> {
       authGate.style.display = "none";
       characterPanel.style.display = "";
-      gameTerminal.style.display = "none";
+      gameArea.style.display = "none";
       await loadCharacterList();
     }
 
@@ -242,7 +281,8 @@ import Base from "../layouts/Base.astro";
     async function startGame(): Promise<void> {
       authGate.style.display = "none";
       characterPanel.style.display = "none";
-      gameTerminal.style.display = "";
+      gameArea.style.display = "";
+      applyInvMode(currentInvMode);
       input.focus();
 
       if (isGuest) {
@@ -460,8 +500,21 @@ import Base from "../layouts/Base.astro";
         try {
           const msg = JSON.parse(event.data);
           if (typeof msg.muddown !== "string") throw new Error("Missing muddown field");
-          const className = msg.type || "narrative";
-          appendMessage(msg.muddown, className);
+
+          // Handle inventory state updates
+          if (msg.meta?.inventoryState) {
+            if (isInvState(msg.meta.inventoryState)) {
+              renderInventoryState(msg.meta.inventoryState);
+            } else {
+              console.error("Received malformed inventoryState payload:", msg.meta.inventoryState);
+            }
+          }
+
+          // Only append non-empty muddown to game output
+          if (msg.muddown) {
+            const className = msg.type || "narrative";
+            appendMessage(msg.muddown, className);
+          }
         } catch (err) {
           console.error("Failed to parse server message:", err);
           appendMessage(event.data, "narrative");
@@ -524,6 +577,318 @@ import Base from "../layouts/Base.astro";
           input.value = "";
         }
       }
+    });
+
+    // ── Inventory panel ─────────────────────────────────────────────
+
+    type InvMode = "off" | "persistent" | "overlay";
+    const STORAGE_KEY = "muddown_inv_mode";
+    const VALID_INV_MODES = new Set<string>(["off", "persistent", "overlay"]);
+    const _storedMode = localStorage.getItem(STORAGE_KEY);
+    let currentInvMode: InvMode = (_storedMode && VALID_INV_MODES.has(_storedMode))
+      ? (_storedMode as InvMode)
+      : "persistent";
+
+    interface InvItem {
+      id: string;
+      name: string;
+      equippable: boolean;
+      usable: boolean;
+    }
+
+    interface InvState {
+      items: InvItem[];
+      equipped: Record<string, { id: string; name: string } | null>;
+    }
+
+    function isInvState(v: unknown): v is InvState {
+      return (
+        v !== null &&
+        typeof v === "object" &&
+        Array.isArray((v as Record<string, unknown>).items) &&
+        typeof (v as Record<string, unknown>).equipped === "object" &&
+        (v as Record<string, unknown>).equipped !== null
+      );
+    }
+
+    let lastInvState: InvState | null = null;
+
+    function applyInvMode(mode: InvMode): void {
+      currentInvMode = mode;
+      localStorage.setItem(STORAGE_KEY, mode);
+
+      invPanel.classList.remove("inv-persistent", "inv-overlay", "inv-off");
+
+      if (mode === "off") {
+        invPanel.classList.add("inv-off");
+        invPanel.style.display = "none";
+      } else if (mode === "persistent") {
+        invPanel.classList.add("inv-persistent");
+        invPanel.style.display = "";
+        // Reset overlay positioning
+        invPanel.style.top = "";
+        invPanel.style.left = "";
+        invPanel.style.width = "";
+        invPanel.style.height = "";
+      } else {
+        invPanel.classList.add("inv-overlay");
+        invPanel.style.display = "";
+        // Apply saved overlay position if available
+        const saved = localStorage.getItem("muddown_inv_pos");
+        if (saved) {
+          try {
+            const pos = JSON.parse(saved) as unknown;
+            if (
+              pos !== null &&
+              typeof pos === "object" &&
+              typeof (pos as Record<string, unknown>).top === "string" &&
+              typeof (pos as Record<string, unknown>).left === "string"
+            ) {
+              const p = pos as Record<string, string>;
+              invPanel.style.top = p.top;
+              invPanel.style.left = p.left;
+              if (p.width) invPanel.style.width = p.width;
+              if (p.height) invPanel.style.height = p.height;
+            } else {
+              console.error("muddown_inv_pos has unexpected shape, discarding:", pos);
+              localStorage.removeItem("muddown_inv_pos");
+            }
+          } catch (err) {
+            console.error("Failed to parse saved overlay position, discarding:", err);
+            localStorage.removeItem("muddown_inv_pos");
+          }
+        }
+      }
+
+      // Update settings radio buttons
+      document.querySelectorAll("[data-inv-mode]").forEach(btn => {
+        btn.setAttribute("aria-checked", btn.getAttribute("data-inv-mode") === mode ? "true" : "false");
+      });
+    }
+
+    function renderInventoryState(state: InvState): void {
+      lastInvState = state;
+
+      // Equipment slots
+      for (const slot of ["weapon", "armor", "accessory"]) {
+        const el = document.getElementById(`inv-slot-${slot}`);
+        if (!el) continue;
+        const eq = state.equipped[slot];
+        if (eq) {
+          el.innerHTML = `<button class="inv-item-btn" data-action="unequip" data-slot="${escapeHtml(slot)}" title="Unequip ${escapeHtml(eq.name)}">${escapeHtml(eq.name)}</button>`;
+        } else {
+          el.innerHTML = "<em>empty</em>";
+        }
+      }
+
+      // Item list
+      if (state.items.length === 0) {
+        invItemsList.innerHTML = '<li class="inv-empty">Your inventory is empty.</li>';
+      } else {
+        const equippedIds = new Set(
+          Object.values(state.equipped).filter(Boolean).map(e => e!.id)
+        );
+        invItemsList.innerHTML = state.items.map(item => {
+          const isEquipped = equippedIds.has(item.id);
+          const actions: string[] = [];
+          actions.push(`<button class="inv-action" data-action="examine" data-item="${escapeHtml(item.id)}" title="Examine">🔍</button>`);
+          if (item.equippable && !isEquipped) {
+            actions.push(`<button class="inv-action" data-action="equip" data-item="${escapeHtml(item.id)}" title="Equip">🛡</button>`);
+          }
+          if (item.usable) {
+            actions.push(`<button class="inv-action" data-action="use" data-item="${escapeHtml(item.id)}" title="Use">✨</button>`);
+          }
+          if (!isEquipped) {
+            actions.push(`<button class="inv-action" data-action="drop" data-item="${escapeHtml(item.id)}" title="Drop">⬇</button>`);
+          }
+          const eqBadge = isEquipped ? ' <span class="inv-equipped-badge">(equipped)</span>' : "";
+          return `<li class="inv-item${isEquipped ? " inv-item-equipped" : ""}"><span class="inv-item-name">${escapeHtml(item.name)}${eqBadge}</span><span class="inv-actions">${actions.join("")}</span></li>`;
+        }).join("");
+      }
+
+      invStatus.textContent = `${state.items.length} item${state.items.length !== 1 ? "s" : ""}`;
+    }
+
+    function handleInvAction(btn: HTMLElement): void {
+      const action = btn.getAttribute("data-action");
+      const item = btn.getAttribute("data-item");
+      const slot = btn.getAttribute("data-slot");
+
+      switch (action) {
+        case "examine":
+          if (item) {
+            sendCommand(`examine ${item}`);
+          } else {
+            console.error("examine action missing data-item attribute", btn);
+          }
+          break;
+        case "equip":
+          if (item) {
+            sendCommand(`equip ${item}`);
+          } else {
+            console.error("equip action missing data-item attribute", btn);
+          }
+          break;
+        case "unequip":
+          if (slot) {
+            sendCommand(`unequip ${slot}`);
+          } else {
+            console.error("unequip action missing data-slot attribute", btn);
+          }
+          break;
+        case "use":
+          if (item) {
+            sendCommand(`use ${item}`);
+          } else {
+            console.error("use action missing data-item attribute", btn);
+          }
+          break;
+        case "drop":
+          if (item) {
+            sendCommand(`drop ${item}`);
+          } else {
+            console.error("drop action missing data-item attribute", btn);
+          }
+          break;
+        default:
+          console.error(`handleInvAction: unrecognised action "${action}"`, btn);
+          break;
+      }
+      input.focus();
+    }
+
+    // Delegated click listener for inventory actions
+    invPanel.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-action]");
+      if (btn) handleInvAction(btn);
+    });
+
+    // Close button
+    document.getElementById("inv-close-btn")!.addEventListener("click", () => {
+      applyInvMode("off");
+    });
+
+    // ── Overlay drag ───────────────────────────────────────────────
+
+    const dragHandle = document.getElementById("inv-drag-handle")!;
+    let isDragging = false;
+    let dragOffsetX = 0;
+    let dragOffsetY = 0;
+
+    dragHandle.addEventListener("mousedown", (e) => {
+      if (currentInvMode !== "overlay") return;
+      if ((e.target as HTMLElement).closest("button")) return;
+      isDragging = true;
+      const rect = invPanel.getBoundingClientRect();
+      dragOffsetX = e.clientX - rect.left;
+      dragOffsetY = e.clientY - rect.top;
+      invPanel.style.transition = "none";
+      e.preventDefault();
+    });
+
+    document.addEventListener("mousemove", (e) => {
+      if (!isDragging) return;
+      invPanel.style.left = `${e.clientX - dragOffsetX}px`;
+      invPanel.style.top = `${e.clientY - dragOffsetY}px`;
+    });
+
+    document.addEventListener("mouseup", () => {
+      if (!isDragging) return;
+      isDragging = false;
+      invPanel.style.transition = "";
+      saveOverlayPosition();
+    });
+
+    // Touch support for drag
+    dragHandle.addEventListener("touchstart", (e) => {
+      if (currentInvMode !== "overlay") return;
+      if ((e.target as HTMLElement).closest("button")) return;
+      const touch = e.touches[0];
+      isDragging = true;
+      const rect = invPanel.getBoundingClientRect();
+      dragOffsetX = touch.clientX - rect.left;
+      dragOffsetY = touch.clientY - rect.top;
+      invPanel.style.transition = "none";
+    }, { passive: true });
+
+    document.addEventListener("touchmove", (e) => {
+      if (!isDragging) return;
+      e.preventDefault();
+      const touch = e.touches[0];
+      invPanel.style.left = `${touch.clientX - dragOffsetX}px`;
+      invPanel.style.top = `${touch.clientY - dragOffsetY}px`;
+    }, { passive: false });
+
+    document.addEventListener("touchend", () => {
+      if (!isDragging) return;
+      isDragging = false;
+      invPanel.style.transition = "";
+      saveOverlayPosition();
+    });
+
+    // Save overlay position to localStorage
+    function saveOverlayPosition(): void {
+      if (currentInvMode !== "overlay") return;
+      try {
+        localStorage.setItem("muddown_inv_pos", JSON.stringify({
+          top: invPanel.style.top,
+          left: invPanel.style.left,
+          width: invPanel.style.width || "",
+          height: invPanel.style.height || "",
+        }));
+      } catch (err) {
+        // QuotaExceededError or SecurityError — position will not persist this session
+        console.error("Failed to save overlay position to localStorage:", err);
+      }
+    }
+
+    // Watch for CSS resize changes on overlay
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(() => {
+        if (currentInvMode === "overlay") saveOverlayPosition();
+      }).observe(invPanel);
+    }
+
+    // ── Settings dropdown ──────────────────────────────────────────
+
+    const settingsBtn = document.getElementById("settings-btn");
+    const settingsDropdown = document.getElementById("settings-dropdown");
+
+    settingsBtn?.addEventListener("click", () => {
+      const expanded = settingsBtn.getAttribute("aria-expanded") === "true";
+      settingsBtn.setAttribute("aria-expanded", String(!expanded));
+      if (settingsDropdown) settingsDropdown.style.display = expanded ? "none" : "";
+    });
+
+    // Close dropdown on outside click
+    document.addEventListener("click", (e) => {
+      if (settingsBtn && settingsDropdown && !settingsBtn.contains(e.target as Node) && !settingsDropdown.contains(e.target as Node)) {
+        settingsBtn.setAttribute("aria-expanded", "false");
+        settingsDropdown.style.display = "none";
+      }
+    });
+
+    // Close dropdown on Escape
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && settingsDropdown?.style.display !== "none") {
+        settingsBtn?.setAttribute("aria-expanded", "false");
+        if (settingsDropdown) settingsDropdown.style.display = "none";
+        settingsBtn?.focus();
+      }
+    });
+
+    // Inventory mode radio buttons
+    document.querySelectorAll("[data-inv-mode]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const raw = btn.getAttribute("data-inv-mode");
+        if (!raw || !VALID_INV_MODES.has(raw)) {
+          console.error(`Invalid inventory mode "${raw}" on settings button`, btn);
+          return;
+        }
+        const mode = raw as InvMode;
+        applyInvMode(mode);
+        if (lastInvState) renderInventoryState(lastInvState);
+      });
     });
 
     // ── Start ──────────────────────────────────────────────────────────
