@@ -43,7 +43,7 @@ import Base from "../layouts/Base.astro";
   </section>
 
   <script>
-    const API_BASE = import.meta.env.PUBLIC_API_BASE || `${location.protocol}//${location.hostname}:3300`;
+    const API_BASE = import.meta.env.PUBLIC_API_BASE || (location.port ? `${location.protocol}//${location.hostname}:3300` : location.origin);
 
     const providerButtons: Record<string, HTMLElement | null> = {
       github: document.getElementById("github-login"),
