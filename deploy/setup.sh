@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # MUDdown Server Setup Script
-# Target: Debian 12 (Bookworm) on Linode
+# Target: Debian 12+ (Bookworm / Trixie) on Linode
 #
 # What this script does:
-#   Steps 1–3:   System updates, core packages, Node.js 20
+#   Steps 1–3:   System updates, core packages, Node.js 22
 #   Step 4:      Create deploy user (SSH-accessible after root lockdown)
 #   Steps 5–8:   Harden SSH, firewall (ufw), fail2ban, auto-updates
 #   Steps 9–11:  Create service user, clone/build, .env template
 #   Steps 12–14: systemd service, nginx, file permissions
 #
 # Usage:
-#   scp deploy/setup.sh root@<your-linode-ip>:/root/
-#   ssh root@<your-linode-ip> bash /root/setup.sh
+#   scp -r deploy/ root@<your-linode-ip>:/root/deploy/
+#   ssh root@<your-linode-ip> bash /root/deploy/setup.sh
 #
 # After running, you still need to:
 #   - Copy .env file to /opt/muddown/packages/server/.env
@@ -23,6 +23,8 @@ set -euo pipefail
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
+export DEBIAN_FRONTEND=noninteractive
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SSH_PORT="${SSH_PORT:-22}"
 DEPLOY_USER="${DEPLOY_USER:-deploy}"
 REPO_URL="https://github.com/MUDdown/MUDdown.git"
@@ -45,8 +47,17 @@ echo ""
 # ── 1. System updates ────────────────────────────────────────────────────────
 
 echo "==> Updating system packages..."
+# Pre-seed grub install device so dpkg --configure can finish non-interactively
+BOOT_DISK=$(lsblk -ndo NAME,TYPE | awk '$2=="disk"{print "/dev/"$1; exit}')
+if [[ -n "${BOOT_DISK}" ]]; then
+  echo "grub-pc grub-pc/install_devices multiselect ${BOOT_DISK}" | debconf-set-selections
+fi
+# Repair any interrupted dpkg state from a previous run
+dpkg --configure -a --force-confdef --force-confold 2>/dev/null || true
+# Hold grub-pc — bootloader upgrades need interactive disk selection
+apt-mark hold grub-pc grub-pc-bin 2>/dev/null || true
 apt-get update -qq
-apt-get upgrade -y -qq
+apt-get -y -qq -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" upgrade
 
 # ── 2. Install core packages ─────────────────────────────────────────────────
 
@@ -62,13 +73,13 @@ apt-get install -y -qq \
   certbot \
   python3-certbot-nginx
 
-# ── 3. Install Node.js 20 LTS ────────────────────────────────────────────────
+# ── 3. Install Node.js 22 LTS ────────────────────────────────────────────────
 
-if ! command -v node &>/dev/null || [[ "$(node -v | cut -d. -f1 | tr -d v)" -lt 20 ]]; then
-  echo "==> Installing Node.js 20..."
+if ! command -v node &>/dev/null || [[ "$(node -v | cut -d. -f1 | tr -d v)" -lt 22 ]]; then
+  echo "==> Installing Node.js 22..."
   NODESOURCE_SCRIPT=$(mktemp)
   trap 'rm -f "${NODESOURCE_SCRIPT}"' EXIT
-  if ! curl -fsSL https://deb.nodesource.com/setup_20.x -o "${NODESOURCE_SCRIPT}"; then
+  if ! curl -fsSL https://deb.nodesource.com/setup_22.x -o "${NODESOURCE_SCRIPT}"; then
     echo "ERROR: Failed to download NodeSource installer." >&2
     exit 1
   fi
@@ -202,6 +213,8 @@ fi
 # ── 10. Clone and build application ──────────────────────────────────────────
 
 echo "==> Deploying application to ${INSTALL_DIR}..."
+# Allow root to operate on repo owned by service user (from previous chown)
+git config --global --add safe.directory "${INSTALL_DIR}" 2>/dev/null || true
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
   echo "    Repository exists — pulling latest..."
   cd "${INSTALL_DIR}"
@@ -269,15 +282,32 @@ fi
 # ── 12. Install systemd service ──────────────────────────────────────────────
 
 echo "==> Installing systemd service..."
-cp "${INSTALL_DIR}/deploy/muddown-server.service" /etc/systemd/system/
+if [[ -f "${INSTALL_DIR}/deploy/muddown-server.service" ]]; then
+  cp "${INSTALL_DIR}/deploy/muddown-server.service" /etc/systemd/system/
+elif [[ -f "${SCRIPT_DIR}/muddown-server.service" ]]; then
+  cp "${SCRIPT_DIR}/muddown-server.service" /etc/systemd/system/
+else
+  echo "ERROR: muddown-server.service not found in repo or script dir." >&2
+  echo "       Copy the full deploy/ directory: scp -r deploy root@<ip>:/root/deploy" >&2
+  exit 1
+fi
 systemctl daemon-reload
 systemctl enable muddown-server
 
 # ── 13. Configure nginx ──────────────────────────────────────────────────────
 
 echo "==> Configuring nginx..."
-cp "${INSTALL_DIR}/deploy/nginx/muddown.conf" /etc/nginx/sites-available/
-cp "${INSTALL_DIR}/deploy/nginx/security-headers.conf" /etc/nginx/snippets/muddown-security-headers.conf
+if [[ -f "${INSTALL_DIR}/deploy/nginx/muddown.conf" ]]; then
+  cp "${INSTALL_DIR}/deploy/nginx/muddown.conf" /etc/nginx/sites-available/
+  cp "${INSTALL_DIR}/deploy/nginx/security-headers.conf" /etc/nginx/snippets/muddown-security-headers.conf
+elif [[ -f "${SCRIPT_DIR}/nginx/muddown.conf" ]]; then
+  cp "${SCRIPT_DIR}/nginx/muddown.conf" /etc/nginx/sites-available/
+  cp "${SCRIPT_DIR}/nginx/security-headers.conf" /etc/nginx/snippets/muddown-security-headers.conf
+else
+  echo "ERROR: nginx config not found in repo or script dir." >&2
+  echo "       Copy the full deploy/ directory: scp -r deploy root@<ip>:/root/deploy" >&2
+  exit 1
+fi
 ln -sf /etc/nginx/sites-available/muddown.conf /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 

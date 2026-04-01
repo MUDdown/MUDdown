@@ -192,8 +192,8 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 
 ### Phase 3 — Deployment & Infrastructure
 - [x] Debian server setup (nginx + systemd)
-- [ ] DNS: point muddown.com to server
-- [ ] TLS via Let's Encrypt
+- [x] DNS: point muddown.com to server
+- [x] TLS via Let's Encrypt
 - [x] nginx config: static site + WebSocket proxy to game server
 - [ ] CI/CD: GitHub Actions for build/test/deploy
 - [x] Environment-based configuration (.env)
