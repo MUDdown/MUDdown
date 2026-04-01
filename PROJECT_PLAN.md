@@ -36,7 +36,7 @@ MUDdown reimagines Multi-User Dungeons for the modern era by replacing ANSI esca
 
 ---
 
-## What's Been Built (Phase 0 — Scaffold)
+## What's Been Built
 
 ### Monorepo Structure
 ```
@@ -74,6 +74,9 @@ The v0.1.0 draft covers:
 - Wire protocol types (ServerMessage, ClientMessage)
 - MCP resource URI types
 - Conformance level enum
+- Item definitions with discriminated unions (equippable/usable variants)
+- Combine recipe and NPC combat stats types
+- Character classes and stat definitions
 
 ### Parser (packages/parser)
 - `parseBlocks()` — Extracts container blocks with attributes from MUDdown text
@@ -91,26 +94,34 @@ The v0.1.0 draft covers:
   - **harbor** (4 rooms) — Warehouse, Pier, Lighthouse, Smuggler's Cove
   - **northroad** (7 rooms) — North Road, Crossroads, Old Farm, Forest Edge, Deep Forest, Ruins Entrance, Ruins Hall
   - **catacombs** (3 rooms) — Catacombs Entrance, Ossuary, Sealed Chamber
-- Commands: `go`, `look`, `examine`, `say`, `who`, `help`, directional shortcuts, `get`/`take`, `drop`, `inventory`, `equip`/`unequip`, `use`, `combine`, `talk`
+- Commands: `go`, `look`, `examine`, `say`, `who`, `help`, directional shortcuts, `get`/`take`, `drop`, `inventory`, `equip`/`unequip`, `use`, `combine`, `talk`, `attack`, `flee`
 - Item system: 31 item definitions across 22 rooms, with pickup/drop, equip slots (weapon/armor/accessory), usable effects, and 2 combine recipes
 - NPC dialogue system: 16 NPCs with branching dialogue trees, `:::dialogue` block output, `talk` command with name matching
+- Combat system: turn-based NPC combat using `:::combat` blocks, shared NPC HP across players, defeat tracking
+- GitHub OAuth2 authentication with session management
+- Database abstraction layer (`GameDatabase` interface) with SQLite adapter (`better-sqlite3`)
+- Player persistence: room, inventory, equipment, HP saved and restored across sessions
+- World state persistence: room items, NPC HP, defeated NPC tracking
+- NPC respawn system (20-minute timer, restore to home room with full HP)
+- Entity lifecycle hooks (`onCreate`, `onReset`, `onContact` — e.g., NPC greets player on room entry)
+- Character creation: name, class (Warrior/Mage/Rogue/Cleric), starting stats
 - Multi-player: players see each other, broadcast chat per room, arrival/departure messages
 - All output is MUDdown format
 
 ### Website (apps/website)
 - **Landing page** (`/`): Hero section, feature grid (6 cards), MUDdown code example
 - **Specification** (`/spec`): Renders SPECIFICATION.md via `marked`
+- **Login** (`/login`): GitHub OAuth2 login flow
 - **Play** (`/play`): Full web MUD client with:
   - WebSocket connection to game server (auto-reconnect)
   - MUDdown-to-HTML renderer (headings, bold, italic, code, lists, tables, blockquotes, game links)
   - Clickable game links (go:, cmd:, examine on npc:/item:)
   - Command input with history (up/down arrows)
+  - Character creation and selection panel (gated behind auth)
+  - Inventory and equipment panel (sidebar, overlay, or off — persisted in localStorage)
+  - Settings dropdown with inventory display mode
   - Dark theme with monospace terminal aesthetic
-- **Shared layout**: Header nav, footer, Google Fonts (Inter + JetBrains Mono)
-
-### Git
-- Repository initialized on `main` branch
-- All files staged, no commits yet
+- **Shared layout**: Header nav with auth state and settings, footer, Google Fonts (Inter + JetBrains Mono)
 
 ---
 
@@ -232,7 +243,8 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 | Future client | React / React Native |
 | Future desktop | Tauri (Rust shell) |
 | Future AI | Vercel AI SDK, LangChain.js, transformers.js |
-| Future database | SQLite (player state), vector store (RAG) |
+| Database | SQLite via better-sqlite3 (player state, world state, auth sessions) |
+| Future database | Vector store (RAG for AI features) |
 | Deployment | Debian, nginx, systemd, Let's Encrypt |
 
 ---
