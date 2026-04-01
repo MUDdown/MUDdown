@@ -81,7 +81,7 @@ const { title } = Astro.props;
             if (loginLink) loginLink.style.display = "none";
             if (userInfo) userInfo.style.display = "inline";
             if (displayName) {
-              displayName.textContent = data.activeCharacter?.name ?? "Adventurer";
+              displayName.textContent = data.displayName ?? data.activeCharacter?.name ?? "Adventurer";
             }
           } else {
             if (loginLink) loginLink.style.display = "inline";

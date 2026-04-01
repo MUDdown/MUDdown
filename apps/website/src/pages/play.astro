@@ -133,7 +133,7 @@ import Base from "../layouts/Base.astro";
     let isGuest = false;
 
     async function checkAuthAndRoute(): Promise<void> {
-      let me: { activeCharacter?: unknown } | null = null;
+      let me: { activeCharacter?: { name: string } | null } | null = null;
       try {
         const res = await fetch(`${API_BASE}/auth/me`, { credentials: "include" });
         if (!res.ok) { showAuthGate(); return; }
@@ -152,7 +152,11 @@ import Base from "../layouts/Base.astro";
       }
 
       if (me) {
-        await showCharacterPanel();
+        if (me.activeCharacter) {
+          startGame(me.activeCharacter.name);
+        } else {
+          await showCharacterPanel();
+        }
       } else {
         showAuthGate();
       }

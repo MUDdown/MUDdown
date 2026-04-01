@@ -574,36 +574,60 @@ export function findOrCreateAccount(db: GameDatabase, user: ProviderUser): Accou
       createdAt: now,
       updatedAt: now,
     };
+    // First, attempt to create the account.
     try {
       db.createAccount(newAccount);
-      db.createIdentityLink({
-        accountId: newAccount.id,
-        provider: user.provider,
-        providerId: user.providerId,
-        providerUsername: user.username,
-        linkedAt: now,
-      });
-      account = newAccount;
     } catch (err: unknown) {
       if (!isSqliteConstraintError(err)) throw err;
 
-      // createAccount succeeded but createIdentityLink hit a constraint
-      // error (race condition). Clean up the orphan account we just created.
-      try {
-        db.deleteAccount(newAccount.id);
-      } catch (cleanupErr) {
-        console.warn("Failed to delete orphan account after constraint error:", cleanupErr);
-      }
-
-      // Resolve the winner's account.
+      // Account creation hit a constraint error. Another concurrent request
+      // likely created an account for this identity first. Resolve the
+      // winner's account without deleting anything.
       link = db.getIdentityLink(user.provider, user.providerId);
       if (link) {
         account = db.getAccountById(link.accountId);
       }
       if (!account) {
         throw new Error(
-          `Constraint violation but identity link not found for ${user.provider}:${user.providerId}`,
+          `Constraint violation while creating account for ${user.provider}:${user.providerId}`,
         );
+      }
+    }
+
+    // If we successfully created the account above and haven't resolved an
+    // existing account, create the identity link.
+    if (!account) {
+      try {
+        db.createIdentityLink({
+          accountId: newAccount.id,
+          provider: user.provider,
+          providerId: user.providerId,
+          providerUsername: user.username,
+          linkedAt: now,
+        });
+        account = newAccount;
+      } catch (err: unknown) {
+        if (!isSqliteConstraintError(err)) throw err;
+
+        // createAccount succeeded but createIdentityLink hit a constraint
+        // error (race condition). Clean up the orphan account we just
+        // created.
+        try {
+          db.deleteAccount(newAccount.id);
+        } catch (cleanupErr) {
+          console.warn("Failed to delete orphan account after constraint error:", cleanupErr);
+        }
+
+        // Resolve the winner's account.
+        link = db.getIdentityLink(user.provider, user.providerId);
+        if (link) {
+          account = db.getAccountById(link.accountId);
+        }
+        if (!account) {
+          throw new Error(
+            `Constraint violation but identity link not found for ${user.provider}:${user.providerId}`,
+          );
+        }
       }
     }
   }

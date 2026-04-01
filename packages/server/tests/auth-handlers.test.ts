@@ -689,6 +689,63 @@ describe("findOrCreateAccount", () => {
     expect(() => findOrCreateAccount(focaDb, user)).toThrow("disk I/O error");
     focaDb.createIdentityLink = origCreateLink;
   });
+
+  it("resolves the winner when createAccount hits a constraint error without deleting", () => {
+    // Pre-create the winner account and link
+    const now = new Date().toISOString();
+    const winnerAccount = { id: "winner-id", displayName: "Alice", displayNameOverridden: false, createdAt: now, updatedAt: now };
+    focaDb.createAccount(winnerAccount);
+    focaDb.createIdentityLink({
+      accountId: winnerAccount.id,
+      provider: "github",
+      providerId: "42",
+      providerUsername: "alice",
+      linkedAt: now,
+    });
+
+    // Mock getIdentityLink to return undefined on first call, then real results
+    let firstCall = true;
+    const origGetIdentityLink = focaDb.getIdentityLink.bind(focaDb);
+    focaDb.getIdentityLink = (provider, providerId) => {
+      if (firstCall) {
+        firstCall = false;
+        return undefined;
+      }
+      return origGetIdentityLink(provider, providerId);
+    };
+
+    // Mock createAccount to throw a constraint error (simulating the account ID collision)
+    const origCreateAccount = focaDb.createAccount.bind(focaDb);
+    focaDb.createAccount = () => {
+      const err = new Error("UNIQUE constraint failed: accounts.id") as Error & { code: string };
+      err.code = "SQLITE_CONSTRAINT_PRIMARYKEY";
+      throw err;
+    };
+
+    // Spy on deleteAccount — it should NOT be called
+    const origDeleteAccount = focaDb.deleteAccount.bind(focaDb);
+    let deleteCalled = false;
+    focaDb.deleteAccount = (...args) => {
+      deleteCalled = true;
+      return origDeleteAccount(...args);
+    };
+
+    const account = findOrCreateAccount(focaDb, user);
+    expect(account.id).toBe("winner-id");
+    expect(deleteCalled).toBe(false);
+
+    focaDb.createAccount = origCreateAccount;
+    focaDb.deleteAccount = origDeleteAccount;
+  });
+
+  it("throws non-constraint errors from createAccount", () => {
+    const origCreateAccount = focaDb.createAccount.bind(focaDb);
+    focaDb.createAccount = () => {
+      throw new Error("disk I/O error");
+    };
+    expect(() => findOrCreateAccount(focaDb, user)).toThrow("disk I/O error");
+    focaDb.createAccount = origCreateAccount;
+  });
 });
 
 // ─── /auth/callback ──────────────────────────────────────────────────────────
