@@ -67,13 +67,14 @@ apt-get install -y -qq \
 if ! command -v node &>/dev/null || [[ "$(node -v | cut -d. -f1 | tr -d v)" -lt 20 ]]; then
   echo "==> Installing Node.js 20..."
   NODESOURCE_SCRIPT=$(mktemp)
+  trap 'rm -f "${NODESOURCE_SCRIPT}"' EXIT
   if ! curl -fsSL https://deb.nodesource.com/setup_20.x -o "${NODESOURCE_SCRIPT}"; then
     echo "ERROR: Failed to download NodeSource installer." >&2
-    rm -f "${NODESOURCE_SCRIPT}"
     exit 1
   fi
   bash "${NODESOURCE_SCRIPT}"
   rm -f "${NODESOURCE_SCRIPT}"
+  trap - EXIT
   apt-get install -y -qq nodejs
 fi
 echo "    Node.js $(node -v), npm $(npm -v)"
@@ -90,7 +91,11 @@ if ! id "${DEPLOY_USER}" &>/dev/null; then
     chmod 700 "/home/${DEPLOY_USER}/.ssh"
     chmod 600 "/home/${DEPLOY_USER}/.ssh/authorized_keys"
   fi
-  echo "    Created user '${DEPLOY_USER}' with sudo access."
+  # Allow passwordless sudo (password auth is disabled over SSH)
+  echo "${DEPLOY_USER} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${DEPLOY_USER}"
+  chown root:root "/etc/sudoers.d/${DEPLOY_USER}"
+  chmod 0440 "/etc/sudoers.d/${DEPLOY_USER}"
+  echo "    Created user '${DEPLOY_USER}' with passwordless sudo."
 else
   echo "    User '${DEPLOY_USER}' already exists."
 fi
@@ -117,7 +122,7 @@ sed -i 's/^#\?MaxAuthTries .*/MaxAuthTries 3/' "${SSHD_CONFIG}"
 
 # Ensure at least one SSH key exists before locking out password auth
 has_keys=false
-for home_dir in /root /home/*; do
+for home_dir in /root $(getent passwd | awk -F: '$3 >= 1000 { print $6 }'); do
   if [[ -s "${home_dir}/.ssh/authorized_keys" ]]; then
     has_keys=true
     break
@@ -135,6 +140,7 @@ else
     echo "ERROR: sshd config validation failed! Restoring backup..." >&2
     cp "${SSHD_CONFIG}.bak" "${SSHD_CONFIG}"
     echo "         Restored original config. Please fix manually." >&2
+    exit 1
   fi
 fi
 
@@ -200,8 +206,10 @@ if [[ -d "${INSTALL_DIR}/.git" ]]; then
   echo "    Repository exists — pulling latest..."
   cd "${INSTALL_DIR}"
   if [[ -n "$(git status --porcelain)" ]]; then
-    echo "WARNING: Working directory has uncommitted changes that will be lost!" >&2
-    git status --short >&2
+    STASH_MSG="auto-stash before deploy $(date -u +%Y%m%dT%H%M%SZ)"
+    echo "    Stashing uncommitted changes: ${STASH_MSG}" >&2
+    git stash push -u -m "${STASH_MSG}"
+    echo "    Restore later with: cd ${INSTALL_DIR} && git stash pop" >&2
   fi
   git fetch origin main
   git reset --hard origin/main
@@ -211,7 +219,7 @@ else
 fi
 
 echo "==> Installing dependencies and building..."
-if ! npm ci --production=false; then
+if ! npm ci; then
   echo "ERROR: npm ci failed. Check node_modules and package-lock.json." >&2
   echo "       Try: rm -rf node_modules package-lock.json && npm install" >&2
   exit 1
