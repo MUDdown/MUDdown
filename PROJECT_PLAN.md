@@ -191,12 +191,12 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [x] OIDC login providers (Microsoft, Google) — extend OAuth2 foundation
 
 ### Phase 3 — Deployment & Infrastructure
-- [ ] Debian server setup (nginx + systemd)
+- [x] Debian server setup (nginx + systemd)
 - [ ] DNS: point muddown.com to server
 - [ ] TLS via Let's Encrypt
-- [ ] nginx config: static site + WebSocket proxy to game server
+- [x] nginx config: static site + WebSocket proxy to game server
 - [ ] CI/CD: GitHub Actions for build/test/deploy
-- [ ] Environment-based configuration (.env)
+- [x] Environment-based configuration (.env)
 
 ### Phase 4 — AI Integration
 - [ ] MCP server: expose game state as MCP resources
