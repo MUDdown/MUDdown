@@ -35,10 +35,11 @@ export class SqliteDatabase implements GameDatabase {
       );
 
       CREATE TABLE IF NOT EXISTS accounts (
-        id           TEXT PRIMARY KEY,
-        display_name TEXT NOT NULL,
-        created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-        updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        id                      TEXT PRIMARY KEY,
+        display_name            TEXT NOT NULL,
+        display_name_overridden INTEGER NOT NULL DEFAULT 0,
+        created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
       );
 
       CREATE TABLE IF NOT EXISTS identity_links (
@@ -89,12 +90,12 @@ export class SqliteDatabase implements GameDatabase {
 
   getAccountById(id: string): AccountRecord | undefined {
     const row = this.db.prepare("SELECT * FROM accounts WHERE id = ?").get(id) as AccountRow | undefined;
-    return row ? { id: row.id, displayName: row.display_name, createdAt: row.created_at, updatedAt: row.updated_at } : undefined;
+    return row ? { id: row.id, displayName: row.display_name, displayNameOverridden: row.display_name_overridden === 1, createdAt: row.created_at, updatedAt: row.updated_at } : undefined;
   }
 
   createAccount(account: AccountRecord): void {
-    this.db.prepare("INSERT INTO accounts (id, display_name, created_at, updated_at) VALUES (?, ?, ?, ?)").run(
-      account.id, account.displayName, account.createdAt, account.updatedAt,
+    this.db.prepare("INSERT INTO accounts (id, display_name, display_name_overridden, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").run(
+      account.id, account.displayName, account.displayNameOverridden ? 1 : 0, account.createdAt, account.updatedAt,
     );
   }
 
@@ -104,22 +105,33 @@ export class SqliteDatabase implements GameDatabase {
     );
   }
 
+  deleteAccount(id: string): void {
+    this.db.prepare("DELETE FROM accounts WHERE id = ?").run(id);
+  }
+
   // ── Identity Links ───────────────────────────────────────────────────────
 
   getIdentityLink(provider: OAuthProvider, providerId: string): IdentityLinkRecord | undefined {
     const row = this.db.prepare("SELECT * FROM identity_links WHERE provider = ? AND provider_id = ?").get(provider, providerId) as IdentityLinkRow | undefined;
-    return row ? { accountId: row.account_id, provider: isOAuthProvider(row.provider) ? row.provider : (() => {
-      console.error(`Unknown OAuth provider "${row.provider}" for account ${row.account_id}`);
-      return "github" as OAuthProvider;
-    })(), providerId: row.provider_id, providerUsername: row.provider_username, linkedAt: row.linked_at } : undefined;
+    if (!row) return undefined;
+    if (!isOAuthProvider(row.provider)) {
+      console.error(`Identity link for account ${row.account_id} has unrecognized provider "${row.provider}" — skipping. This indicates a data integrity issue.`);
+      return undefined;
+    }
+    return { accountId: row.account_id, provider: row.provider, providerId: row.provider_id, providerUsername: row.provider_username, linkedAt: row.linked_at };
   }
 
   getIdentityLinksByAccount(accountId: string): IdentityLinkRecord[] {
     const rows = this.db.prepare("SELECT * FROM identity_links WHERE account_id = ?").all(accountId) as IdentityLinkRow[];
-    return rows.map(row => ({ accountId: row.account_id, provider: isOAuthProvider(row.provider) ? row.provider : (() => {
-      console.error(`Unknown OAuth provider "${row.provider}" for account ${row.account_id}`);
-      return "github" as OAuthProvider;
-    })(), providerId: row.provider_id, providerUsername: row.provider_username, linkedAt: row.linked_at }));
+    const results: IdentityLinkRecord[] = [];
+    for (const row of rows) {
+      if (!isOAuthProvider(row.provider)) {
+        console.error(`Identity link for account ${row.account_id} has unrecognized provider "${row.provider}" — skipping. This indicates a data integrity issue.`);
+        continue;
+      }
+      results.push({ accountId: row.account_id, provider: row.provider, providerId: row.provider_id, providerUsername: row.provider_username, linkedAt: row.linked_at });
+    }
+    return results;
   }
 
   createIdentityLink(link: IdentityLinkRecord): void {
@@ -345,6 +357,7 @@ export class SqliteDatabase implements GameDatabase {
 interface AccountRow {
   id: string;
   display_name: string;
+  display_name_overridden: number;
   created_at: string;
   updated_at: string;
 }

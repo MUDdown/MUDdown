@@ -62,7 +62,7 @@ const { title } = Astro.props;
 
     <footer>
       <div class="container">
-        <p>&copy; 2026 MUDdown Contributors &middot; MIT License &middot; <a href="https://github.com/MUDdown/MUDdown">Source on GitHub</a></p>
+        <p>&copy; 2026 StickMUD Entertainment LLC &middot; MIT License &middot; <a href="https://github.com/MUDdown/MUDdown">Source on GitHub</a></p>
       </div>
     </footer>
 
@@ -80,7 +80,9 @@ const { title } = Astro.props;
             const data = await res.json();
             if (loginLink) loginLink.style.display = "none";
             if (userInfo) userInfo.style.display = "inline";
-            if (displayName) displayName.textContent = data.displayName;
+            if (displayName) {
+              displayName.textContent = data.activeCharacter?.name ?? "Adventurer";
+            }
           } else {
             if (loginLink) loginLink.style.display = "inline";
             if (userInfo) userInfo.style.display = "none";

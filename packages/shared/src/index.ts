@@ -203,15 +203,19 @@ export const CLASS_STATS: Record<CharacterClass, {
 
 // ─── Account & Identity ──────────────────────────────────────────────────────
 
-export type OAuthProvider = "github";
+export const OAUTH_PROVIDERS = ["github", "microsoft", "google"] as const;
+export type OAuthProvider = typeof OAUTH_PROVIDERS[number];
+
+const OAUTH_PROVIDERS_SET: ReadonlySet<string> = new Set<string>(OAUTH_PROVIDERS);
 
 export function isOAuthProvider(v: unknown): v is OAuthProvider {
-  return v === "github";   // extend when new providers are added
+  return typeof v === "string" && OAUTH_PROVIDERS_SET.has(v);
 }
 
 export interface AccountRecord {
   id: string;             // UUID (primary key)
   displayName: string;    // from provider or user-chosen
+  displayNameOverridden: boolean; // true when user has customised their name
   createdAt: string;      // ISO 8601
   updatedAt: string;      // ISO 8601
 }

@@ -13,6 +13,7 @@ export interface GameDatabase {
   getAccountById(id: string): AccountRecord | undefined;
   createAccount(account: AccountRecord): void;
   updateAccountDisplayName(id: string, displayName: string): void;
+  deleteAccount(id: string): void;
 
   // ── Identity Links ───────────────────────────────────────────────────────
   getIdentityLink(provider: OAuthProvider, providerId: string): IdentityLinkRecord | undefined;

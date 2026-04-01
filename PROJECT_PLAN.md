@@ -188,7 +188,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [x] Entity lifecycle hooks (onCreate, onReset, onContact — e.g., NPC greets player on room entry)
 - [x] Character creation (name, class, starting stats)
 - [x] Inventory and equipment UI in the web client
-- [ ] OIDC login providers (Microsoft, Google) — extend OAuth2 foundation
+- [x] OIDC login providers (Microsoft, Google) — extend OAuth2 foundation
 
 ### Phase 3 — Deployment & Infrastructure
 - [ ] Debian server setup (nginx + systemd)

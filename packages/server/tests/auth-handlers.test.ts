@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -6,7 +6,10 @@ import { randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import { SqliteDatabase } from "../src/db/sqlite.js";
 import type { GameDatabase, AuthSession } from "../src/db/types.js";
-import { extractSessionToken, resolveSession, resolveTicket, CHARACTER_NAME_RE, _insertTicket, handleAuthRoute } from "../src/auth.js";
+import {
+  extractSessionToken, resolveSession, resolveTicket, CHARACTER_NAME_RE, _insertTicket,
+  handleAuthRoute, exchangeCodeForToken, fetchProviderUser, findOrCreateAccount,
+} from "../src/auth.js";
 import type { OAuthConfig } from "../src/auth.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
@@ -22,6 +25,37 @@ afterAll(() => {
   db.close();
   rmSync(tmpDir, { recursive: true, force: true });
 });
+
+// ─── Shared mock helpers ─────────────────────────────────────────────────────
+
+type MockResponse = ServerResponse & { statusCode: number; body: string; _headers: Record<string, string> };
+
+function mockRes(): MockResponse {
+  const res = {
+    statusCode: 0,
+    body: "",
+    headersSent: false,
+    _headers: {} as Record<string, string>,
+    setHeader(name: string, value: string) {
+      res._headers[name.toLowerCase()] = value;
+      return res;
+    },
+    writeHead(status: number, headers?: Record<string, string>) {
+      res.statusCode = status;
+      if (headers) {
+        for (const [k, v] of Object.entries(headers)) {
+          res._headers[k.toLowerCase()] = v;
+        }
+      }
+      return res;
+    },
+    end(data?: string) {
+      if (data) res.body = data;
+      return res;
+    },
+  };
+  return res as unknown as MockResponse;
+}
 
 // ─── extractSessionToken ─────────────────────────────────────────────────────
 
@@ -54,7 +88,7 @@ describe("resolveSession", () => {
 
   beforeAll(() => {
     const now = new Date().toISOString();
-    db.createAccount({ id: accountId, displayName: "Resolver", createdAt: now, updatedAt: now });
+    db.createAccount({ id: accountId, displayName: "Resolver", displayNameOverridden: false, createdAt: now, updatedAt: now });
   });
 
   function fakeReq(token?: string): IncomingMessage {
@@ -186,17 +220,19 @@ describe("handleSelectCharacter", () => {
   let ownerCharacterId: string;
 
   const dummyConfig: OAuthConfig = {
-    clientId: "test",
-    clientSecret: "test",
-    callbackUrl: "http://localhost:3300/auth/callback",
+    github: {
+      clientId: "test",
+      clientSecret: "test",
+      callbackUrl: "http://localhost:3300/auth/callback",
+    },
   };
 
   beforeAll(() => {
     const now = new Date().toISOString();
 
     // Create two accounts
-    db.createAccount({ id: ownerAccountId, displayName: "Owner", createdAt: now, updatedAt: now });
-    db.createAccount({ id: otherAccountId, displayName: "Other", createdAt: now, updatedAt: now });
+    db.createAccount({ id: ownerAccountId, displayName: "Owner", displayNameOverridden: false, createdAt: now, updatedAt: now });
+    db.createAccount({ id: otherAccountId, displayName: "Other", displayNameOverridden: false, createdAt: now, updatedAt: now });
 
     // Create sessions for each
     ownerToken = "tok-owner-" + randomUUID();
@@ -242,34 +278,6 @@ describe("handleSelectCharacter", () => {
       },
     });
     return stream as unknown as IncomingMessage;
-  }
-
-  /** Build a mock ServerResponse that records writeHead/end calls. */
-  function mockRes(): ServerResponse & { statusCode: number; body: string } {
-    const res = {
-      statusCode: 0,
-      body: "",
-      headersSent: false,
-      _headers: {} as Record<string, string>,
-      setHeader(name: string, value: string) {
-        res._headers[name.toLowerCase()] = value;
-        return res;
-      },
-      writeHead(status: number, headers?: Record<string, string>) {
-        res.statusCode = status;
-        if (headers) {
-          for (const [k, v] of Object.entries(headers)) {
-            res._headers[k.toLowerCase()] = v;
-          }
-        }
-        return res;
-      },
-      end(data?: string) {
-        if (data) res.body = data;
-        return res;
-      },
-    };
-    return res as unknown as ServerResponse & { statusCode: number; body: string };
   }
 
   it("returns 404 when character belongs to a different account", async () => {
@@ -320,5 +328,845 @@ describe("handleSelectCharacter", () => {
     await handleAuthRoute(req, res, dummyConfig, db);
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toEqual({ error: "Missing characterId" });
+  });
+});
+
+// ─── /auth/providers ─────────────────────────────────────────────────────────
+
+describe("handleAuthRoute — /auth/providers", () => {
+  function mockReq(): IncomingMessage {
+    return {
+      method: "GET",
+      url: "/auth/providers",
+      headers: { host: "localhost:3300" },
+    } as unknown as IncomingMessage;
+  }
+
+  it("lists only configured providers", async () => {
+    const config: OAuthConfig = {
+      github: { clientId: "g", clientSecret: "s", callbackUrl: "http://localhost/auth/callback" },
+      google: { clientId: "g", clientSecret: "s", callbackUrl: "http://localhost/auth/callback" },
+    };
+    const req = mockReq();
+    const res = mockRes();
+    await handleAuthRoute(req, res, config, db);
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as { providers: string[] };
+    expect(body.providers).toContain("github");
+    expect(body.providers).toContain("google");
+    expect(body.providers).not.toContain("microsoft");
+  });
+
+  it("returns empty array when no providers configured", async () => {
+    const config: OAuthConfig = {};
+    const req = mockReq();
+    const res = mockRes();
+    await handleAuthRoute(req, res, config, db);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ providers: [] });
+  });
+});
+
+// ─── /auth/login — multi-provider redirect ──────────────────────────────────
+
+describe("handleAuthRoute — /auth/login", () => {
+  const allProviders: OAuthConfig = {
+    github: { clientId: "gh-id", clientSecret: "gh-secret", callbackUrl: "http://localhost:3300/auth/callback" },
+    microsoft: { clientId: "ms-id", clientSecret: "ms-secret", callbackUrl: "http://localhost:3300/auth/callback" },
+    google: { clientId: "gg-id", clientSecret: "gg-secret", callbackUrl: "http://localhost:3300/auth/callback" },
+  };
+
+  function mockReq(provider?: string): IncomingMessage {
+    const qs = provider ? `?provider=${provider}` : "";
+    return {
+      method: "GET",
+      url: `/auth/login${qs}`,
+      headers: { host: "localhost:3300" },
+    } as unknown as IncomingMessage;
+  }
+
+  it("redirects to GitHub authorize URL when provider=github", async () => {
+    const req = mockReq("github");
+    const res = mockRes();
+    await handleAuthRoute(req, res, allProviders, db);
+    expect(res.statusCode).toBe(302);
+    expect(res._headers["location"]).toMatch(/^https:\/\/github\.com\/login\/oauth\/authorize\?/);
+    expect(res._headers["location"]).toContain("client_id=gh-id");
+  });
+
+  it("redirects to Microsoft authorize URL when provider=microsoft", async () => {
+    const req = mockReq("microsoft");
+    const res = mockRes();
+    await handleAuthRoute(req, res, allProviders, db);
+    expect(res.statusCode).toBe(302);
+    expect(res._headers["location"]).toMatch(/^https:\/\/login\.microsoftonline\.com\/common\/oauth2\/v2\.0\/authorize\?/);
+    expect(res._headers["location"]).toContain("client_id=ms-id");
+    expect(res._headers["location"]).toContain("scope=openid+profile+email+User.Read");
+  });
+
+  it("redirects to Google authorize URL when provider=google", async () => {
+    const req = mockReq("google");
+    const res = mockRes();
+    await handleAuthRoute(req, res, allProviders, db);
+    expect(res.statusCode).toBe(302);
+    expect(res._headers["location"]).toMatch(/^https:\/\/accounts\.google\.com\/o\/oauth2\/v2\/auth\?/);
+    expect(res._headers["location"]).toContain("client_id=gg-id");
+    expect(res._headers["location"]).toContain("scope=openid+profile+email");
+  });
+
+  it("defaults to github when no provider param is given", async () => {
+    const req = mockReq();
+    const res = mockRes();
+    await handleAuthRoute(req, res, allProviders, db);
+    expect(res.statusCode).toBe(302);
+    expect(res._headers["location"]).toMatch(/github\.com/);
+  });
+
+  it("returns 400 for an unsupported provider name", async () => {
+    const req = mockReq("facebook");
+    const res = mockRes();
+    await handleAuthRoute(req, res, allProviders, db);
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("returns 404 when valid provider is not configured", async () => {
+    const githubOnly: OAuthConfig = {
+      github: { clientId: "gh", clientSecret: "s", callbackUrl: "http://localhost/cb" },
+    };
+    const req = mockReq("microsoft");
+    const res = mockRes();
+    await handleAuthRoute(req, res, githubOnly, db);
+    expect(res.statusCode).toBe(404);
+    expect(res.body).toContain("not configured");
+  });
+});
+
+// ─── exchangeCodeForToken ────────────────────────────────────────────────────
+
+describe("exchangeCodeForToken", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("github: sends JSON body with client_id, client_secret, code, redirect_uri", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: "ghtoken123" }),
+    }));
+    const cfg = { clientId: "cid", clientSecret: "csec", callbackUrl: "http://localhost/cb" };
+    const result = await exchangeCodeForToken("github", cfg, "code123");
+    expect(result).toBe("ghtoken123");
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe("https://github.com/login/oauth/access_token");
+    const body = JSON.parse(opts.body);
+    expect(body).toMatchObject({ client_id: "cid", code: "code123", redirect_uri: "http://localhost/cb" });
+  });
+
+  it("microsoft: sends form-encoded body with grant_type=authorization_code", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: "mstoken" }),
+    }));
+    const cfg = { clientId: "cid", clientSecret: "csec", callbackUrl: "http://localhost/cb" };
+    const result = await exchangeCodeForToken("microsoft", cfg, "code123");
+    expect(result).toBe("mstoken");
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toContain("microsoftonline.com");
+    const body = new URLSearchParams(opts.body);
+    expect(body.get("grant_type")).toBe("authorization_code");
+    expect(body.get("redirect_uri")).toBe("http://localhost/cb");
+  });
+
+  it("returns null when response is not ok", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 401, statusText: "Unauthorized", text: async () => "Unauthorized" }));
+    const cfg = { clientId: "c", clientSecret: "s", callbackUrl: "http://x" };
+    expect(await exchangeCodeForToken("github", cfg, "bad")).toBeNull();
+  });
+
+  it("returns null when response has no access_token", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ error: "bad_code" }),
+    }));
+    const cfg = { clientId: "c", clientSecret: "s", callbackUrl: "http://x" };
+    expect(await exchangeCodeForToken("github", cfg, "code")).toBeNull();
+  });
+
+  it("returns null when response body is not JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => { throw new SyntaxError("not json"); },
+    }));
+    const cfg = { clientId: "c", clientSecret: "s", callbackUrl: "http://x" };
+    expect(await exchangeCodeForToken("github", cfg, "code")).toBeNull();
+  });
+});
+
+// ─── fetchProviderUser ───────────────────────────────────────────────────────
+
+describe("fetchProviderUser", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("github: returns normalized ProviderUser from GitHub profile", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 42, login: "alice", name: "Alice Smith" }),
+    }));
+    const user = await fetchProviderUser("github", "token");
+    expect(user).toEqual({ provider: "github", providerId: "42", username: "alice", displayName: "Alice Smith" });
+  });
+
+  it("github: falls back to login as displayName when name is null", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 1, login: "bob", name: null }),
+    }));
+    const user = await fetchProviderUser("github", "token");
+    expect(user?.displayName).toBe("bob");
+  });
+
+  it("github: returns null when id or login is missing", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ login: "noId" }),
+    }));
+    expect(await fetchProviderUser("github", "token")).toBeNull();
+  });
+
+  it("microsoft: prefers mail over userPrincipalName for username", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: "ms-id",
+        displayName: "Carol",
+        userPrincipalName: "carol_ext#EXT#@tenant.onmicrosoft.com",
+        mail: "carol@example.com",
+      }),
+    }));
+    const user = await fetchProviderUser("microsoft", "token");
+    expect(user?.username).toBe("carol@example.com");
+  });
+
+  it("google: falls back to email for displayName when name is absent", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ sub: "g-sub", email: "dave@gmail.com" }),
+    }));
+    const user = await fetchProviderUser("google", "token");
+    expect(user?.displayName).toBe("dave@gmail.com");
+  });
+
+  it("returns null when provider user API returns non-ok", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 403, text: async () => "Forbidden" }));
+    expect(await fetchProviderUser("github", "token")).toBeNull();
+  });
+
+  it("returns null when response body is not JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => { throw new SyntaxError("not json"); },
+    }));
+    expect(await fetchProviderUser("github", "token")).toBeNull();
+  });
+});
+
+// ─── findOrCreateAccount ─────────────────────────────────────────────────────
+
+describe("findOrCreateAccount", () => {
+  let focaDb: SqliteDatabase;
+  let focaTmpDir: string;
+
+  beforeEach(() => {
+    focaTmpDir = mkdtempSync(join(tmpdir(), "muddown-test-"));
+    focaDb = new SqliteDatabase(join(focaTmpDir, "test.db"));
+  });
+  afterEach(() => {
+    focaDb.close();
+    rmSync(focaTmpDir, { recursive: true, force: true });
+  });
+
+  const user = {
+    provider: "github" as const,
+    providerId: "42",
+    username: "alice",
+    displayName: "Alice",
+  };
+
+  it("creates a new account and identity link on first login", () => {
+    const account = findOrCreateAccount(focaDb, user);
+    expect(account.displayName).toBe("Alice");
+    const link = focaDb.getIdentityLink("github", "42");
+    expect(link?.accountId).toBe(account.id);
+  });
+
+  it("returns the same account on second login and updates displayName when not overridden", () => {
+    const first = findOrCreateAccount(focaDb, user);
+    const second = findOrCreateAccount(focaDb, { ...user, displayName: "Alice Updated" });
+    expect(second.id).toBe(first.id);
+    expect(focaDb.getAccountById(second.id)?.displayName).toBe("Alice Updated");
+  });
+
+  it("preserves user-customised displayName when displayNameOverridden is true", () => {
+    const first = findOrCreateAccount(focaDb, user);
+    // Simulate user customising their name
+    const raw = focaDb as unknown as { db: { prepare: (s: string) => { run: (...args: unknown[]) => void } } };
+    raw.db.prepare("UPDATE accounts SET display_name = ?, display_name_overridden = 1 WHERE id = ?").run("Custom Name", first.id);
+
+    const second = findOrCreateAccount(focaDb, { ...user, displayName: "Provider Name" });
+    expect(second.id).toBe(first.id);
+    expect(focaDb.getAccountById(second.id)?.displayName).toBe("Custom Name");
+  });
+
+  it("recovers from a stale identity link (orphaned account)", () => {
+    // Create a real account then remove it with FKs off to leave an orphaned link
+    const now = new Date().toISOString();
+    focaDb.createAccount({ id: "ghost-account-id", displayName: "Ghost", displayNameOverridden: false, createdAt: now, updatedAt: now });
+    focaDb.createIdentityLink({
+      accountId: "ghost-account-id",
+      provider: "github",
+      providerId: "42",
+      providerUsername: "alice",
+      linkedAt: now,
+    });
+    // Delete the account with FKs disabled so the link is orphaned
+    (focaDb as unknown as { db: { pragma: (s: string) => void; prepare: (s: string) => { run: (...args: unknown[]) => void } } }).db.pragma("foreign_keys = OFF");
+    (focaDb as unknown as { db: { prepare: (s: string) => { run: (...args: unknown[]) => void } } }).db.prepare("DELETE FROM accounts WHERE id = ?").run("ghost-account-id");
+    (focaDb as unknown as { db: { pragma: (s: string) => void } }).db.pragma("foreign_keys = ON");
+
+    // findOrCreateAccount should delete the stale link and create a fresh account
+    const account = findOrCreateAccount(focaDb, user);
+    expect(account.id).not.toBe("ghost-account-id");
+    const newLink = focaDb.getIdentityLink("github", "42");
+    expect(newLink?.accountId).toBe(account.id);
+  });
+
+  it("does not collide when the same providerId exists under a different provider", () => {
+    findOrCreateAccount(focaDb, user);
+    const msUser = { ...user, provider: "microsoft" as const };
+    const msAccount = findOrCreateAccount(focaDb, msUser);
+    // Should be two separate accounts
+    const ghLink = focaDb.getIdentityLink("github", "42");
+    const msLink = focaDb.getIdentityLink("microsoft", "42");
+    expect(ghLink?.accountId).not.toBe(msLink?.accountId);
+    expect(msAccount.id).toBe(msLink?.accountId);
+  });
+
+  it("recovers when a concurrent request wins the identity-link insert", () => {
+    // Simulate a race: another request already created the account+link
+    const now = new Date().toISOString();
+    const winnerAccount = { id: "winner-id", displayName: "Alice", displayNameOverridden: false, createdAt: now, updatedAt: now };
+    focaDb.createAccount(winnerAccount);
+    focaDb.createIdentityLink({
+      accountId: winnerAccount.id,
+      provider: "github",
+      providerId: "42",
+      providerUsername: "alice",
+      linkedAt: now,
+    });
+
+    // Wrap the real db: getIdentityLink returns undefined on the first call
+    // (simulating the initial check before the race), then real results after.
+    let firstCall = true;
+    const origGetIdentityLink = focaDb.getIdentityLink.bind(focaDb);
+    focaDb.getIdentityLink = (provider, providerId) => {
+      if (firstCall) {
+        firstCall = false;
+        return undefined;
+      }
+      return origGetIdentityLink(provider, providerId);
+    };
+
+    const account = findOrCreateAccount(focaDb, user);
+    // Should return the winner's account, not a new one
+    expect(account.id).toBe("winner-id");
+  });
+
+  it("throws non-constraint errors from createIdentityLink", () => {
+    const origCreateLink = focaDb.createIdentityLink.bind(focaDb);
+    focaDb.createIdentityLink = () => {
+      throw new Error("disk I/O error");
+    };
+    // getIdentityLink returns undefined so the create path is taken
+    expect(() => findOrCreateAccount(focaDb, user)).toThrow("disk I/O error");
+    focaDb.createIdentityLink = origCreateLink;
+  });
+});
+
+// ─── /auth/callback ──────────────────────────────────────────────────────────
+
+describe("handleAuthRoute — /auth/callback", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  const config: OAuthConfig = {
+    github: { clientId: "gh-id", clientSecret: "gh-secret", callbackUrl: "http://localhost:3300/auth/callback" },
+  };
+
+  function mockReq(query: string): IncomingMessage {
+    return {
+      method: "GET",
+      url: `/auth/callback${query}`,
+      headers: { host: "localhost:3300" },
+    } as unknown as IncomingMessage;
+  }
+
+  it("returns 400 when state param is missing", async () => {
+    const req = mockReq("?code=abc");
+    const res = mockRes();
+    await handleAuthRoute(req, res, config, db);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("Invalid or expired OAuth state");
+  });
+
+  it("returns 400 when code param is missing", async () => {
+    const req = mockReq("?state=abc");
+    const res = mockRes();
+    await handleAuthRoute(req, res, config, db);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("Invalid or expired OAuth state");
+  });
+
+  it("returns 400 when state is unknown (no pending entry)", async () => {
+    const req = mockReq("?code=abc&state=unknown-state-id");
+    const res = mockRes();
+    await handleAuthRoute(req, res, config, db);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("Invalid or expired OAuth state");
+  });
+
+  it("returns 400 when token exchange fails", async () => {
+    // First do a login to create a pending state
+    const loginReq = {
+      method: "GET",
+      url: "/auth/login?provider=github",
+      headers: { host: "localhost:3300" },
+    } as unknown as IncomingMessage;
+    const loginRes = mockRes();
+    await handleAuthRoute(loginReq, loginRes, config, db);
+    expect(loginRes.statusCode).toBe(302);
+    const location = loginRes._headers["location"];
+    const stateMatch = location.match(/state=([^&]+)/);
+    expect(stateMatch).toBeTruthy();
+    const state = stateMatch![1];
+
+    // Stub fetch to fail token exchange
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 401, statusText: "Unauthorized", text: async () => "bad" }));
+
+    const req = mockReq(`?code=testcode&state=${state}`);
+    const res = mockRes();
+    await handleAuthRoute(req, res, config, db);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("Authentication failed");
+  });
+
+  it("returns 502 when user profile fetch fails", async () => {
+    // Login to create pending state
+    const loginReq = {
+      method: "GET",
+      url: "/auth/login?provider=github",
+      headers: { host: "localhost:3300" },
+    } as unknown as IncomingMessage;
+    const loginRes = mockRes();
+    await handleAuthRoute(loginReq, loginRes, config, db);
+    const location = loginRes._headers["location"];
+    const state = location.match(/state=([^&]+)/)![1];
+
+    // Stub fetch: token exchange succeeds, user fetch fails
+    let callCount = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        // Token exchange success
+        return { ok: true, json: async () => ({ access_token: "tok" }) };
+      }
+      // User fetch failure
+      return { ok: false, status: 403, text: async () => "forbidden" };
+    }));
+
+    const req = mockReq(`?code=testcode&state=${state}`);
+    const res = mockRes();
+    await handleAuthRoute(req, res, config, db);
+    expect(res.statusCode).toBe(502);
+  });
+
+  it("redirects to /play with session cookie on success", async () => {
+    // Login to create pending state
+    const loginReq = {
+      method: "GET",
+      url: "/auth/login?provider=github",
+      headers: { host: "localhost:3300" },
+    } as unknown as IncomingMessage;
+    const loginRes = mockRes();
+    await handleAuthRoute(loginReq, loginRes, config, db);
+    const location = loginRes._headers["location"];
+    const state = location.match(/state=([^&]+)/)![1];
+
+    let callCount = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { ok: true, json: async () => ({ access_token: "tok" }) };
+      }
+      return {
+        ok: true,
+        json: async () => ({ id: 999, login: "testuser", name: "Test User" }),
+      };
+    }));
+
+    const req = mockReq(`?code=testcode&state=${state}`);
+    const res = mockRes();
+    await handleAuthRoute(req, res, config, db);
+    expect(res.statusCode).toBe(302);
+    expect(res._headers["location"]).toContain("/play");
+    expect(res._headers["set-cookie"]).toMatch(/muddown_session=/);
+  });
+
+  it("returns 503 when provider config was removed between login and callback", async () => {
+    // Login using github config
+    const loginReq = {
+      method: "GET",
+      url: "/auth/login?provider=github",
+      headers: { host: "localhost:3300" },
+    } as unknown as IncomingMessage;
+    const loginRes = mockRes();
+    await handleAuthRoute(loginReq, loginRes, config, db);
+    const location = loginRes._headers["location"];
+    const state = location.match(/state=([^&]+)/)![1];
+
+    // Now use empty config (provider removed)
+    const req = mockReq(`?code=testcode&state=${state}`);
+    const res = mockRes();
+    await handleAuthRoute(req, res, {} as OAuthConfig, db);
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toContain("no longer configured");
+  });
+});
+
+// ─── exchangeCodeForToken — google branch ────────────────────────────────────
+
+describe("exchangeCodeForToken — google", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("sends form-encoded body with grant_type=authorization_code to Google endpoint", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: "ggtoken" }),
+    }));
+    const cfg = { clientId: "cid", clientSecret: "csec", callbackUrl: "http://localhost/cb" };
+    const result = await exchangeCodeForToken("google", cfg, "code123");
+    expect(result).toBe("ggtoken");
+    const [url, opts] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(url).toBe("https://oauth2.googleapis.com/token");
+    const body = new URLSearchParams(opts.body);
+    expect(body.get("grant_type")).toBe("authorization_code");
+    expect(body.get("client_id")).toBe("cid");
+    expect(body.get("redirect_uri")).toBe("http://localhost/cb");
+  });
+});
+
+// ─── fetchProviderUser — error body logging ──────────────────────────────────
+
+describe("fetchProviderUser — error body logging", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("microsoft: returns null when Graph API returns non-ok", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 401, text: async () => "Unauthorized" }));
+    expect(await fetchProviderUser("microsoft", "token")).toBeNull();
+  });
+
+  it("microsoft: returns null when response is not JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => { throw new SyntaxError("not json"); },
+    }));
+    expect(await fetchProviderUser("microsoft", "token")).toBeNull();
+  });
+
+  it("google: returns null when userinfo returns non-ok", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => "Internal Server Error" }));
+    expect(await fetchProviderUser("google", "token")).toBeNull();
+  });
+
+  it("google: returns null when response is not JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => { throw new SyntaxError("not json"); },
+    }));
+    expect(await fetchProviderUser("google", "token")).toBeNull();
+  });
+
+  it("google: returns null when sub is missing", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ email: "x@x.com" }),
+    }));
+    expect(await fetchProviderUser("google", "token")).toBeNull();
+  });
+
+  it("microsoft: returns null when id is missing", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ displayName: "Carol" }),
+    }));
+    expect(await fetchProviderUser("microsoft", "token")).toBeNull();
+  });
+});
+
+// ─── /auth/create-character ──────────────────────────────────────────────────
+
+describe("handleAuthRoute — /auth/create-character", () => {
+  const ccAccountId = "acc-cc-" + randomUUID();
+  let ccToken: string;
+
+  const dummyConfig: OAuthConfig = {
+    github: {
+      clientId: "test",
+      clientSecret: "test",
+      callbackUrl: "http://localhost:3300/auth/callback",
+    },
+  };
+
+  beforeAll(() => {
+    const now = new Date().toISOString();
+    db.createAccount({ id: ccAccountId, displayName: "Creator", displayNameOverridden: false, createdAt: now, updatedAt: now });
+    ccToken = "tok-cc-" + randomUUID();
+    const expires = new Date(Date.now() + 86400000).toISOString();
+    db.createSession({ token: ccToken, accountId: ccAccountId, activeCharacterId: null, expiresAt: expires });
+  });
+
+  function mockReq(opts: { cookie?: string; body?: unknown }): IncomingMessage {
+    const bodyStr = opts.body !== undefined ? JSON.stringify(opts.body) : "";
+    const stream = new Readable({
+      read() {
+        this.push(bodyStr);
+        this.push(null);
+      },
+    });
+    Object.assign(stream, {
+      method: "POST",
+      url: "/auth/create-character",
+      headers: {
+        host: "localhost:3300",
+        "content-type": "application/json",
+        ...(opts.cookie ? { cookie: opts.cookie } : {}),
+      },
+    });
+    return stream as unknown as IncomingMessage;
+  }
+
+  it("returns 401 when no session cookie is present", async () => {
+    const req = mockReq({ body: { name: "Hero", characterClass: "warrior" } });
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({ error: "Not authenticated" });
+  });
+
+  it("returns 400 when name is missing", async () => {
+    const req = mockReq({ cookie: `muddown_session=${ccToken}`, body: { characterClass: "warrior" } });
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain("Missing name");
+  });
+
+  it("returns 400 when characterClass is missing", async () => {
+    const req = mockReq({ cookie: `muddown_session=${ccToken}`, body: { name: "Hero" } });
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain("characterClass");
+  });
+
+  it("returns 400 when character class is invalid", async () => {
+    const req = mockReq({ cookie: `muddown_session=${ccToken}`, body: { name: "Newbie", characterClass: "bard" } });
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain("Invalid class");
+  });
+
+  it("returns 400 when character name fails regex", async () => {
+    const req = mockReq({ cookie: `muddown_session=${ccToken}`, body: { name: "123Bad", characterClass: "warrior" } });
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain("must start with a letter");
+  });
+
+  it("returns 201 and creates character on success", async () => {
+    const uniqueName = "Hero" + randomUUID().slice(0, 8);
+    const req = mockReq({ cookie: `muddown_session=${ccToken}`, body: { name: uniqueName, characterClass: "warrior" } });
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(201);
+    const body = JSON.parse(res.body);
+    expect(body.name).toBe(uniqueName);
+    expect(body.characterClass).toBe("warrior");
+    expect(body.hp).toBe(25);
+    expect(body.maxHp).toBe(25);
+  });
+
+  it("returns 409 when character name already exists", async () => {
+    const dupName = "DupHero" + randomUUID().slice(0, 6);
+    // Create first
+    const req1 = mockReq({ cookie: `muddown_session=${ccToken}`, body: { name: dupName, characterClass: "mage" } });
+    const res1 = mockRes();
+    await handleAuthRoute(req1, res1, dummyConfig, db);
+    expect(res1.statusCode).toBe(201);
+
+    // Create duplicate
+    const req2 = mockReq({ cookie: `muddown_session=${ccToken}`, body: { name: dupName, characterClass: "rogue" } });
+    const res2 = mockRes();
+    await handleAuthRoute(req2, res2, dummyConfig, db);
+    expect(res2.statusCode).toBe(409);
+    expect(JSON.parse(res2.body).error).toContain("already exists");
+  });
+
+  it("returns 413 when request body is too large", async () => {
+    const bodyStr = JSON.stringify({ name: "X".repeat(5000), characterClass: "warrior" });
+    const stream = new Readable({
+      read() {
+        this.push(bodyStr);
+        this.push(null);
+      },
+    });
+    Object.assign(stream, {
+      method: "POST",
+      url: "/auth/create-character",
+      headers: {
+        host: "localhost:3300",
+        "content-type": "application/json",
+        cookie: `muddown_session=${ccToken}`,
+      },
+    });
+    const req = stream as unknown as IncomingMessage;
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(413);
+  });
+});
+
+// ─── /auth/ws-ticket ─────────────────────────────────────────────────────────
+
+describe("handleAuthRoute — /auth/ws-ticket", () => {
+  const wsAccountId = "acc-ws-" + randomUUID();
+  let wsToken: string;
+  let wsCharacterId: string;
+
+  const dummyConfig: OAuthConfig = {
+    github: {
+      clientId: "test",
+      clientSecret: "test",
+      callbackUrl: "http://localhost:3300/auth/callback",
+    },
+  };
+
+  beforeAll(() => {
+    const now = new Date().toISOString();
+    db.createAccount({ id: wsAccountId, displayName: "WsTester", displayNameOverridden: false, createdAt: now, updatedAt: now });
+    wsToken = "tok-ws-" + randomUUID();
+    wsCharacterId = "char-ws-" + randomUUID();
+    const expires = new Date(Date.now() + 86400000).toISOString();
+    db.createCharacter({
+      id: wsCharacterId,
+      accountId: wsAccountId,
+      name: "WsHero-" + randomUUID().slice(0, 6),
+      characterClass: "warrior",
+      currentRoom: "town-square",
+      inventory: [],
+      equipped: { weapon: null, armor: null, accessory: null },
+      hp: 25,
+      maxHp: 25,
+      xp: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    db.createSession({ token: wsToken, accountId: wsAccountId, activeCharacterId: wsCharacterId, expiresAt: expires });
+  });
+
+  function mockReq(cookie?: string): IncomingMessage {
+    return {
+      method: "GET",
+      url: "/auth/ws-ticket",
+      headers: {
+        host: "localhost:3300",
+        ...(cookie ? { cookie } : {}),
+      },
+    } as unknown as IncomingMessage;
+  }
+
+  it("returns 401 when no session cookie is present", async () => {
+    const req = mockReq();
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("returns 400 when no active character is selected", async () => {
+    const noCharToken = "tok-nochar-" + randomUUID();
+    const expires = new Date(Date.now() + 86400000).toISOString();
+    db.createSession({ token: noCharToken, accountId: wsAccountId, activeCharacterId: null, expiresAt: expires });
+
+    const req = mockReq(`muddown_session=${noCharToken}`);
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain("No active character");
+  });
+
+  it("returns 200 with a ticket when session has an active character", async () => {
+    const req = mockReq(`muddown_session=${wsToken}`);
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.ticket).toBeDefined();
+    expect(typeof body.ticket).toBe("string");
+  });
+
+  it("ticket is single-use: resolveTicket returns value then undefined", async () => {
+    const req = mockReq(`muddown_session=${wsToken}`);
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    const { ticket } = JSON.parse(res.body);
+
+    const first = resolveTicket(ticket);
+    expect(first).toBe(wsCharacterId);
+    expect(resolveTicket(ticket)).toBeUndefined();
+  });
+
+  it("returns 400 when active character no longer exists", async () => {
+    // Create a real character, then a session pointing to it, then delete the character
+    const ghostCharId = "char-ghost-" + randomUUID();
+    const now = new Date().toISOString();
+    db.createCharacter({
+      id: ghostCharId,
+      accountId: wsAccountId,
+      name: "GhostChar-" + randomUUID().slice(0, 6),
+      characterClass: "warrior",
+      currentRoom: "town-square",
+      inventory: [],
+      equipped: { weapon: null, armor: null, accessory: null },
+      hp: 25,
+      maxHp: 25,
+      xp: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const ghostToken = "tok-ghost-" + randomUUID();
+    const expires = new Date(Date.now() + 86400000).toISOString();
+    db.createSession({ token: ghostToken, accountId: wsAccountId, activeCharacterId: ghostCharId, expiresAt: expires });
+    // Delete the character via raw SQL with FKs disabled so the session keeps its stale reference
+    const raw = db as unknown as { db: { pragma: (s: string) => void; prepare: (s: string) => { run: (...a: unknown[]) => void } } };
+    raw.db.pragma("foreign_keys = OFF");
+    raw.db.prepare("DELETE FROM characters WHERE id = ?").run(ghostCharId);
+    raw.db.pragma("foreign_keys = ON");
+
+    const req = mockReq(`muddown_session=${ghostToken}`);
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body).error).toContain("Active character not found");
   });
 });
