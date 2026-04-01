@@ -3,12 +3,11 @@
 # Target: Debian 12 (Bookworm) on Linode
 #
 # What this script does:
-#   1. System hardening (SSH, firewall, fail2ban, auto-updates)
-#   2. Install runtime dependencies (Node.js 20, nginx)
-#   3. Create muddown service user
-#   4. Deploy application to /opt/muddown
-#   5. Install systemd service
-#   6. Configure nginx
+#   Steps 1–3:   System updates, core packages, Node.js 20
+#   Step 4:      Create deploy user (SSH-accessible after root lockdown)
+#   Steps 5–8:   Harden SSH, firewall (ufw), fail2ban, auto-updates
+#   Steps 9–11:  Create service user, clone/build, .env template
+#   Steps 12–14: systemd service, nginx, file permissions
 #
 # Usage:
 #   scp deploy/setup.sh root@<your-linode-ip>:/root/
@@ -25,6 +24,7 @@ set -euo pipefail
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 SSH_PORT="${SSH_PORT:-22}"
+DEPLOY_USER="${DEPLOY_USER:-deploy}"
 REPO_URL="https://github.com/MUDdown/MUDdown.git"
 INSTALL_DIR="/opt/muddown"
 SERVICE_USER="muddown"
@@ -38,6 +38,7 @@ fi
 
 echo "==> MUDdown Server Setup"
 echo "    SSH port: ${SSH_PORT}"
+echo "    Deploy user: ${DEPLOY_USER}"
 echo "    Install dir: ${INSTALL_DIR}"
 echo ""
 
@@ -65,18 +66,45 @@ apt-get install -y -qq \
 
 if ! command -v node &>/dev/null || [[ "$(node -v | cut -d. -f1 | tr -d v)" -lt 20 ]]; then
   echo "==> Installing Node.js 20..."
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  NODESOURCE_SCRIPT=$(mktemp)
+  if ! curl -fsSL https://deb.nodesource.com/setup_20.x -o "${NODESOURCE_SCRIPT}"; then
+    echo "ERROR: Failed to download NodeSource installer." >&2
+    rm -f "${NODESOURCE_SCRIPT}"
+    exit 1
+  fi
+  bash "${NODESOURCE_SCRIPT}"
+  rm -f "${NODESOURCE_SCRIPT}"
   apt-get install -y -qq nodejs
 fi
 echo "    Node.js $(node -v), npm $(npm -v)"
 
-# ── 4. SSH hardening ─────────────────────────────────────────────────────────
+# ── 4. Create deploy user ────────────────────────────────────────────────────
+
+echo "==> Creating deploy user '${DEPLOY_USER}'..."
+if ! id "${DEPLOY_USER}" &>/dev/null; then
+  useradd --create-home --shell /bin/bash --groups sudo "${DEPLOY_USER}"
+  if [[ -s /root/.ssh/authorized_keys ]]; then
+    mkdir -p "/home/${DEPLOY_USER}/.ssh"
+    cp /root/.ssh/authorized_keys "/home/${DEPLOY_USER}/.ssh/"
+    chown -R "${DEPLOY_USER}:${DEPLOY_USER}" "/home/${DEPLOY_USER}/.ssh"
+    chmod 700 "/home/${DEPLOY_USER}/.ssh"
+    chmod 600 "/home/${DEPLOY_USER}/.ssh/authorized_keys"
+  fi
+  echo "    Created user '${DEPLOY_USER}' with sudo access."
+else
+  echo "    User '${DEPLOY_USER}' already exists."
+fi
+
+# ── 5. SSH hardening ─────────────────────────────────────────────────────────
 
 echo "==> Hardening SSH..."
 SSHD_CONFIG="/etc/ssh/sshd_config"
 
 # Backup original config
-cp -n "${SSHD_CONFIG}" "${SSHD_CONFIG}.bak" 2>/dev/null || true
+if [[ ! -f "${SSHD_CONFIG}.bak" ]]; then
+  cp "${SSHD_CONFIG}" "${SSHD_CONFIG}.bak"
+  echo "    Backed up ${SSHD_CONFIG} → ${SSHD_CONFIG}.bak"
+fi
 
 # Apply hardening settings
 sed -i "s/^#\?Port .*/Port ${SSH_PORT}/" "${SSHD_CONFIG}"
@@ -88,15 +116,29 @@ sed -i 's/^#\?X11Forwarding .*/X11Forwarding no/' "${SSHD_CONFIG}"
 sed -i 's/^#\?MaxAuthTries .*/MaxAuthTries 3/' "${SSHD_CONFIG}"
 
 # Ensure at least one SSH key exists before locking out password auth
-if [[ ! -s /root/.ssh/authorized_keys ]] && [[ ! -d /home/*/.ssh ]]; then
-  echo "WARNING: No SSH authorized_keys found!"
-  echo "         Make sure you have SSH key access before rebooting."
-  echo "         Skipping SSH restart to avoid lockout."
+has_keys=false
+for home_dir in /root /home/*; do
+  if [[ -s "${home_dir}/.ssh/authorized_keys" ]]; then
+    has_keys=true
+    break
+  fi
+done
+
+if [[ "${has_keys}" != "true" ]]; then
+  echo "WARNING: No SSH authorized_keys found!" >&2
+  echo "         Make sure you have SSH key access before rebooting." >&2
+  echo "         Skipping SSH restart to avoid lockout." >&2
 else
-  systemctl restart sshd
+  if sshd -t; then
+    systemctl restart sshd
+  else
+    echo "ERROR: sshd config validation failed! Restoring backup..." >&2
+    cp "${SSHD_CONFIG}.bak" "${SSHD_CONFIG}"
+    echo "         Restored original config. Please fix manually." >&2
+  fi
 fi
 
-# ── 5. Firewall (ufw) ────────────────────────────────────────────────────────
+# ── 6. Firewall (ufw) ────────────────────────────────────────────────────────
 
 echo "==> Configuring firewall..."
 ufw default deny incoming
@@ -106,10 +148,10 @@ ufw allow 80/tcp comment "HTTP"
 ufw allow 443/tcp comment "HTTPS"
 ufw --force enable
 
-# ── 6. fail2ban ──────────────────────────────────────────────────────────────
+# ── 7. fail2ban ──────────────────────────────────────────────────────────────
 
 echo "==> Configuring fail2ban..."
-cat > /etc/fail2ban/jail.local <<'EOF'
+cat > /etc/fail2ban/jail.local <<EOF
 [DEFAULT]
 bantime  = 1h
 findtime = 10m
@@ -117,7 +159,7 @@ maxretry = 5
 
 [sshd]
 enabled = true
-port    = ssh
+port    = ${SSH_PORT}
 filter  = sshd
 logpath = /var/log/auth.log
 maxretry = 3
@@ -127,7 +169,7 @@ EOF
 systemctl enable fail2ban
 systemctl restart fail2ban
 
-# ── 7. Automatic security updates ────────────────────────────────────────────
+# ── 8. Automatic security updates ────────────────────────────────────────────
 
 echo "==> Enabling automatic security updates..."
 cat > /etc/apt/apt.conf.d/50unattended-upgrades <<'EOF'
@@ -144,19 +186,23 @@ APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
 EOF
 
-# ── 8. Create service user ───────────────────────────────────────────────────
+# ── 9. Create service user ───────────────────────────────────────────────────
 
 echo "==> Creating service user '${SERVICE_USER}'..."
 if ! id "${SERVICE_USER}" &>/dev/null; then
   useradd --system --shell /usr/sbin/nologin --home-dir "${INSTALL_DIR}" "${SERVICE_USER}"
 fi
 
-# ── 9. Clone and build application ───────────────────────────────────────────
+# ── 10. Clone and build application ──────────────────────────────────────────
 
 echo "==> Deploying application to ${INSTALL_DIR}..."
 if [[ -d "${INSTALL_DIR}/.git" ]]; then
   echo "    Repository exists — pulling latest..."
   cd "${INSTALL_DIR}"
+  if [[ -n "$(git status --porcelain)" ]]; then
+    echo "WARNING: Working directory has uncommitted changes that will be lost!" >&2
+    git status --short >&2
+  fi
   git fetch origin main
   git reset --hard origin/main
 else
@@ -165,13 +211,21 @@ else
 fi
 
 echo "==> Installing dependencies and building..."
-npm ci --production=false
-npx turbo run build
+if ! npm ci --production=false; then
+  echo "ERROR: npm ci failed. Check node_modules and package-lock.json." >&2
+  echo "       Try: rm -rf node_modules package-lock.json && npm install" >&2
+  exit 1
+fi
+if ! npx turbo run build; then
+  echo "ERROR: Build failed. Check TypeScript errors above." >&2
+  echo "       Try: npx turbo run build --filter=@muddown/server..." >&2
+  exit 1
+fi
 
 # Set ownership
 chown -R "${SERVICE_USER}:${SERVICE_USER}" "${INSTALL_DIR}"
 
-# ── 10. Create .env template ─────────────────────────────────────────────────
+# ── 11. Create .env template ─────────────────────────────────────────────────
 
 ENV_FILE="${INSTALL_DIR}/packages/server/.env"
 if [[ ! -f "${ENV_FILE}" ]]; then
@@ -204,29 +258,40 @@ ENVEOF
   echo "    Created ${ENV_FILE} — edit with your secrets before starting."
 fi
 
-# ── 11. Install systemd service ──────────────────────────────────────────────
+# ── 12. Install systemd service ──────────────────────────────────────────────
 
 echo "==> Installing systemd service..."
 cp "${INSTALL_DIR}/deploy/muddown-server.service" /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable muddown-server
 
-# ── 12. Configure nginx ──────────────────────────────────────────────────────
+# ── 13. Configure nginx ──────────────────────────────────────────────────────
 
 echo "==> Configuring nginx..."
 cp "${INSTALL_DIR}/deploy/nginx/muddown.conf" /etc/nginx/sites-available/
+cp "${INSTALL_DIR}/deploy/nginx/security-headers.conf" /etc/nginx/snippets/muddown-security-headers.conf
 ln -sf /etc/nginx/sites-available/muddown.conf /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 
-nginx -t
+if ! nginx -t; then
+  echo "ERROR: nginx config test failed!" >&2
+  echo "       Check: /etc/nginx/sites-available/muddown.conf" >&2
+  echo "       Check: /etc/nginx/snippets/muddown-security-headers.conf" >&2
+  echo "       Fix the config and run: nginx -t && systemctl reload nginx" >&2
+  exit 1
+fi
 systemctl enable nginx
 systemctl reload nginx
 
-# ── 13. Harden file permissions ──────────────────────────────────────────────
+# ── 14. Harden file permissions ──────────────────────────────────────────────
 
 echo "==> Setting file permissions..."
 chmod 750 "${INSTALL_DIR}"
-chmod 600 "${ENV_FILE}" 2>/dev/null || true
+if [[ -f "${ENV_FILE}" ]]; then
+  chmod 600 "${ENV_FILE}"
+else
+  echo "WARNING: ${ENV_FILE} not found — skipping permission set." >&2
+fi
 
 # Ensure SQLite DB directory is writable by service user
 mkdir -p "${INSTALL_DIR}/packages/server"
@@ -244,7 +309,8 @@ echo "  1. Edit secrets:   nano ${ENV_FILE}"
 echo "  2. Start server:   systemctl start muddown-server"
 echo "  3. Check status:   systemctl status muddown-server"
 echo "  4. View logs:      journalctl -u muddown-server -f"
-echo "  5. Point DNS:      muddown.com → $(curl -s ifconfig.me || echo '<this-ip>')"
+SERVER_IP=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || curl -s --max-time 5 icanhazip.com 2>/dev/null || echo '<this-ip>')
+echo "  5. Point DNS:      muddown.com → ${SERVER_IP}"
 echo "  6. Enable TLS:     certbot --nginx -d muddown.com -d www.muddown.com"
 echo ""
 if [[ "${SSH_PORT}" != "22" ]]; then

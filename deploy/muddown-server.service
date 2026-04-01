@@ -2,13 +2,15 @@
 Description=MUDdown Game Server
 Documentation=https://github.com/MUDdown/MUDdown
 After=network.target
+StartLimitIntervalSec=60s
+StartLimitBurst=5
 
 [Service]
 Type=simple
 User=muddown
 Group=muddown
 WorkingDirectory=/opt/muddown/packages/server
-EnvironmentFile=/opt/muddown/packages/server/.env
+EnvironmentFile=-/opt/muddown/packages/server/.env
 ExecStart=/usr/bin/node dist/index.js
 Restart=on-failure
 RestartSec=5
