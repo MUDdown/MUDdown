@@ -133,7 +133,7 @@ import Base from "../layouts/Base.astro";
     let isGuest = false;
 
     async function checkAuthAndRoute(): Promise<void> {
-      let me: { activeCharacter?: unknown } | null = null;
+      let me: { activeCharacter?: { name: string } | null } | null = null;
       try {
         const res = await fetch(`${API_BASE}/auth/me`, { credentials: "include" });
         if (!res.ok) { showAuthGate(); return; }
@@ -151,10 +151,14 @@ import Base from "../layouts/Base.astro";
         return;
       }
 
-      if (me?.activeCharacter) {
-        startGame();
+      if (me) {
+        if (me.activeCharacter) {
+          startGame(me.activeCharacter.name);
+        } else {
+          await showCharacterPanel();
+        }
       } else {
-        await showCharacterPanel();
+        showAuthGate();
       }
     }
 
@@ -197,7 +201,11 @@ import Base from "../layouts/Base.astro";
         `).join("");
 
         listEl.querySelectorAll("button[data-char-id]").forEach(btn => {
-          btn.addEventListener("click", () => selectCharacter(btn.getAttribute("data-char-id")!));
+          btn.addEventListener("click", () => {
+            const charId = btn.getAttribute("data-char-id")!;
+            const charName = btn.closest(".char-row")?.querySelector("strong")?.textContent ?? undefined;
+            selectCharacter(charId, charName);
+          });
         });
       } catch (err) {
         console.error("loadCharacterList error:", err);
@@ -205,7 +213,7 @@ import Base from "../layouts/Base.astro";
       }
     }
 
-    async function selectCharacter(characterId: string): Promise<void> {
+    async function selectCharacter(characterId: string, charName?: string): Promise<void> {
       try {
         const res = await fetch(`${API_BASE}/auth/select-character`, {
           method: "POST",
@@ -214,7 +222,13 @@ import Base from "../layouts/Base.astro";
           body: JSON.stringify({ characterId }),
         });
         if (res.ok) {
-          startGame();
+          if (!charName) {
+            try {
+              const data = await res.json();
+              charName = data.name;
+            } catch { /* use undefined — startGame will skip banner update */ }
+          }
+          startGame(charName);
         } else {
           let errMsg = `HTTP ${res.status}`;
           try {
@@ -269,7 +283,7 @@ import Base from "../layouts/Base.astro";
           return;
         }
         // Auto-selected on server — go play
-        startGame();
+        startGame(name);
       } catch (err) {
         console.error("createCharacter: network error:", err);
         createError.textContent = "Failed to contact server.";
@@ -278,14 +292,22 @@ import Base from "../layouts/Base.astro";
 
     // ── Start game (get ticket + connect) ──────────────────────────────
 
-    async function startGame(): Promise<void> {
+    async function startGame(characterName?: string): Promise<void> {
       authGate.style.display = "none";
       characterPanel.style.display = "none";
       gameArea.style.display = "";
       applyInvMode(currentInvMode);
       input.focus();
 
+      // Update the banner name
+      const bannerName = document.getElementById("auth-display-name");
+
       if (isGuest) {
+        if (bannerName) bannerName.textContent = "Guest";
+        const loginLink = document.getElementById("auth-login-link");
+        const userInfo = document.getElementById("auth-user-info");
+        if (loginLink) loginLink.style.display = "none";
+        if (userInfo) userInfo.style.display = "inline";
         connect();
         return;
       }
@@ -295,6 +317,9 @@ import Base from "../layouts/Base.astro";
         const res = await fetch(`${API_BASE}/auth/ws-ticket`, { credentials: "include" });
         if (res.ok) {
           const { ticket } = await res.json();
+          if (bannerName && characterName) {
+            bannerName.textContent = characterName;
+          }
           connect(ticket);
         } else {
           const errBody = await res.json().catch(() => ({}));

@@ -102,6 +102,16 @@ All server→client messages are JSON envelopes:
 
 The `muddown` field contains valid MUDdown markup. System messages wrap content in `:::system{type="..."}...:::`.
 
+## Commits & DCO
+
+All commits **must** include a `Signed-off-by` line (Developer Certificate of Origin). Always use the `-s` flag when committing:
+
+```bash
+git commit -s -m "feat: add new feature"
+```
+
+See [DCO](DCO) and [CONTRIBUTING.md](CONTRIBUTING.md) for details. A CI check enforces this on all pull requests.
+
 ## Build & Test Commands
 
 ```bash

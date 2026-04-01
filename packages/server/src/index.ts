@@ -12,7 +12,10 @@ import {
 } from "./helpers.js";
 import { SqliteDatabase } from "./db/index.js";
 import type { GameDatabase } from "./db/types.js";
-import { handleAuthRoute, resolveTicket, setCorsHeaders, type OAuthConfig } from "./auth.js";
+import {
+  handleAuthRoute, resolveTicket, setCorsHeaders,
+  type OAuthConfig, type ProviderConfig,
+} from "./auth.js";
 import { fireHook, registerHook, createGreetingHook } from "./hooks.js";
 
 // ─── Player Session ──────────────────────────────────────────────────────────
@@ -158,30 +161,69 @@ for (const [npcId, npc] of world.npcDefs) {
   }
 }
 
-// ── OAuth Configuration ────────────────────────────────────────────────────
+// ── OAuth / OIDC Configuration ─────────────────────────────────────────────
 
-const oauthConfig: OAuthConfig | null =
-  process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET
-    ? {
-        clientId: process.env.GITHUB_CLIENT_ID,
-        clientSecret: process.env.GITHUB_CLIENT_SECRET,
-        callbackUrl: process.env.GITHUB_CALLBACK_URL ?? `http://localhost:${PORT}/auth/callback`,
-      }
-    : null;
+const defaultCallbackUrl = `http://localhost:${PORT}/auth/callback`;
 
-if (!oauthConfig) {
-  console.warn("GitHub OAuth not configured — players will connect as anonymous guests.");
-  console.warn("Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET to enable authentication.");
-} else if (!process.env.GITHUB_CALLBACK_URL) {
-  console.warn(`GITHUB_CALLBACK_URL not set — defaulting to http://localhost:${PORT}/auth/callback (set this in production).`);
+function buildProviderConfig(
+  idVar: string, secretVar: string, callbackVar: string,
+): ProviderConfig | undefined {
+  const clientId = process.env[idVar];
+  const clientSecret = process.env[secretVar];
+  if ((clientId && !clientSecret) || (!clientId && clientSecret)) {
+    const missing = clientId ? secretVar : idVar;
+    console.warn(
+      `OAuth config incomplete: ${missing} is not set. ` +
+      `Both ${idVar} and ${secretVar} must be set to enable this provider.`
+    );
+  }
+  if (!clientId || !clientSecret) return undefined;
+  return {
+    clientId,
+    clientSecret,
+    callbackUrl: process.env[callbackVar] || defaultCallbackUrl,
+  };
 }
+
+const oauthConfig: OAuthConfig = {};
+
+const githubCfg = buildProviderConfig("GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_CALLBACK_URL");
+if (githubCfg) oauthConfig.github = githubCfg;
+
+const microsoftCfg = buildProviderConfig("MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET", "MICROSOFT_CALLBACK_URL");
+if (microsoftCfg) oauthConfig.microsoft = microsoftCfg;
+
+const googleCfg = buildProviderConfig("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_CALLBACK_URL");
+if (googleCfg) oauthConfig.google = googleCfg;
+
+const configuredProviders = Object.keys(oauthConfig);
+if (configuredProviders.length === 0) {
+  console.warn("No OAuth/OIDC providers configured — players will connect as anonymous guests.");
+  console.warn("Set GITHUB_CLIENT_ID/SECRET, MICROSOFT_CLIENT_ID/SECRET, or GOOGLE_CLIENT_ID/SECRET to enable authentication.");
+} else {
+  console.log(`OAuth/OIDC providers configured: ${configuredProviders.join(", ")}`);
+  // Warn about missing callback URLs in production
+  if (githubCfg && !process.env.GITHUB_CALLBACK_URL) {
+    console.warn(`GITHUB_CALLBACK_URL not set — defaulting to ${defaultCallbackUrl} (set this in production).`);
+  }
+  if (microsoftCfg && !process.env.MICROSOFT_CALLBACK_URL) {
+    console.warn(`MICROSOFT_CALLBACK_URL not set — defaulting to ${defaultCallbackUrl} (set this in production).`);
+  }
+  if (googleCfg && !process.env.GOOGLE_CALLBACK_URL) {
+    console.warn(`GOOGLE_CALLBACK_URL not set — defaulting to ${defaultCallbackUrl} (set this in production).`);
+  }
+}
+
+const hasAnyProvider = configuredProviders.length > 0;
 
 // ── HTTP + WebSocket Server ────────────────────────────────────────────────
 
 const server = createServer((req, res) => {
   const handleRequest = async (): Promise<void> => {
-    // Handle auth routes if OAuth is configured (CORS handled inside handleAuthRoute)
-    if (oauthConfig && await handleAuthRoute(req, res, oauthConfig, db)) {
+    // Handle auth routes if any OAuth providers are configured (CORS handled inside handleAuthRoute)
+    // Always allow /auth/providers so the client can discover the empty list when no providers exist
+    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+    if ((hasAnyProvider || url.pathname === "/auth/providers") && await handleAuthRoute(req, res, oauthConfig, db)) {
       return;
     }
 
@@ -228,8 +270,9 @@ wss.on("connection", (ws, req: IncomingMessage) => {
   try {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     ticket = url.searchParams.get("ticket") ?? undefined;
-  } catch {
-    // Ignore URL parse errors — proceed as guest
+  } catch (err) {
+    console.warn("Failed to parse WebSocket URL:", err);
+    // Proceed as guest
   }
 
   if (ticket) {
@@ -280,6 +323,19 @@ wss.on("connection", (ws, req: IncomingMessage) => {
         xp: 0,
       };
   sessions.set(ws, session);
+
+  // Evict any stale session for the same character (e.g., reconnect before
+  // the old WebSocket's close event fires) so the player doesn't see
+  // themselves listed as "also here."
+  if (session.characterId) {
+    for (const [existingWs, existing] of sessions) {
+      if (existing.characterId === session.characterId && existingWs !== ws) {
+        saveCharacterSession(existing);
+        sessions.delete(existingWs);
+        try { existingWs.close(); } catch (err) { console.warn("Error closing stale WebSocket:", err); }
+      }
+    }
+  }
 
   // Send welcome
   send(ws, {

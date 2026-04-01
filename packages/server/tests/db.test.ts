@@ -132,7 +132,7 @@ describe("auth sessions", () => {
 
   beforeAll(() => {
     const now = new Date().toISOString();
-    db.createAccount({ id: testAccountId, displayName: "SessionTester", createdAt: now, updatedAt: now });
+    db.createAccount({ id: testAccountId, displayName: "SessionTester", displayNameOverridden: false, createdAt: now, updatedAt: now });
   });
 
   it("creates and retrieves a session", () => {
@@ -216,6 +216,7 @@ describe("account operations", () => {
   const account: AccountRecord = {
     id: "acc-op-1",
     displayName: "Adventurer",
+    displayNameOverridden: false,
     createdAt: now,
     updatedAt: now,
   };
@@ -225,6 +226,7 @@ describe("account operations", () => {
     const found = db.getAccountById("acc-op-1");
     expect(found).toBeDefined();
     expect(found!.displayName).toBe("Adventurer");
+    expect(found!.displayNameOverridden).toBe(false);
   });
 
   it("returns undefined for unknown account", () => {
@@ -236,6 +238,13 @@ describe("account operations", () => {
     const found = db.getAccountById("acc-op-1");
     expect(found!.displayName).toBe("Brave Adventurer");
   });
+
+  it("persists displayNameOverridden flag", () => {
+    const now = new Date().toISOString();
+    db.createAccount({ id: "acc-override", displayName: "OverrideTest", displayNameOverridden: true, createdAt: now, updatedAt: now });
+    const found = db.getAccountById("acc-override");
+    expect(found!.displayNameOverridden).toBe(true);
+  });
 });
 
 // ─── Identity Link Operations ────────────────────────────────────────────────
@@ -245,7 +254,7 @@ describe("identity link operations", () => {
 
   beforeAll(() => {
     const now = new Date().toISOString();
-    db.createAccount({ id: accountId, displayName: "LinkTester", createdAt: now, updatedAt: now });
+    db.createAccount({ id: accountId, displayName: "LinkTester", displayNameOverridden: false, createdAt: now, updatedAt: now });
   });
 
   it("creates and retrieves an identity link", () => {
@@ -311,7 +320,7 @@ describe("character operations", () => {
   const now = new Date().toISOString();
 
   beforeAll(() => {
-    db.createAccount({ id: accountId, displayName: "CharTester", createdAt: now, updatedAt: now });
+    db.createAccount({ id: accountId, displayName: "CharTester", displayNameOverridden: false, createdAt: now, updatedAt: now });
   });
 
   const character: CharacterRecord = {
@@ -353,7 +362,7 @@ describe("character operations", () => {
   it("lists characters for an account", () => {
     const listAccountId = "acc-list-chars";
     const listNow = new Date().toISOString();
-    db.createAccount({ id: listAccountId, displayName: "Lister", createdAt: listNow, updatedAt: listNow });
+    db.createAccount({ id: listAccountId, displayName: "Lister", displayNameOverridden: false, createdAt: listNow, updatedAt: listNow });
 
     const first: CharacterRecord = {
       id: "char-list-1",

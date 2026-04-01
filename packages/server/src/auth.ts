@@ -1,8 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { AccountRecord, CharacterRecord } from "@muddown/shared";
-import { CHARACTER_CLASSES, CLASS_STATS, isCharacterClass } from "@muddown/shared";
+import type { AccountRecord, CharacterRecord, OAuthProvider } from "@muddown/shared";
+import { CHARACTER_CLASSES, CLASS_STATS, isCharacterClass, isOAuthProvider } from "@muddown/shared";
 import type { GameDatabase, AuthSession } from "./db/types.js";
+
+// ─── Exhaustiveness Guard ────────────────────────────────────────────────────
+
+function assertNever(x: never, context: string): never {
+  throw new Error(`Unhandled ${context}: ${String(x)}`);
+}
 
 // ─── SQLite Error Detection ──────────────────────────────────────────────────
 
@@ -11,29 +17,43 @@ interface SqliteConstraintError extends Error {
 }
 
 function isSqliteConstraintError(err: unknown): err is SqliteConstraintError {
-  return err instanceof Error && "code" in err;
+  return (
+    err instanceof Error &&
+    "code" in err &&
+    typeof (err as { code: unknown }).code === "string" &&
+    ((err as { code: string }).code).startsWith("SQLITE_CONSTRAINT")
+  );
 }
 
 // ─── OAuth2 Configuration ────────────────────────────────────────────────────
 
-export interface OAuthConfig {
+export interface ProviderConfig {
   clientId: string;
   clientSecret: string;
   callbackUrl: string;   // e.g. http://localhost:3300/auth/callback
 }
 
+/** Map of configured OAuth/OIDC providers. Only present keys are enabled. */
+export type OAuthConfig = Partial<Record<OAuthProvider, ProviderConfig>>;
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-const GITHUB_FETCH_TIMEOUT_MS = 10_000; // 10 seconds
+const PROVIDER_FETCH_TIMEOUT_MS = 10_000; // 10 seconds
 const MAX_CHARACTERS_PER_ACCOUNT = 10;
 const CHARACTER_NAME_MIN = 2;
 const CHARACTER_NAME_MAX = 24;
 export const CHARACTER_NAME_RE = /^[a-zA-Z][a-zA-Z0-9 '\-]{0,22}[a-zA-Z0-9]$/;
 
+/** Returns "; Secure" when any configured provider uses an HTTPS callback URL. */
+function secureCookieSuffix(config: OAuthConfig): string {
+  const anyHttps = Object.values(config).some(c => c?.callbackUrl.startsWith("https://"));
+  return anyHttps ? "; Secure" : "";
+}
+
 // ─── OAuth State (CSRF protection) ──────────────────────────────────────────
 
-const pendingOAuth = new Map<string, { createdAt: number }>();
+const pendingOAuth = new Map<string, { provider: OAuthProvider; createdAt: number }>();
 
 setInterval(() => {
   const cutoff = Date.now() - 10 * 60 * 1000;
@@ -112,6 +132,11 @@ export async function handleAuthRoute(
     setCorsHeaders(req, res);
   }
 
+  if (url.pathname === "/auth/providers" && req.method === "GET") {
+    handleProviders(res, config);
+    return true;
+  }
+
   if (url.pathname === "/auth/login" && req.method === "GET") {
     handleLogin(url, res, config);
     return true;
@@ -155,32 +180,87 @@ export async function handleAuthRoute(
   return false;
 }
 
+// ─── /auth/providers → list configured providers ────────────────────────────
+
+function handleProviders(res: ServerResponse, config: OAuthConfig): void {
+  const providers = Object.keys(config).filter(
+    (p): p is OAuthProvider => isOAuthProvider(p) && Boolean(config[p as OAuthProvider])
+  );
+  sendJson(res, 200, { providers });
+}
+
 // ─── /auth/login → redirect to OAuth provider ───────────────────────────────
 
 function handleLogin(url: URL, res: ServerResponse, config: OAuthConfig): void {
-  const provider = url.searchParams.get("provider") ?? "github";
+  const providerParam = url.searchParams.get("provider") ?? "github";
 
-  if (provider !== "github") {
+  if (!isOAuthProvider(providerParam)) {
     res.writeHead(400, { "Content-Type": "text/plain" });
-    res.end(`Unsupported provider: ${provider}. Currently only "github" is supported.`);
+    res.end(`Unsupported provider: ${providerParam}.`);
+    return;
+  }
+  const provider = providerParam;
+  const providerCfg = config[provider];
+
+  if (!providerCfg) {
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end(`Provider "${provider}" is not configured on this server.`);
     return;
   }
 
   const state = randomUUID();
-  pendingOAuth.set(state, { createdAt: Date.now() });
+  pendingOAuth.set(state, { provider, createdAt: Date.now() });
 
-  const params = new URLSearchParams({
-    client_id: config.clientId,
-    redirect_uri: config.callbackUrl,
-    scope: "read:user",
-    state,
-  });
-
-  res.writeHead(302, { Location: `https://github.com/login/oauth/authorize?${params}` });
+  const authorizeUrl = buildAuthorizeUrl(provider, providerCfg, state);
+  res.writeHead(302, { Location: authorizeUrl });
   res.end();
 }
 
+function buildAuthorizeUrl(provider: OAuthProvider, cfg: ProviderConfig, state: string): string {
+  switch (provider) {
+    case "github": {
+      const params = new URLSearchParams({
+        client_id: cfg.clientId,
+        redirect_uri: cfg.callbackUrl,
+        scope: "read:user",
+        state,
+      });
+      return `https://github.com/login/oauth/authorize?${params}`;
+    }
+    case "microsoft": {
+      const params = new URLSearchParams({
+        client_id: cfg.clientId,
+        redirect_uri: cfg.callbackUrl,
+        response_type: "code",
+        scope: "openid profile email User.Read",
+        state,
+      });
+      return `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${params}`;
+    }
+    case "google": {
+      const params = new URLSearchParams({
+        client_id: cfg.clientId,
+        redirect_uri: cfg.callbackUrl,
+        response_type: "code",
+        scope: "openid profile email",
+        state,
+      });
+      return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+    }
+    default:
+      return assertNever(provider, "OAuthProvider in buildAuthorizeUrl");
+  }
+}
+
 // ─── /auth/callback → exchange code, find/create account ─────────────────────
+
+/** Normalized user identity returned by each provider's profile fetch. */
+interface ProviderUser {
+  provider: OAuthProvider;
+  providerId: string;
+  username: string;      // provider login / email / identifier
+  displayName: string;   // human-readable name
+}
 
 async function handleCallback(
   url: URL,
@@ -199,145 +279,49 @@ async function handleCallback(
     res.end("Invalid or expired OAuth state.");
     return;
   }
+
+  const pending = pendingOAuth.get(state);
+  if (!pending) {
+    res.writeHead(400, { "Content-Type": "text/plain" });
+    res.end("Invalid or expired OAuth state.");
+    return;
+  }
+  const provider = pending.provider;
   pendingOAuth.delete(state);
 
   try {
-    // Exchange code for access token
-    const tokenController = new AbortController();
-    const tokenTimeout = setTimeout(() => tokenController.abort(), GITHUB_FETCH_TIMEOUT_MS);
-    let tokenRes: Response;
-    try {
-      tokenRes = await fetch("https://github.com/login/oauth/access_token", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          client_id: config.clientId,
-          client_secret: config.clientSecret,
-          code,
-        }),
-        signal: tokenController.signal,
-      });
-    } finally {
-      clearTimeout(tokenTimeout);
-    }
 
-    if (!tokenRes.ok) {
-      console.error(`GitHub token exchange failed: ${tokenRes.status} ${tokenRes.statusText}`);
-      res.writeHead(502, { "Content-Type": "text/plain" });
-      res.end("Authentication failed: could not reach GitHub. Please try again.");
+    const providerCfg = config[provider];
+    if (!providerCfg) {
+      res.writeHead(503, { "Content-Type": "text/plain" });
+      res.end(`Provider "${provider}" is no longer configured.`);
       return;
     }
-
-    let tokenData: { access_token?: string; error?: string };
-    try {
-      tokenData = await tokenRes.json() as { access_token?: string; error?: string };
-    } catch {
-      const body = await tokenRes.text().catch(() => "(unreadable)");
-      console.error(`GitHub token response is not JSON (${tokenRes.status}): ${body}`);
-      res.writeHead(502, { "Content-Type": "text/plain" });
-      res.end("Authentication failed: unexpected response from GitHub. Please try again.");
-      return;
-    }
-
-    if (!tokenData.access_token) {
-      console.error(`GitHub OAuth token error: ${tokenData.error ?? "unknown error"}`);
+    // Exchange code for access token (provider-specific)
+    const accessToken = await exchangeCodeForToken(provider, providerCfg, code);
+    if (!accessToken) {
       res.writeHead(400, { "Content-Type": "text/plain" });
       res.end("Authentication failed. Please try logging in again.");
       return;
     }
 
-    // Fetch GitHub user profile
-    const userController = new AbortController();
-    const userTimeout = setTimeout(() => userController.abort(), GITHUB_FETCH_TIMEOUT_MS);
-    let userRes: Response;
-    try {
-      userRes = await fetch("https://api.github.com/user", {
-        headers: {
-          Authorization: `Bearer ${tokenData.access_token}`,
-          Accept: "application/vnd.github+json",
-          "User-Agent": "MUDdown-Server/0.1.0",
-        },
-        signal: userController.signal,
-      });
-    } finally {
-      clearTimeout(userTimeout);
-    }
-
-    if (!userRes.ok) {
-      console.error(`GitHub user API failed: ${userRes.status} ${userRes.statusText}`);
+    // Fetch user profile (provider-specific)
+    const user = await fetchProviderUser(provider, accessToken);
+    if (!user) {
       res.writeHead(502, { "Content-Type": "text/plain" });
-      res.end("Authentication failed: could not reach GitHub. Please try again.");
+      res.end(`Authentication failed: could not fetch user profile from ${provider}. Please try again.`);
       return;
     }
 
-    let ghUser: { id?: number; login?: string; name?: string };
-    try {
-      ghUser = await userRes.json() as { id?: number; login?: string; name?: string };
-    } catch {
-      const body = await userRes.text().catch(() => "(unreadable)");
-      console.error(`GitHub user response is not JSON (${userRes.status}): ${body}`);
-      res.writeHead(502, { "Content-Type": "text/plain" });
-      res.end("Authentication failed: unexpected response from GitHub. Please try again.");
-      return;
-    }
-
-    if (!ghUser.id || !ghUser.login) {
-      console.error("GitHub user profile missing id or login:", JSON.stringify(ghUser));
-      res.writeHead(400, { "Content-Type": "text/plain" });
-      res.end("Failed to fetch GitHub user profile.");
-      return;
-    }
-
-    // Find or create account via identity link
-    const githubId = String(ghUser.id);
-    const now = new Date().toISOString();
-    let link = db.getIdentityLink("github", githubId);
-    let account: AccountRecord | undefined;
-
-    if (link) {
-      account = db.getAccountById(link.accountId);
-      if (account) {
-        // Update account display name on each login based on GitHub profile
-        account.displayName = ghUser.name ?? ghUser.login;
-        account.updatedAt = now;
-        db.updateAccountDisplayName(account.id, account.displayName);
-      } else {
-        // Orphaned identity link — account was deleted
-        console.warn(
-          `Identity link references missing account — will re-link`,
-          { provider: "github", providerId: githubId, staleAccountId: link.accountId },
-        );
-        db.deleteIdentityLink("github", githubId);
-      }
-    }
-
-    if (!account) {
-      // Create new account + link
-      account = {
-        id: randomUUID(),
-        displayName: ghUser.name ?? ghUser.login,
-        createdAt: now,
-        updatedAt: now,
-      };
-      db.createAccount(account);
-      db.createIdentityLink({
-        accountId: account.id,
-        provider: "github",
-        providerId: githubId,
-        providerUsername: ghUser.login,
-        linkedAt: now,
-      });
-    }
+    // Find or create account via identity link (provider-agnostic)
+    const account = findOrCreateAccount(db, user);
 
     // Create auth session (no active character yet — user selects on /play)
     const sessionToken = randomUUID();
     const expiresAt = new Date(Date.now() + SESSION_DURATION_MS).toISOString();
     db.createSession({ token: sessionToken, accountId: account.id, activeCharacterId: null, expiresAt });
 
-    const secureSuffix = config.callbackUrl.startsWith("https://") ? "; Secure" : "";
+    const secureSuffix = secureCookieSuffix(config);
     const websiteOrigin = process.env.WEBSITE_ORIGIN ?? "http://localhost:4321";
     const redirectUrl = `${websiteOrigin.replace(/\/+$/, "")}/play`;
 
@@ -347,12 +331,308 @@ async function handleCallback(
     });
     res.end();
   } catch (err) {
-    console.error("OAuth callback error:", err);
+    console.error(`OAuth callback error (provider=${provider}):`, err);
     if (!res.headersSent) {
       res.writeHead(500, { "Content-Type": "text/plain" });
       res.end("Internal server error during authentication.");
     }
   }
+}
+
+// ─── Token Exchange (provider-specific) ──────────────────────────────────────
+
+export async function exchangeCodeForToken(
+  provider: OAuthProvider,
+  cfg: ProviderConfig,
+  code: string,
+): Promise<string | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PROVIDER_FETCH_TIMEOUT_MS);
+
+  try {
+    let tokenRes: Response;
+
+    switch (provider) {
+      case "github":
+        tokenRes = await fetch("https://github.com/login/oauth/access_token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({
+            client_id: cfg.clientId,
+            client_secret: cfg.clientSecret,
+            code,
+            redirect_uri: cfg.callbackUrl,
+          }),
+          signal: controller.signal,
+        });
+        break;
+
+      case "microsoft":
+        tokenRes = await fetch("https://login.microsoftonline.com/common/oauth2/v2.0/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: cfg.clientId,
+            client_secret: cfg.clientSecret,
+            code,
+            redirect_uri: cfg.callbackUrl,
+            grant_type: "authorization_code",
+          }),
+          signal: controller.signal,
+        });
+        break;
+
+      case "google":
+        tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: cfg.clientId,
+            client_secret: cfg.clientSecret,
+            code,
+            redirect_uri: cfg.callbackUrl,
+            grant_type: "authorization_code",
+          }),
+          signal: controller.signal,
+        });
+        break;
+
+      default:
+        return assertNever(provider, "OAuthProvider in exchangeCodeForToken");
+    }
+
+    if (!tokenRes.ok) {
+      const errBody = await tokenRes.text().catch(() => "(unreadable)");
+      console.error(`${provider} token exchange failed: ${tokenRes.status} ${tokenRes.statusText}`, errBody);
+      return null;
+    }
+
+    let tokenData: { access_token?: string; error?: string };
+    try {
+      tokenData = await tokenRes.json() as { access_token?: string; error?: string };
+    } catch {
+      console.error(`${provider} token response is not valid JSON`);
+      return null;
+    }
+
+    if (!tokenData.access_token) {
+      console.error(`${provider} OAuth token error: ${tokenData.error ?? "no access_token in response"}`);
+      return null;
+    }
+
+    return tokenData.access_token;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ─── User Profile Fetch (provider-specific) ──────────────────────────────────
+
+export async function fetchProviderUser(
+  provider: OAuthProvider,
+  accessToken: string,
+): Promise<ProviderUser | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PROVIDER_FETCH_TIMEOUT_MS);
+
+  try {
+    switch (provider) {
+      case "github": {
+        const userRes = await fetch("https://api.github.com/user", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github+json",
+            "User-Agent": "MUDdown-Server/0.1.0",
+          },
+          signal: controller.signal,
+        });
+        if (!userRes.ok) {
+          const errBody = await userRes.text().catch(() => "(unreadable)");
+          console.error(`GitHub user API failed: ${userRes.status}`, errBody);
+          return null;
+        }
+        let gh: { id?: number; login?: string; name?: string };
+        try {
+          gh = await userRes.json() as typeof gh;
+        } catch {
+          console.error(`GitHub user profile returned non-JSON body (status ${userRes.status})`);
+          return null;
+        }
+        if (!gh.id || !gh.login) {
+          console.error("GitHub user profile missing id or login");
+          return null;
+        }
+        return {
+          provider: "github",
+          providerId: String(gh.id),
+          username: gh.login,
+          displayName: gh.name ?? gh.login,
+        };
+      }
+
+      case "microsoft": {
+        const userRes = await fetch("https://graph.microsoft.com/v1.0/me", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: controller.signal,
+        });
+        if (!userRes.ok) {
+          const errBody = await userRes.text().catch(() => "(unreadable)");
+          console.error(`Microsoft Graph /me failed: ${userRes.status}`, errBody);
+          return null;
+        }
+        let ms: { id?: string; displayName?: string; userPrincipalName?: string; mail?: string };
+        try {
+          ms = await userRes.json() as typeof ms;
+        } catch {
+          console.error(`Microsoft Graph /me returned non-JSON body (status ${userRes.status})`);
+          return null;
+        }
+        if (!ms.id) {
+          console.error("Microsoft user profile missing id");
+          return null;
+        }
+        const username = ms.mail ?? ms.userPrincipalName ?? ms.id;
+        return {
+          provider: "microsoft",
+          providerId: ms.id,
+          username,
+          displayName: ms.displayName ?? username,
+        };
+      }
+
+      case "google": {
+        const userRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: controller.signal,
+        });
+        if (!userRes.ok) {
+          const errBody = await userRes.text().catch(() => "(unreadable)");
+          console.error(`Google userinfo failed: ${userRes.status}`, errBody);
+          return null;
+        }
+        let gg: { sub?: string; name?: string; email?: string };
+        try {
+          gg = await userRes.json() as typeof gg;
+        } catch {
+          console.error(`Google userinfo returned non-JSON body (status ${userRes.status})`);
+          return null;
+        }
+        if (!gg.sub) {
+          console.error("Google user profile missing sub");
+          return null;
+        }
+        const username = gg.email ?? gg.sub;
+        return {
+          provider: "google",
+          providerId: gg.sub,
+          username,
+          displayName: gg.name ?? username,
+        };
+      }
+
+      default:
+        return assertNever(provider, "OAuthProvider in fetchProviderUser");
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ─── Account Resolution (provider-agnostic) ──────────────────────────────────
+
+export function findOrCreateAccount(db: GameDatabase, user: ProviderUser): AccountRecord {
+  const now = new Date().toISOString();
+  let link = db.getIdentityLink(user.provider, user.providerId);
+  let account: AccountRecord | undefined;
+
+  if (link) {
+    account = db.getAccountById(link.accountId);
+    if (account) {
+      if (!account.displayNameOverridden) {
+        try {
+          db.updateAccountDisplayName(account.id, user.displayName);
+          account.displayName = user.displayName;
+          account.updatedAt = now;
+        } catch (err) {
+          console.warn("Failed to update display name — continuing with stale name", err);
+        }
+      }
+    } else {
+      console.warn(
+        `Identity link references missing account — will re-link`,
+        { provider: user.provider, providerId: user.providerId, staleAccountId: link.accountId },
+      );
+      db.deleteIdentityLink(user.provider, user.providerId);
+    }
+  }
+
+  if (!account) {
+    const newAccount: AccountRecord = {
+      id: randomUUID(),
+      displayName: user.displayName,
+      displayNameOverridden: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    // First, attempt to create the account.
+    try {
+      db.createAccount(newAccount);
+    } catch (err: unknown) {
+      if (!isSqliteConstraintError(err)) throw err;
+
+      // Account creation hit a constraint error. Another concurrent request
+      // likely created an account for this identity first. Resolve the
+      // winner's account without deleting anything.
+      link = db.getIdentityLink(user.provider, user.providerId);
+      if (link) {
+        account = db.getAccountById(link.accountId);
+      }
+      if (!account) {
+        throw new Error(
+          `Constraint violation while creating account for ${user.provider}:${user.providerId}`,
+        );
+      }
+    }
+
+    // If we successfully created the account above and haven't resolved an
+    // existing account, create the identity link.
+    if (!account) {
+      try {
+        db.createIdentityLink({
+          accountId: newAccount.id,
+          provider: user.provider,
+          providerId: user.providerId,
+          providerUsername: user.username,
+          linkedAt: now,
+        });
+        account = newAccount;
+      } catch (err: unknown) {
+        if (!isSqliteConstraintError(err)) throw err;
+
+        // createAccount succeeded but createIdentityLink hit a constraint
+        // error (race condition). Clean up the orphan account we just
+        // created.
+        try {
+          db.deleteAccount(newAccount.id);
+        } catch (cleanupErr) {
+          console.warn("Failed to delete orphan account after constraint error:", cleanupErr);
+        }
+
+        // Resolve the winner's account.
+        link = db.getIdentityLink(user.provider, user.providerId);
+        if (link) {
+          account = db.getAccountById(link.accountId);
+        }
+        if (!account) {
+          throw new Error(
+            `Constraint violation but identity link not found for ${user.provider}:${user.providerId}`,
+          );
+        }
+      }
+    }
+  }
+
+  return account;
 }
 
 // ─── /auth/me → return account info + active character ───────────────────────
@@ -421,6 +701,8 @@ async function handleSelectCharacter(req: IncomingMessage, res: ServerResponse, 
   if (!result.ok) {
     if (result.reason === "oversized") {
       sendJson(res, 413, { error: "Request body too large" });
+    } else if (result.reason === "error") {
+      sendJson(res, 500, { error: "Request read failed. Please try again." });
     } else {
       sendJson(res, 400, { error: "Request body must be valid JSON" });
     }
@@ -458,6 +740,8 @@ async function handleCreateCharacter(req: IncomingMessage, res: ServerResponse, 
   if (!result.ok) {
     if (result.reason === "oversized") {
       sendJson(res, 413, { error: "Request body too large" });
+    } else if (result.reason === "error") {
+      sendJson(res, 500, { error: "Request read failed. Please try again." });
     } else {
       sendJson(res, 400, { error: "Request body must be valid JSON" });
     }
@@ -588,7 +872,7 @@ function handleLogout(req: IncomingMessage, res: ServerResponse, db: GameDatabas
   if (token) {
     db.deleteSession(token);
   }
-  const secureSuffix = config.callbackUrl.startsWith("https://") ? "; Secure" : "";
+  const secureSuffix = secureCookieSuffix(config);
   res.writeHead(200, {
     "Content-Type": "application/json",
     "Set-Cookie": `muddown_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureSuffix}`,
