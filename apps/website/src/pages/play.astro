@@ -107,7 +107,7 @@ import Base from "../layouts/Base.astro";
   </section>
 
   <script>
-    const API_BASE = import.meta.env.PUBLIC_API_BASE || `${location.protocol}//${location.hostname}:3300`;
+    const API_BASE = import.meta.env.PUBLIC_API_BASE || (location.port ? `${location.protocol}//${location.hostname}:3300` : location.origin);
     const output = document.getElementById("game-output")!;
     const input = document.getElementById("game-input")! as HTMLInputElement;
     const authGate = document.getElementById("auth-gate")!;
@@ -503,7 +503,7 @@ import Base from "../layouts/Base.astro";
 
     const apiUrl = new URL(API_BASE);
     const wsProtocol = apiUrl.protocol === "https:" ? "wss:" : "ws:";
-    const wsHost = `${wsProtocol}//${apiUrl.host}`;
+    const wsHost = `${wsProtocol}//${apiUrl.host}/ws`;
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout>;
     let lastTicket: string | undefined;
