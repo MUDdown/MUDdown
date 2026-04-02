@@ -605,9 +605,33 @@ function sendRoom(ws: WebSocket, roomId: string): void {
     muddown = muddown.substring(0, itemsHeaderIdx) + muddown.substring(sectionEnd);
   }
 
+  // Inject other players into the ## Present section
   if (othersHere.length > 0) {
-    const playersSection = "\n" + othersHere.join("\n");
-    muddown = muddown.replace(/\n:::\s*$/, playersSection + "\n:::");
+    const playerLines = othersHere.join("\n");
+    const presentHeaderIdx = muddown.indexOf("\n## Present\n");
+    if (presentHeaderIdx !== -1) {
+      // Find the end of the Present section: next ## header or closing :::
+      const afterPresent = presentHeaderIdx + 1; // skip leading \n
+      const presentContentStart = afterPresent + "## Present\n".length;
+      const nextHdrIdx = muddown.indexOf("\n## ", presentContentStart);
+      const closingIdx = muddown.indexOf("\n:::", presentContentStart);
+      let presentEnd: number;
+      if (nextHdrIdx !== -1 && (closingIdx === -1 || nextHdrIdx < closingIdx)) {
+        presentEnd = nextHdrIdx;
+      } else if (closingIdx !== -1) {
+        presentEnd = closingIdx;
+      } else {
+        presentEnd = muddown.length;
+      }
+      // Append player lines to existing Present content
+      const existingContent = muddown.substring(presentContentStart, presentEnd);
+      const trimmed = existingContent.trimEnd();
+      muddown = muddown.substring(0, presentContentStart) + trimmed + "\n" + playerLines + "\n" + muddown.substring(presentEnd);
+    } else {
+      // No Present section — insert one before closing :::
+      const presentBlock = "\n\n## Present\n\n" + playerLines;
+      muddown = muddown.replace(/\n:::\s*$/, presentBlock + "\n:::");
+    }
   }
 
   send(ws, {
