@@ -20,7 +20,7 @@
     "clean": "turbo run clean"
   },
   "devDependencies": {
-    "turbo": "^2.0.0",
+    "turbo": "^2.9.3",
     "typescript": "^5.5.0"
   },
   "engines": {
