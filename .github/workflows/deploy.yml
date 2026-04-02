@@ -53,8 +53,9 @@ jobs:
             echo "==> Building..."
             sudo -u muddown npx turbo run build
 
-            echo "==> Updating nginx config..."
-            sudo cp deploy/nginx/muddown.conf /etc/nginx/sites-available/muddown.conf
+            echo "==> Updating nginx security headers..."
+            # Only update the security-headers snippet — the main nginx config
+            # is managed by certbot and must not be overwritten on deploy.
             sudo cp deploy/nginx/security-headers.conf /etc/nginx/snippets/muddown-security-headers.conf
             sudo nginx -t
             sudo systemctl reload nginx
