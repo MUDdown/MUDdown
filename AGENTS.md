@@ -159,6 +159,7 @@ Detailed how-to guides live in `.github/skills/<name>/SKILL.md` (canonical) with
 | `muddown-format` | MUDdown markup format (container blocks, link schemes, wire protocol) |
 | `persistence` | Database abstraction, SQLite adapter, player/world save/load lifecycle, auth sessions |
 | `testing` | Testing conventions (vitest, fixtures, world integrity) |
+| `privacy` | Privacy compliance auditing (data collection, cookies, localStorage, policy alignment) |
 
 ### Maintaining Skills
 
