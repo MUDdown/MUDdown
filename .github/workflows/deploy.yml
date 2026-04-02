@@ -21,7 +21,7 @@ jobs:
     # The deploy job itself re-runs build to ensure the server artifact is fresh
     environment: production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Configure SSH
         run: |
