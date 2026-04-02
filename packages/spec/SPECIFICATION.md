@@ -33,8 +33,6 @@ MUDdown uses fenced container blocks (inspired by markdown-it-container and GFM 
 # The Iron Gate
 
 A massive portcullis of blackened iron bars the passage north.
-
-## Description
 The mechanism is **rusted**, but [fresh oil glistens on the gears](cmd:examine gears).
 
 ## Exits
@@ -57,7 +55,6 @@ The mechanism is **rusted**, but [fresh oil glistens on the gears](cmd:examine g
 **Conventional sections** (H2 headings inside the block):
 | Section | Purpose |
 |---------|---------|
-| Description | Main narrative text |
 | Exits | Available movement directions |
 | Present | Players and NPCs in the room |
 | Items | Objects that can be interacted with |
