@@ -1,0 +1,83 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: []
+    # Only deploy after CI passes (CI runs in parallel on push to main)
+    # The deploy job itself re-runs build to ensure the server artifact is fresh
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H muddown.com >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy to server
+        env:
+          SSH_USER: deploy
+          SSH_HOST: muddown.com
+          SSH_KEY: ~/.ssh/deploy_key
+          INSTALL_DIR: /opt/muddown
+        run: |
+          ssh -i "$SSH_KEY" -o StrictHostKeyChecking=yes "${SSH_USER}@${SSH_HOST}" bash -s << 'REMOTE_SCRIPT'
+            set -euo pipefail
+
+            INSTALL_DIR="/opt/muddown"
+
+            echo "==> Pulling latest changes..."
+            cd "$INSTALL_DIR"
+            sudo -u muddown git fetch origin main
+            sudo -u muddown git reset --hard origin/main
+
+            echo "==> Installing dependencies..."
+            sudo -u muddown npm ci --ignore-scripts=false
+
+            echo "==> Building..."
+            sudo -u muddown npx turbo run build
+
+            echo "==> Updating nginx config..."
+            sudo cp deploy/nginx/muddown.conf /etc/nginx/sites-available/muddown.conf
+            sudo cp deploy/nginx/security-headers.conf /etc/nginx/snippets/muddown-security-headers.conf
+            sudo nginx -t
+            sudo systemctl reload nginx
+
+            echo "==> Restarting game server..."
+            sudo systemctl restart muddown-server
+
+            echo "==> Verifying server is running..."
+            sleep 2
+            if systemctl is-active --quiet muddown-server; then
+              echo "✓ muddown-server is running"
+            else
+              echo "✗ muddown-server failed to start"
+              sudo journalctl -u muddown-server -n 20 --no-pager
+              exit 1
+            fi
+
+            echo "==> Setting file permissions..."
+            sudo chmod -R o+rX "$INSTALL_DIR"
+
+            echo "==> Deploy complete!"
+          REMOTE_SCRIPT
+
+      - name: Clean up SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
