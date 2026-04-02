@@ -16,6 +16,48 @@ import Base from "../layouts/Base.astro";
     </div>
   </section>
 
+  <section class="what-is-mud" aria-labelledby="what-is-mud-heading">
+    <div class="container">
+      <h2 id="what-is-mud-heading">Text is the Platform</h2>
+      <p class="what-is-mud-definition">
+        A <strong>MUD</strong> (<strong>M</strong>ulti-<strong>U</strong>ser <strong>D</strong>ungeon)
+        is a multiplayer world made entirely of text — rooms you read, commands you type,
+        and stories that unfold in real time with other players.
+      </p>
+      <div class="what-is-mud-columns">
+        <div class="what-is-mud-col">
+          <h3>Shared narrative</h3>
+          <p>
+            Think of it as Discord channels with physics, Slack threads with swords.
+            MUDs are persistent worlds where your choices shape the environment and
+            NPCs remember you across sessions.
+          </p>
+        </div>
+        <div class="what-is-mud-col">
+          <h3>No barriers</h3>
+          <p>
+            No downloads, no GPU requirements, no sprites. Every interaction is a sentence.
+            Millions of people already live in text — MUDs give that text a world to live in,
+            backed by modern infrastructure.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="why-markdown" aria-labelledby="why-markdown-heading">
+    <div class="container">
+      <h2 id="why-markdown-heading">Why Markdown?</h2>
+      <p>
+        Markdown is the simple formatting language behind README files, chat messages, and
+        wikis — plain text with lightweight symbols for <strong>bold</strong>, <em>italic</em>,
+        links, and headings. MUDdown extends it with game-aware blocks and clickable
+        commands, so every room, item, and conversation is a document you can read
+        anywhere, render beautifully in a browser, or parse with an AI.
+      </p>
+    </div>
+  </section>
+
   <section class="container">
     <div class="features">
       <div class="feature-card">
@@ -65,7 +107,10 @@ import Base from "../layouts/Base.astro";
 
   <section class="example container">
     <h2>What MUDdown Looks Like</h2>
-    <pre><code>:::room&#123;id="iron-gate" region="northkeep" lighting="dim"&#125;
+    <div class="example-split">
+      <div class="example-source">
+        <div class="example-label">Source</div>
+        <pre><code>:::room&#123;id="iron-gate" region="northkeep" lighting="dim"&#125;
 # The Iron Gate
 
 A massive portcullis of blackened iron bars the passage north.
@@ -81,6 +126,28 @@ The mechanism is **rusted**, but you notice
 - [@Tharion](player:tharion) is here, studying the mechanism.
 - A [sleeping guard](npc:guard-7) slumps against the wall.
 :::</code></pre>
+      </div>
+      <div class="example-rendered">
+        <div class="example-label">Rendered</div>
+        <div class="example-terminal">
+          <div class="example-room" role="img" aria-label="Example of rendered MUDdown output">
+            <h3 class="example-room-title">The Iron Gate</h3>
+            <p>A massive portcullis of blackened iron bars the passage north. The mechanism is <strong>rusted</strong>, but you notice <a href="#">fresh oil on the gears</a>.</p>
+            <h4 class="example-section-title">Exits</h4>
+            <ul>
+              <li><a href="#">North</a> <em>(blocked)</em></li>
+              <li><a href="#">South</a> — Courtyard</li>
+              <li><a href="#">Up</a> — Guard Tower</li>
+            </ul>
+            <h4 class="example-section-title">Present</h4>
+            <ul>
+              <li><a href="#">@Tharion</a> is here, studying the mechanism.</li>
+              <li>A <a href="#">sleeping guard</a> slumps against the wall.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
     <p style="color: var(--text-dim); margin-top: 1rem;">
       It's just Markdown. Any renderer displays it. MUDdown-aware clients make the links clickable,
       the blocks interactive, and the whole thing playable.
