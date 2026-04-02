@@ -617,7 +617,7 @@ import Base from "../layouts/Base.astro";
     }
     let currentInvMode: InvMode = (_storedMode && VALID_INV_MODES.has(_storedMode))
       ? (_storedMode as InvMode)
-      : "persistent";
+      : "off";
 
     interface InvItem {
       id: string;
