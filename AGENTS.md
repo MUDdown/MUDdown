@@ -119,7 +119,7 @@ npm install                                          # Install all dependencies
 npx turbo run build                                  # Build everything
 npx turbo run build --filter=@muddown/server...      # Build server + deps only
 npx turbo run test                                   # Run all tests
-cd packages/server && node dist/index.js             # Start game server (port 3300)
+cd packages/server && npm start                      # Start game server (port 3300, loads .env)
 cd apps/website && npm run dev                       # Start Astro dev server (port 4321)
 ```
 

@@ -221,9 +221,10 @@ const hasAnyProvider = configuredProviders.length > 0;
 const server = createServer((req, res) => {
   const handleRequest = async (): Promise<void> => {
     // Handle auth routes if any OAuth providers are configured (CORS handled inside handleAuthRoute)
-    // Always allow /auth/providers so the client can discover the empty list when no providers exist
+    // Always allow /auth/providers and /auth/me so the client can discover provider availability
+    // and check login state even when no providers are configured locally.
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-    if ((hasAnyProvider || url.pathname === "/auth/providers") && await handleAuthRoute(req, res, oauthConfig, db)) {
+    if ((hasAnyProvider || url.pathname === "/auth/providers" || url.pathname === "/auth/me") && await handleAuthRoute(req, res, oauthConfig, db)) {
       return;
     }
 

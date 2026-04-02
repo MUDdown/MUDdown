@@ -49,7 +49,7 @@ export interface GameDatabase {
   // ── Auth Sessions ────────────────────────────────────────────────────────
   getSession(token: string): AuthSession | undefined;
   createSession(session: AuthSession): void;
-  updateSessionCharacter(token: string, characterId: string): void;
+  updateSessionCharacter(token: string, characterId: string | null): void;
   deleteSession(token: string): void;
   cleanExpiredSessions(): void;
 }

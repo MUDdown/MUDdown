@@ -339,7 +339,7 @@ export class SqliteDatabase implements GameDatabase {
     this.db.prepare("INSERT INTO auth_sessions (token, account_id, active_character_id, expires_at) VALUES (?, ?, ?, ?)").run(session.token, session.accountId, session.activeCharacterId, session.expiresAt);
   }
 
-  updateSessionCharacter(token: string, characterId: string): void {
+  updateSessionCharacter(token: string, characterId: string | null): void {
     this.db.prepare("UPDATE auth_sessions SET active_character_id = ? WHERE token = ?").run(characterId, token);
   }
 

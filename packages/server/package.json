@@ -6,8 +6,8 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "tsc",
-    "dev": "node --watch dist/index.js",
-    "start": "node dist/index.js",
+    "dev": "node --watch --env-file-if-exists=.env dist/index.js",
+    "start": "node --env-file-if-exists=.env dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "clean": "rm -rf dist"

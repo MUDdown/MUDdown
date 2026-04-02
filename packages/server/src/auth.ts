@@ -646,6 +646,10 @@ function handleMe(req: IncomingMessage, res: ServerResponse, db: GameDatabase): 
 
   const account = db.getAccountById(session.accountId);
   if (!account) {
+    console.error(
+      `handleMe: session references missing account — possible data corruption`,
+      { accountId: session.accountId }
+    );
     sendJson(res, 401, { error: "Account not found" });
     return;
   }
@@ -655,6 +659,13 @@ function handleMe(req: IncomingMessage, res: ServerResponse, db: GameDatabase): 
     const char = db.getCharacterById(session.activeCharacterId);
     if (char && char.accountId === account.id) {
       activeCharacter = { id: char.id, name: char.name, characterClass: char.characterClass };
+    } else {
+      console.warn(
+        `handleMe: activeCharacterId "${session.activeCharacterId}" is stale ` +
+        `(${char ? "wrong account" : "not found"}) — clearing from session`,
+        { accountId: account.id }
+      );
+      db.updateSessionCharacter(session.token, null);
     }
   }
 
