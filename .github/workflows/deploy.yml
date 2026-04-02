@@ -51,7 +51,7 @@ jobs:
             sudo -u muddown npm ci --ignore-scripts=false
 
             echo "==> Building..."
-            sudo -u muddown npx turbo run build
+            sudo -u muddown npx turbo run build --force
 
             echo "==> Updating nginx security headers..."
             # Only update the security-headers snippet — the main nginx config
