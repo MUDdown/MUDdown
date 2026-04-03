@@ -1227,3 +1227,142 @@ describe("handleAuthRoute — /auth/ws-ticket", () => {
     expect(JSON.parse(res.body).error).toContain("Active character not found");
   });
 });
+
+// ─── /auth/me ────────────────────────────────────────────────────────────────
+
+describe("handleAuthRoute — /auth/me", () => {
+  const dummyConfig: OAuthConfig = {
+    github: {
+      clientId: "test",
+      clientSecret: "test",
+      callbackUrl: "http://localhost:3300/auth/callback",
+    },
+  };
+
+  function mockReq(cookie?: string): IncomingMessage {
+    return {
+      method: "GET",
+      url: "/auth/me",
+      headers: {
+        host: "localhost:3300",
+        ...(cookie ? { cookie } : {}),
+      },
+    } as unknown as IncomingMessage;
+  }
+
+  it("returns 401 when not authenticated", async () => {
+    const res = mockRes();
+    await handleAuthRoute(mockReq(), res, dummyConfig, db);
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({ error: "Not authenticated" });
+  });
+
+  it("returns account info with no active character", async () => {
+    const now = new Date().toISOString();
+    const accountId = "acc-me-" + randomUUID();
+    db.createAccount({ id: accountId, displayName: "MeUser", displayNameOverridden: false, createdAt: now, updatedAt: now });
+    const token = "tok-me-" + randomUUID();
+    db.createSession({ token, accountId, activeCharacterId: null, expiresAt: new Date(Date.now() + 86400000).toISOString() });
+
+    const res = mockRes();
+    await handleAuthRoute(mockReq(`muddown_session=${token}`), res, dummyConfig, db);
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.id).toBe(accountId);
+    expect(body.displayName).toBe("MeUser");
+    expect(body.activeCharacter).toBeNull();
+  });
+
+  it("returns active character when valid", async () => {
+    const now = new Date().toISOString();
+    const accountId = "acc-me-valid-" + randomUUID();
+    const charId = "char-me-valid-" + randomUUID();
+    db.createAccount({ id: accountId, displayName: "ValidChar", displayNameOverridden: false, createdAt: now, updatedAt: now });
+    db.createCharacter({
+      id: charId, accountId, name: "HeroMe", characterClass: "mage",
+      currentRoom: "town-square", inventory: [],
+      equipped: { weapon: null, armor: null, accessory: null },
+      hp: 20, maxHp: 20, xp: 0, createdAt: now, updatedAt: now,
+    });
+    const token = "tok-me-valid-" + randomUUID();
+    db.createSession({ token, accountId, activeCharacterId: charId, expiresAt: new Date(Date.now() + 86400000).toISOString() });
+
+    const res = mockRes();
+    await handleAuthRoute(mockReq(`muddown_session=${token}`), res, dummyConfig, db);
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.activeCharacter).toEqual({ id: charId, name: "HeroMe", characterClass: "mage" });
+  });
+
+  it("clears stale activeCharacterId when character is missing", async () => {
+    const now = new Date().toISOString();
+    const accountId = "acc-me-stale-" + randomUUID();
+    const staleCharId = "char-gone-" + randomUUID();
+    db.createAccount({ id: accountId, displayName: "StaleUser", displayNameOverridden: false, createdAt: now, updatedAt: now });
+    const token = "tok-me-stale-" + randomUUID();
+    // Create session with null, then poke in a stale character ID via raw SQL to bypass FK
+    db.createSession({ token, accountId, activeCharacterId: null, expiresAt: new Date(Date.now() + 86400000).toISOString() });
+    const raw = db as unknown as { db: { pragma: (s: string) => void; prepare: (s: string) => { run: (...a: unknown[]) => void } } };
+    raw.db.pragma("foreign_keys = OFF");
+    raw.db.prepare("UPDATE auth_sessions SET active_character_id = ? WHERE token = ?").run(staleCharId, token);
+    raw.db.pragma("foreign_keys = ON");
+
+    const res = mockRes();
+    await handleAuthRoute(mockReq(`muddown_session=${token}`), res, dummyConfig, db);
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.activeCharacter).toBeNull();
+
+    // Verify the session was cleaned up in the DB
+    const session = db.getSession(token);
+    expect(session).toBeDefined();
+    expect(session!.activeCharacterId).toBeNull();
+  });
+
+  it("clears stale activeCharacterId when character belongs to different account", async () => {
+    const now = new Date().toISOString();
+    const accountA = "acc-me-a-" + randomUUID();
+    const accountB = "acc-me-b-" + randomUUID();
+    const charId = "char-other-owner-" + randomUUID();
+    db.createAccount({ id: accountA, displayName: "UserA", displayNameOverridden: false, createdAt: now, updatedAt: now });
+    db.createAccount({ id: accountB, displayName: "UserB", displayNameOverridden: false, createdAt: now, updatedAt: now });
+    db.createCharacter({
+      id: charId, accountId: accountB, name: "NotMine", characterClass: "rogue",
+      currentRoom: "town-square", inventory: [],
+      equipped: { weapon: null, armor: null, accessory: null },
+      hp: 20, maxHp: 20, xp: 0, createdAt: now, updatedAt: now,
+    });
+    const token = "tok-me-wrong-" + randomUUID();
+    // Session for accountA points to accountB's character
+    db.createSession({ token, accountId: accountA, activeCharacterId: charId, expiresAt: new Date(Date.now() + 86400000).toISOString() });
+
+    const res = mockRes();
+    await handleAuthRoute(mockReq(`muddown_session=${token}`), res, dummyConfig, db);
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.activeCharacter).toBeNull();
+
+    // Verify the session was cleaned up in the DB
+    const session = db.getSession(token);
+    expect(session).toBeDefined();
+    expect(session!.activeCharacterId).toBeNull();
+  });
+
+  it("returns 401 when session references a deleted account", async () => {
+    const now = new Date().toISOString();
+    const accountId = "acc-me-deleted-" + randomUUID();
+    db.createAccount({ id: accountId, displayName: "Deleted", displayNameOverridden: false, createdAt: now, updatedAt: now });
+    const token = "tok-me-deleted-" + randomUUID();
+    db.createSession({ token, accountId, activeCharacterId: null, expiresAt: new Date(Date.now() + 86400000).toISOString() });
+    // Delete account with FKs disabled so the session survives (ON DELETE CASCADE would remove it)
+    const raw = db as unknown as { db: { pragma: (s: string) => void; prepare: (s: string) => { run: (...a: unknown[]) => void } } };
+    raw.db.pragma("foreign_keys = OFF");
+    raw.db.prepare("DELETE FROM accounts WHERE id = ?").run(accountId);
+    raw.db.pragma("foreign_keys = ON");
+
+    const res = mockRes();
+    await handleAuthRoute(mockReq(`muddown_session=${token}`), res, dummyConfig, db);
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({ error: "Account not found" });
+  });
+});
