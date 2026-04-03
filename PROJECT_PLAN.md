@@ -199,7 +199,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [x] Environment-based configuration (.env)
 
 ### Phase 4 — AI Integration
-- [ ] MCP server: expose game state as MCP resources
+- [x] MCP server: expose game state as MCP resources
 - [ ] LLM-powered NPC conversations (RAG over NPC backstories)
 - [ ] AI game assistant: context-aware help, command suggestions
 - [ ] Tool-calling integration: AI agents can play the game
