@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "muddown": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["packages/mcp/dist/index.js"],
+      "env": {
+        "MUDDOWN_SERVER_URL": "ws://localhost:3300"
+      }
+    }
+  }
+}

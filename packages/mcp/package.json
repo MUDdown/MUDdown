@@ -1,0 +1,37 @@
+{
+  "name": "@muddown/mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing MUDdown game state as resources and tools",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "muddown-mcp": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@muddown/shared": "*",
+    "ws": "^8.17.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.10",
+    "vitest": "^4.1.2"
+  },
+  "engines": {
+    "node": ">=22.9.0"
+  },
+  "license": "MIT"
+}
