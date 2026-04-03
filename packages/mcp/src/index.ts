@@ -78,7 +78,7 @@ server.registerResource(
   "muddown://world/map",
   {
     title: "World Map",
-    description: "Known room graph with connections between rooms",
+    description: "Known rooms with available exit directions (discovered via exploration)",
     mimeType: "application/json",
   },
   async (uri) => {
@@ -161,8 +161,16 @@ async function main(): Promise<void> {
     bridge.disconnect();
     await server.close();
   }
-  process.on("SIGINT", () => { shutdown().then(() => process.exit(0)); });
-  process.on("SIGTERM", () => { shutdown().then(() => process.exit(0)); });
+  function handleSignal(signal: string): void {
+    shutdown()
+      .then(() => process.exit(0))
+      .catch((err) => {
+        console.error(`[mcp] Shutdown failed on ${signal}:`, err);
+        process.exit(1);
+      });
+  }
+  process.on("SIGINT", () => handleSignal("SIGINT"));
+  process.on("SIGTERM", () => handleSignal("SIGTERM"));
 
   // Request initial state — non-fatal if the server is slow.
   // Commands are sequential because the bridge has a single pendingCommand slot.

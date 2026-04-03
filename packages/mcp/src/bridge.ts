@@ -35,7 +35,7 @@ export class GameBridge {
     private readonly serverUrl: string,
   ) {}
 
-  /** Connect to the game server and wait for the initial welcome. */
+  /** Connect to the game server. Resolves once the WebSocket is open. */
   async connect(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       let connected = false;
@@ -157,7 +157,13 @@ export class GameBridge {
         break;
     }
 
-    // Resolve pending command if any
+    // Resolve pending command if any.
+    // NOTE: The server protocol is fire-and-forget (no correlation IDs), so
+    // we resolve on the first message received after sending a command.
+    // Ambient broadcasts (e.g. narrative from other players) could race with
+    // the actual response, but in practice MCP commands are sequential and
+    // the server replies before processing the next player's input.
+    // TODO: add correlation via meta.command_id once the server supports it.
     if (this.pendingCommand) {
       const { resolve, timer } = this.pendingCommand;
       this.pendingCommand = null;
