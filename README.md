@@ -2,6 +2,8 @@
 
 **A modern MUD platform using Markdown as the universal game markup language.**
 
+[Discord](https://discord.gg/mDFcMT3egK) · [Website](https://muddown.com) · [Play](https://muddown.com/play)
+
 MUDdown reimagines Multi-User Dungeons for the modern era. Instead of ANSI escape codes and raw telnet, MUDdown uses an extended Markdown format to describe game worlds — making them readable as plain text, beautifully rendered in browsers, and natively accessible to screenreaders and AI agents alike.
 
 ## Vision

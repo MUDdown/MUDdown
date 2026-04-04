@@ -55,3 +55,8 @@ npx turbo run test
 
 See [AGENTS.md](AGENTS.md) for architecture details, coding conventions,
 and build commands.
+
+## Community
+
+Join the [MUDdown Discord](https://discord.gg/mDFcMT3egK) to ask questions,
+discuss ideas, or coordinate contributions.

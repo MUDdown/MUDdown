@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="64" fill="#0a0e14"/>
+  <text x="256" y="256" text-anchor="middle" dominant-baseline="central" font-family="'JetBrains Mono','Fira Code',monospace" font-weight="700" font-size="280">
+    <tspan fill="#5ccfe6">#</tspan><tspan fill="#e8eef4">Md</tspan>
+  </text>
+</svg>

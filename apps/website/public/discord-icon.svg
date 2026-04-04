@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" fill="#0a0e14"/>
+  <circle cx="512" cy="512" r="460" fill="#5ccfe6"/>
+  <text x="512" y="512" text-anchor="middle" dominant-baseline="central" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-weight="700" font-size="420">
+    <tspan fill="#0a0e14">#Md</tspan>
+  </text>
+</svg>
