@@ -17,6 +17,7 @@ import {
   type OAuthConfig, type ProviderConfig,
 } from "./auth.js";
 import { handleGamesRoute } from "./games.js";
+import { runComplianceChecks } from "./compliance.js";
 import { fireHook, registerHook, createGreetingHook } from "./hooks.js";
 
 // ─── Player Session ──────────────────────────────────────────────────────────
@@ -1543,12 +1544,40 @@ function saveAllState(): void {
 // Auto-save timer
 const saveTimer = setInterval(saveAllState, SAVE_INTERVAL_MS);
 
+// ─── Compliance Check Scheduler ──────────────────────────────────────────────
+
+const COMPLIANCE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const COMPLIANCE_INITIAL_DELAY_MS = 60 * 1000; // 1 minute after startup
+
+let activeComplianceRun: Promise<void> | null = null;
+
+function scheduleCompliance(label: string): void {
+  const startedAt = new Date().toISOString();
+  activeComplianceRun = runComplianceChecks(db)
+    .catch(err => console.error(`[${startedAt}] Compliance check (${label}) failed:`, err))
+    .finally(() => { activeComplianceRun = null; });
+}
+
+const complianceInitialTimer = setTimeout(() => scheduleCompliance("startup run"), COMPLIANCE_INITIAL_DELAY_MS);
+complianceInitialTimer.unref();
+
+const complianceTimer = setInterval(() => scheduleCompliance("scheduled run"), COMPLIANCE_INTERVAL_MS);
+complianceTimer.unref();
+
 // ─── Graceful Shutdown ───────────────────────────────────────────────────────
 
-function shutdown(): void {
+async function shutdown(): Promise<void> {
   console.log("Shutting down — saving all state...");
   clearInterval(respawnTimer);
   clearInterval(saveTimer);
+  clearTimeout(complianceInitialTimer);
+  clearInterval(complianceTimer);
+
+  if (activeComplianceRun) {
+    console.log("Waiting for in-progress compliance check to finish...");
+    await activeComplianceRun;
+  }
+
   saveAllState();
   db.cleanExpiredSessions();
 

@@ -128,28 +128,46 @@ export function certificationFromResult(result: ComplianceCheckResult, currentTi
  * Run compliance checks on all registered servers that use the WebSocket
  * protocol. Updates the DB with results and adjusts certification tiers.
  */
+let running = false;
+
 export async function runComplianceChecks(db: GameDatabase): Promise<void> {
-  const servers = db.getAllGameServers();
-  const wsServers = servers.filter(s => s.protocol === "websocket");
-
-  console.log(`Running compliance checks on ${wsServers.length} WebSocket server(s)...`);
-
-  for (const server of wsServers) {
-    let result: ComplianceCheckResult;
-    try {
-      result = await checkServer(server.hostname, server.port, server.protocol);
-    } catch (err) {
-      console.error(`  ${server.name} (${server.hostname}): probe threw unexpectedly —`, err);
-      continue;
-    }
-    const newTier = certificationFromResult(result, server.certification);
-    try {
-      db.updateGameServerCheck(server.id, JSON.stringify(result), newTier);
-      console.log(`  ${server.name} (${server.hostname}): ${newTier} — reachable=${result.reachable}, wire=${result.wireProtocol}, blocks=${result.containerBlocks}`);
-    } catch (err) {
-      console.error(`  ${server.name} (${server.hostname}): DB write failed after successful probe (tier=${newTier}) —`, err);
-    }
+  if (running) {
+    console.warn("Compliance check skipped — previous run still in progress.");
+    return;
   }
+  running = true;
+  let failureCount = 0;
+  try {
+    const servers = db.getAllGameServers();
+    const wsServers = servers.filter(s => s.protocol === "websocket");
 
-  console.log("Compliance checks complete.");
+    console.log(`Running compliance checks on ${wsServers.length} WebSocket server(s)...`);
+
+    for (const server of wsServers) {
+      let result: ComplianceCheckResult;
+      try {
+        result = await checkServer(server.hostname, server.port, server.protocol);
+      } catch (err) {
+        console.error(`  ${server.name} (${server.hostname}): probe threw unexpectedly —`, err);
+        failureCount++;
+        continue;
+      }
+      const newTier = certificationFromResult(result, server.certification);
+      try {
+        db.updateGameServerCheck(server.id, JSON.stringify(result), newTier);
+        console.log(`  ${server.name} (${server.hostname}): ${newTier} — reachable=${result.reachable}, wire=${result.wireProtocol}, blocks=${result.containerBlocks}`);
+      } catch (err) {
+        console.error(`  ${server.name} (${server.hostname}): DB write failed after successful probe (tier=${newTier}) —`, err);
+        failureCount++;
+      }
+    }
+
+    if (failureCount > 0) {
+      console.warn(`Compliance checks finished with ${failureCount} failure(s). See errors above.`);
+    } else {
+      console.log("Compliance checks complete.");
+    }
+  } finally {
+    running = false;
+  }
 }
