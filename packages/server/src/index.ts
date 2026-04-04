@@ -8,7 +8,7 @@ import {
   dirAliases, findItemByName, findNpcInRoom, findUnclaimedIndex,
   escapeMarkdownLinkLabel, escapeMarkdownLinkDest, escapeDialogueText,
   resolveAttack, formatAttackLine, getPlayerAttackBonus, getPlayerDamage, getPlayerAc,
-  resetPlayerAfterDefeat, stripHtmlComments, buildInventoryState,
+  resetPlayerAfterDefeat, stripHtmlComments, buildInventoryState, TokenBucket,
 } from "./helpers.js";
 import { SqliteDatabase } from "./db/index.js";
 import type { GameDatabase } from "./db/types.js";
@@ -44,11 +44,24 @@ interface PlayerSession {
   baseAttackBonus: number;
   baseDamage: string;
   xp: number;
+  rateLimiter: TokenBucket;
 }
 
 const RESPAWN_ROOM = "town-square";
 const NPC_RESPAWN_MS = 20 * 60 * 1000; // 20 minutes
 const SAVE_INTERVAL_MS = 60 * 1000;    // auto-save every 60 seconds
+
+// Rate limiting — configurable via env
+function envInt(key: string, fallback: number): number {
+  const raw = process.env[key];
+  if (raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  return Number.isNaN(n) ? fallback : n;
+}
+
+const RATE_LIMIT_BURST  = envInt("RATE_LIMIT_BURST", 20);
+const RATE_LIMIT_REFILL = envInt("RATE_LIMIT_REFILL", 5);
+console.log(`[rate-limit] burst=${RATE_LIMIT_BURST} refill=${RATE_LIMIT_REFILL}/s`);
 
 // ─── Shared NPC HP (for multi-player combat) ─────────────────────────────────
 
@@ -286,6 +299,7 @@ wss.on("connection", (ws, req: IncomingMessage) => {
     }
   }
 
+  const rateLimiter = new TokenBucket(RATE_LIMIT_BURST, RATE_LIMIT_REFILL);
   const session: PlayerSession = character
     ? {
         id: randomUUID(),
@@ -304,6 +318,7 @@ wss.on("connection", (ws, req: IncomingMessage) => {
         baseAttackBonus: CLASS_STATS[character.characterClass].attackBonus,
         baseDamage: CLASS_STATS[character.characterClass].damage,
         xp: character.xp,
+        rateLimiter,
       }
     : {
         id: randomUUID(),
@@ -322,6 +337,7 @@ wss.on("connection", (ws, req: IncomingMessage) => {
         baseAttackBonus: PLAYER_DEFAULTS.attackBonus,
         baseDamage: PLAYER_DEFAULTS.damage,
         xp: 0,
+        rateLimiter,
       };
   sessions.set(ws, session);
 
@@ -356,6 +372,13 @@ Type commands or click links to explore. Try: \`look\`, \`go north\`, \`help\`
   sendInventoryState(ws, session);
 
   ws.on("message", (data) => {
+    // Rate-limit incoming commands
+    if (!session.rateLimiter.consume()) {
+      console.warn(`[rate-limit] throttled session ${session.id} (player: ${session.name})`);
+      send(ws, systemMessage("You're sending commands too quickly. Slow down a bit."));
+      return;
+    }
+
     let msg: ClientMessage;
     try {
       msg = JSON.parse(String(data));

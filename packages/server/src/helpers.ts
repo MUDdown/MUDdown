@@ -265,3 +265,50 @@ export function buildInventoryState(
 
   return { items, equipped: equippedState };
 }
+
+// ─── Token Bucket Rate Limiter ───────────────────────────────────────────────
+
+/**
+ * A token-bucket rate limiter. Each bucket starts full and refills at a
+ * constant rate. Callers consume one token per request; when the bucket is
+ * empty the request is rejected (returns false).
+ *
+ * Designed to be stored per-session so each player has independent limits.
+ */
+export class TokenBucket {
+  private tokens: number;
+  private lastRefill: number;
+
+  constructor(
+    private readonly capacity: number,
+    private readonly refillRate: number, // tokens per second
+  ) {
+    if (!Number.isFinite(capacity) || capacity <= 0) {
+      throw new Error(`TokenBucket: capacity must be a positive finite number, got ${capacity}`);
+    }
+    if (!Number.isFinite(refillRate) || refillRate <= 0) {
+      throw new Error(`TokenBucket: refillRate must be a positive finite number, got ${refillRate}`);
+    }
+    this.tokens = capacity;
+    this.lastRefill = Date.now();
+  }
+
+  /** Try to consume one token. Returns true if allowed, false if throttled. */
+  consume(): boolean {
+    this.refill();
+    if (this.tokens >= 1) {
+      this.tokens -= 1;
+      return true;
+    }
+    return false;
+  }
+
+  private refill(): void {
+    const now = Date.now();
+    const elapsed = Math.max(0, (now - this.lastRefill) / 1000);
+    this.tokens = Math.min(this.capacity, this.tokens + elapsed * this.refillRate);
+    // Always update lastRefill so the bucket refills in continuous wall-clock time,
+    // regardless of whether the previous consume() succeeded or was throttled.
+    this.lastRefill = now;
+  }
+}
