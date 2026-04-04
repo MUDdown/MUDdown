@@ -215,8 +215,8 @@ import Base from "../layouts/Base.astro";
         if (contentType.includes("application/json")) {
           data = await res.json();
         } else {
-          const text = await res.text();
-          data = { error: text || `Server returned ${res.status}` };
+          await res.text(); // drain body
+          data = { error: `Server returned ${res.status}` };
         }
 
         if (res.ok) {
