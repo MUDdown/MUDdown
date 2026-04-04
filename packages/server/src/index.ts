@@ -206,6 +206,9 @@ function buildProviderConfig(
 
 const oauthConfig: OAuthConfig = {};
 
+const discordCfg = buildProviderConfig("DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET", "DISCORD_CALLBACK_URL");
+if (discordCfg) oauthConfig.discord = discordCfg;
+
 const githubCfg = buildProviderConfig("GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_CALLBACK_URL");
 if (githubCfg) oauthConfig.github = githubCfg;
 
@@ -218,10 +221,13 @@ if (googleCfg) oauthConfig.google = googleCfg;
 const configuredProviders = Object.keys(oauthConfig);
 if (configuredProviders.length === 0) {
   console.warn("No OAuth/OIDC providers configured — players will connect as anonymous guests.");
-  console.warn("Set GITHUB_CLIENT_ID/SECRET, MICROSOFT_CLIENT_ID/SECRET, or GOOGLE_CLIENT_ID/SECRET to enable authentication.");
+  console.warn("Set DISCORD_CLIENT_ID/SECRET, GITHUB_CLIENT_ID/SECRET, MICROSOFT_CLIENT_ID/SECRET, or GOOGLE_CLIENT_ID/SECRET to enable authentication.");
 } else {
   console.log(`OAuth/OIDC providers configured: ${configuredProviders.join(", ")}`);
   // Warn about missing callback URLs in production
+  if (discordCfg && !process.env.DISCORD_CALLBACK_URL) {
+    console.warn(`DISCORD_CALLBACK_URL not set — defaulting to ${defaultCallbackUrl} (set this in production).`);
+  }
   if (githubCfg && !process.env.GITHUB_CALLBACK_URL) {
     console.warn(`GITHUB_CALLBACK_URL not set — defaulting to ${defaultCallbackUrl} (set this in production).`);
   }

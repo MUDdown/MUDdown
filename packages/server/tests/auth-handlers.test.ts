@@ -371,6 +371,7 @@ describe("handleAuthRoute — /auth/providers", () => {
 
 describe("handleAuthRoute — /auth/login", () => {
   const allProviders: OAuthConfig = {
+    discord: { clientId: "dc-id", clientSecret: "dc-secret", callbackUrl: "http://localhost:3300/auth/callback" },
     github: { clientId: "gh-id", clientSecret: "gh-secret", callbackUrl: "http://localhost:3300/auth/callback" },
     microsoft: { clientId: "ms-id", clientSecret: "ms-secret", callbackUrl: "http://localhost:3300/auth/callback" },
     google: { clientId: "gg-id", clientSecret: "gg-secret", callbackUrl: "http://localhost:3300/auth/callback" },
@@ -384,6 +385,16 @@ describe("handleAuthRoute — /auth/login", () => {
       headers: { host: "localhost:3300" },
     } as unknown as IncomingMessage;
   }
+
+  it("redirects to Discord authorize URL when provider=discord", async () => {
+    const req = mockReq("discord");
+    const res = mockRes();
+    await handleAuthRoute(req, res, allProviders, db);
+    expect(res.statusCode).toBe(302);
+    expect(res._headers["location"]).toMatch(/^https:\/\/discord\.com\/oauth2\/authorize\?/);
+    expect(res._headers["location"]).toContain("client_id=dc-id");
+    expect(res._headers["location"]).toContain("scope=identify");
+  });
 
   it("redirects to GitHub authorize URL when provider=github", async () => {
     const req = mockReq("github");
@@ -460,6 +471,21 @@ describe("exchangeCodeForToken", () => {
     expect(body).toMatchObject({ client_id: "cid", code: "code123", redirect_uri: "http://localhost/cb" });
   });
 
+  it("discord: sends form-encoded body to discord.com/api/oauth2/token", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: "disc-token" }),
+    }));
+    const cfg = { clientId: "cid", clientSecret: "csec", callbackUrl: "http://localhost/cb" };
+    const token = await exchangeCodeForToken("discord", cfg, "disc-code");
+    expect(token).toBe("disc-token");
+    const [url, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://discord.com/api/oauth2/token");
+    const body = new URLSearchParams(init.body as string);
+    expect(body.get("grant_type")).toBe("authorization_code");
+    expect(body.get("code")).toBe("disc-code");
+  });
+
   it("microsoft: sends form-encoded body with grant_type=authorization_code", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -504,6 +530,30 @@ describe("exchangeCodeForToken", () => {
 
 describe("fetchProviderUser", () => {
   afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("discord: returns normalized ProviderUser with global_name as displayName", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: "123456", username: "alice", global_name: "Alice Smith" }),
+    }));
+    const user = await fetchProviderUser("discord", "disc-token");
+    expect(user).toEqual({
+      provider: "discord",
+      providerId: "123456",
+      username: "alice",
+      displayName: "Alice Smith",
+    });
+  });
+
+  it("discord: falls back to username as displayName when global_name is null", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: "123456", username: "alice", global_name: null }),
+    }));
+    const user = await fetchProviderUser("discord", "disc-token");
+    expect(user).not.toBeNull();
+    expect(user!.displayName).toBe("alice");
+  });
 
   it("github: returns normalized ProviderUser from GitHub profile", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -922,7 +972,49 @@ describe("exchangeCodeForToken — google", () => {
 // ─── fetchProviderUser — error body logging ──────────────────────────────────
 
 describe("fetchProviderUser — error body logging", () => {
-  afterEach(() => { vi.unstubAllGlobals(); });
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    errorSpy?.mockRestore();
+  });
+
+  it("discord: returns null and logs on non-ok response", async () => {
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false, status: 401, text: async () => "Unauthorized",
+    }));
+    const user = await fetchProviderUser("discord", "bad-token");
+    expect(user).toBeNull();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Discord user API failed: 401"),
+      expect.any(String)
+    );
+  });
+
+  it("discord: returns null when response body is not JSON", async () => {
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => { throw new SyntaxError("not json"); },
+    }));
+    const user = await fetchProviderUser("discord", "disc-token");
+    expect(user).toBeNull();
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Discord user profile returned non-JSON body"),
+      expect.anything()
+    );
+  });
+
+  it("discord: returns null when id or username is missing", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ global_name: "Alice" }),
+    }));
+    const user = await fetchProviderUser("discord", "disc-token");
+    expect(user).toBeNull();
+  });
 
   it("microsoft: returns null when Graph API returns non-ok", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 401, text: async () => "Unauthorized" }));

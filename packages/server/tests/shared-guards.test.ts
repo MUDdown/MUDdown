@@ -4,6 +4,10 @@ import { isOAuthProvider, isCharacterClass } from "@muddown/shared";
 // ─── isOAuthProvider ─────────────────────────────────────────────────────────
 
 describe("isOAuthProvider", () => {
+  it("accepts 'discord'", () => {
+    expect(isOAuthProvider("discord")).toBe(true);
+  });
+
   it("accepts 'github'", () => {
     expect(isOAuthProvider("github")).toBe(true);
   });
@@ -18,7 +22,6 @@ describe("isOAuthProvider", () => {
 
   it("rejects unknown provider strings", () => {
     expect(isOAuthProvider("facebook")).toBe(false);
-    expect(isOAuthProvider("discord")).toBe(false);
     expect(isOAuthProvider("")).toBe(false);
   });
 

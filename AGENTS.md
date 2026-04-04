@@ -160,6 +160,7 @@ Detailed how-to guides live in `.github/skills/<name>/SKILL.md` (canonical) with
 | `persistence` | Database abstraction, SQLite adapter, player/world save/load lifecycle, auth sessions |
 | `testing` | Testing conventions (vitest, fixtures, world integrity) |
 | `privacy` | Privacy compliance auditing (data collection, cookies, localStorage, policy alignment) |
+| `oauth-provider` | Add a new OAuth/OIDC identity provider (shared types, auth switches, server config, login button, env vars, tests) |
 
 ### Maintaining Skills
 

@@ -203,7 +203,7 @@ export const CLASS_STATS: Record<CharacterClass, {
 
 // ─── Account & Identity ──────────────────────────────────────────────────────
 
-export const OAUTH_PROVIDERS = ["github", "microsoft", "google"] as const;
+export const OAUTH_PROVIDERS = ["discord", "github", "microsoft", "google"] as const;
 export type OAuthProvider = typeof OAUTH_PROVIDERS[number];
 
 const OAUTH_PROVIDERS_SET: ReadonlySet<string> = new Set<string>(OAUTH_PROVIDERS);

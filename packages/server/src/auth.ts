@@ -218,6 +218,16 @@ function handleLogin(url: URL, res: ServerResponse, config: OAuthConfig): void {
 
 function buildAuthorizeUrl(provider: OAuthProvider, cfg: ProviderConfig, state: string): string {
   switch (provider) {
+    case "discord": {
+      const params = new URLSearchParams({
+        client_id: cfg.clientId,
+        redirect_uri: cfg.callbackUrl,
+        response_type: "code",
+        scope: "identify",
+        state,
+      });
+      return `https://discord.com/oauth2/authorize?${params}`;
+    }
     case "github": {
       const params = new URLSearchParams({
         client_id: cfg.clientId,
@@ -300,6 +310,7 @@ async function handleCallback(
     // Exchange code for access token (provider-specific)
     const accessToken = await exchangeCodeForToken(provider, providerCfg, code);
     if (!accessToken) {
+      console.error(`exchangeCodeForToken returned null for provider "${provider}" — aborting callback`);
       res.writeHead(400, { "Content-Type": "text/plain" });
       res.end("Authentication failed. Please try logging in again.");
       return;
@@ -353,6 +364,21 @@ export async function exchangeCodeForToken(
     let tokenRes: Response;
 
     switch (provider) {
+      case "discord":
+        tokenRes = await fetch("https://discord.com/api/oauth2/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: cfg.clientId,
+            client_secret: cfg.clientSecret,
+            code,
+            redirect_uri: cfg.callbackUrl,
+            grant_type: "authorization_code",
+          }),
+          signal: controller.signal,
+        });
+        break;
+
       case "github":
         tokenRes = await fetch("https://github.com/login/oauth/access_token", {
           method: "POST",
@@ -407,20 +433,29 @@ export async function exchangeCodeForToken(
       return null;
     }
 
-    let tokenData: { access_token?: string; error?: string };
+    let tokenData: { access_token?: string; error?: string; error_description?: string };
     try {
-      tokenData = await tokenRes.json() as { access_token?: string; error?: string };
+      tokenData = await tokenRes.json() as { access_token?: string; error?: string; error_description?: string };
     } catch {
       console.error(`${provider} token response is not valid JSON`);
       return null;
     }
 
     if (!tokenData.access_token) {
-      console.error(`${provider} OAuth token error: ${tokenData.error ?? "no access_token in response"}`);
+      const detail = tokenData.error_description
+        ? `${tokenData.error}: ${tokenData.error_description}`
+        : (tokenData.error ?? "no access_token in response");
+      console.error(`${provider} OAuth token error: ${detail}`);
       return null;
     }
 
     return tokenData.access_token;
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "AbortError") {
+      console.error(`${provider} token exchange timed out`);
+      return null;
+    }
+    throw err;
   } finally {
     clearTimeout(timeout);
   }
@@ -437,6 +472,37 @@ export async function fetchProviderUser(
 
   try {
     switch (provider) {
+      case "discord": {
+        const userRes = await fetch("https://discord.com/api/users/@me", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: controller.signal,
+        });
+        if (!userRes.ok) {
+          const errBody = await userRes.text().catch(() => "(unreadable)");
+          console.error(`Discord user API failed: ${userRes.status}`, errBody);
+          return null;
+        }
+        let dc: { id?: string; username?: string; global_name?: string | null };
+        try {
+          dc = await userRes.json() as typeof dc;
+        } catch (parseErr) {
+          console.error(`Discord user profile returned non-JSON body (status ${userRes.status}):`, parseErr);
+          return null;
+        }
+        if (!dc.id || !dc.username) {
+          console.error(
+            `Discord user profile missing required fields — id: ${dc.id ?? "(absent)"}, username: ${dc.username ?? "(absent)"}`
+          );
+          return null;
+        }
+        return {
+          provider: "discord",
+          providerId: dc.id,
+          username: dc.username,
+          displayName: dc.global_name ?? dc.username,
+        };
+      }
+
       case "github": {
         const userRes = await fetch("https://api.github.com/user", {
           headers: {
@@ -533,6 +599,12 @@ export async function fetchProviderUser(
       default:
         return assertNever(provider, "OAuthProvider in fetchProviderUser");
     }
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "AbortError") {
+      console.error(`${provider} user profile fetch timed out`);
+      return null;
+    }
+    throw err;
   } finally {
     clearTimeout(timeout);
   }

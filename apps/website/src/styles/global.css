@@ -99,8 +99,17 @@ header h1 .logo-text span { color: var(--accent); }
 .logo-mark {
   flex-shrink: 0;
 }
+header nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px;
+}
 header nav a {
   margin-left: 1.5rem;
+  white-space: nowrap;
   color: var(--text-dim);
   font-size: 0.9rem;
 }
