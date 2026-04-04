@@ -297,16 +297,32 @@ systemctl enable muddown-server
 # ── 13. Configure nginx ──────────────────────────────────────────────────────
 
 echo "==> Configuring nginx..."
+
+# Determine source directory for nginx configs
+NGINX_SRC=""
 if [[ -f "${INSTALL_DIR}/deploy/nginx/muddown.conf" ]]; then
-  cp "${INSTALL_DIR}/deploy/nginx/muddown.conf" /etc/nginx/sites-available/
-  cp "${INSTALL_DIR}/deploy/nginx/security-headers.conf" /etc/nginx/snippets/muddown-security-headers.conf
+  NGINX_SRC="${INSTALL_DIR}/deploy/nginx"
 elif [[ -f "${SCRIPT_DIR}/nginx/muddown.conf" ]]; then
-  cp "${SCRIPT_DIR}/nginx/muddown.conf" /etc/nginx/sites-available/
-  cp "${SCRIPT_DIR}/nginx/security-headers.conf" /etc/nginx/snippets/muddown-security-headers.conf
+  NGINX_SRC="${SCRIPT_DIR}/nginx"
 else
   echo "ERROR: nginx config not found in repo or script dir." >&2
   echo "       Copy the full deploy/ directory: scp -r deploy root@<ip>:/root/deploy" >&2
   exit 1
+fi
+
+# Always safe to copy snippets (certbot doesn't modify these)
+cp "${NGINX_SRC}/security-headers.conf" /etc/nginx/snippets/muddown-security-headers.conf
+[[ -f "${NGINX_SRC}/muddown-proxy.conf" ]] && cp "${NGINX_SRC}/muddown-proxy.conf" /etc/nginx/snippets/muddown-proxy.conf
+
+# Only copy the main site config on first install — certbot modifies it in
+# place to add the HTTPS server block, so overwriting it after TLS setup
+# would remove SSL and take the site down.
+if [[ ! -f /etc/nginx/sites-available/muddown.conf ]]; then
+  cp "${NGINX_SRC}/muddown.conf" /etc/nginx/sites-available/
+  echo "    Installed muddown.conf (first-time setup)."
+else
+  echo "    muddown.conf already exists — skipping to preserve certbot SSL config."
+  echo "    To update nginx locations, edit /etc/nginx/sites-available/muddown.conf manually."
 fi
 ln -sf /etc/nginx/sites-available/muddown.conf /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
