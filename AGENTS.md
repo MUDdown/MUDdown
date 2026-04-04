@@ -170,6 +170,15 @@ When a milestone feature lands (new system, new content type, new workflow), eva
 - **No skill needed**: One-off changes, bug fixes, or refactors that don't establish a new repeatable pattern.
 - **Update the table above** and the skills table in CLAUDE.md so the new skill is discoverable in both files.
 
+### Maintaining the Features Page
+
+The website features page (`apps/website/src/pages/features.astro`) showcases implemented functionality. When a user-facing feature ships, update the features page:
+
+- **New feature**: Add a `<li>` to the appropriate category with a `<strong>` label and brief description.
+- **New category**: Add a new `.features-page-category` block with a heading and icon.
+- **Removed or replaced feature**: Remove or update the corresponding entry so the page stays accurate.
+- **When in doubt**: If the change is visible to players or operators (new command, new UI element, new integration), it belongs on the features page. Internal refactors and test-only changes do not.
+
 ## What NOT to Do
 
 - Don't add `copilot-instructions.md` — this file (`AGENTS.md`) replaces it

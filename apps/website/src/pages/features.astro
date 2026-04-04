@@ -1,0 +1,147 @@
+---
+import Base from "../layouts/Base.astro";
+---
+<Base title="MUDdown — Features">
+  <section class="features-page">
+    <div class="container">
+      <h2>Features</h2>
+      <p class="features-page-intro">
+        MUDdown is a modern MUD platform built on Markdown. Here's what's live today.
+      </p>
+
+      <div class="features-page-category">
+        <h3><span class="icon" aria-hidden="true">📝</span> MUDdown Format</h3>
+        <ul class="features-page-list">
+          <li>
+            <strong>Markdown-native game output</strong> — Room descriptions, combat logs, dialogue, and system messages are all structured Markdown.
+            Readable as plain text, beautifully rendered in browsers, parseable by machines.
+          </li>
+          <li>
+            <strong>Container blocks</strong> — Semantic blocks (<code>:::room</code>, <code>:::combat</code>, <code>:::dialogue</code>, <code>:::system</code>, and more) with typed attributes give structure to every game event.
+          </li>
+          <li>
+            <strong>Interactive link schemes</strong> — Clickable commands via <code>go:</code>, <code>cmd:</code>, <code>item:</code>, <code>npc:</code>, <code>player:</code>, and <code>help:</code> schemes.
+            Point-and-click or type — your choice.
+          </li>
+          <li>
+            <strong>YAML frontmatter</strong> — Room metadata, connections, item references, and lighting are declared in frontmatter for machine consumption.
+          </li>
+          <li>
+            <strong>Wire protocol</strong> — JSON envelopes over WebSocket carry typed MUDdown payloads (<code>room</code>, <code>combat</code>, <code>dialogue</code>, <code>system</code>, <code>narrative</code>).
+          </li>
+        </ul>
+      </div>
+
+      <div class="features-page-category">
+        <h3><span class="icon" aria-hidden="true">⚔️</span> Gameplay</h3>
+        <ul class="features-page-list">
+          <li>
+            <strong>24-room demo world</strong> — "Northkeep" spans 5 regions with fully interconnected bidirectional exits: town center, market district, harbor, north road, and catacombs.
+          </li>
+          <li>
+            <strong>Item system</strong> — 31 items across 22 rooms. Pick up, drop, equip, unequip, use, examine, and combine items. Equipment slots for weapon, armor, and accessory.
+          </li>
+          <li>
+            <strong>NPC dialogue</strong> — 16 NPCs with branching dialogue trees. Talk to merchants, guards, and townsfolk across Northkeep.
+          </li>
+          <li>
+            <strong>Turn-based combat</strong> — Attack NPCs, flee from danger. Shared HP across players, defeat tracking, and 20-minute respawn timers.
+          </li>
+          <li>
+            <strong>Character creation</strong> — Choose a name and class (Warrior, Mage, Rogue, or Cleric) with distinct starting stats.
+          </li>
+          <li>
+            <strong>Multi-player</strong> — See other players in rooms, broadcast chat, arrival and departure messages.
+          </li>
+          <li>
+            <strong>Entity lifecycle hooks</strong> — NPCs react to events: greet players on room entry, respawn to home rooms, reset state on timers.
+          </li>
+        </ul>
+      </div>
+
+      <div class="features-page-category">
+        <h3><span class="icon" aria-hidden="true">🌐</span> Web Client</h3>
+        <ul class="features-page-list">
+          <li>
+            <strong>Browser-based play</strong> — Full MUD client at <a href="/play">/play</a> with auto-reconnecting WebSocket, command history (up/down arrows), and clickable game links.
+          </li>
+          <li>
+            <strong>MUDdown renderer</strong> — Converts MUDdown markup to styled HTML: headings, bold, italic, code, lists, tables, blockquotes, and interactive game links.
+          </li>
+          <li>
+            <strong>Inventory panel</strong> — Sidebar (persistent), floating overlay, or hidden — your choice, persisted in localStorage.
+          </li>
+          <li>
+            <strong>Character selection</strong> — Create and switch between characters from the play screen (requires login).
+          </li>
+          <li>
+            <strong>Dark terminal aesthetic</strong> — Monospace typography, carefully tuned dark theme, responsive layout.
+          </li>
+        </ul>
+      </div>
+
+      <div class="features-page-category">
+        <h3><span class="icon" aria-hidden="true">🔐</span> Authentication &amp; Persistence</h3>
+        <ul class="features-page-list">
+          <li>
+            <strong>OAuth2 login</strong> — Sign in with GitHub, Microsoft, or Google. No passwords to manage.
+          </li>
+          <li>
+            <strong>Player persistence</strong> — Room position, inventory, equipment, and HP saved across sessions via SQLite.
+          </li>
+          <li>
+            <strong>World state persistence</strong> — Room items, NPC health, and defeated NPC tracking survive server restarts.
+          </li>
+          <li>
+            <strong>Rate limiting</strong> — Per-session token-bucket throttling protects against command flooding without affecting normal gameplay.
+          </li>
+        </ul>
+      </div>
+
+      <div class="features-page-category">
+        <h3><span class="icon" aria-hidden="true">🤖</span> AI Integration</h3>
+        <ul class="features-page-list">
+          <li>
+            <strong>MCP server</strong> — Game state exposed as Model Context Protocol resources (room, inventory, stats, map, help). AI agents can read and interact with the world.
+          </li>
+          <li>
+            <strong>Tool-calling interface</strong> — AI agents issue game commands through the MCP <code>game_command</code> tool, receiving full MUDdown responses.
+          </li>
+          <li>
+            <strong>Structured schemas</strong> — All game constructs are typed data that LLMs can parse, reason about, and act on.
+          </li>
+        </ul>
+      </div>
+
+      <div class="features-page-category">
+        <h3><span class="icon" aria-hidden="true">♿</span> Accessibility</h3>
+        <ul class="features-page-list">
+          <li>
+            <strong>ARIA-mapped blocks</strong> — Container blocks carry semantic roles: <code>room → main</code>, <code>system → alert</code>, <code>combat → log</code>, <code>dialogue → group</code>.
+          </li>
+          <li>
+            <strong>Screenreader-first</strong> — Text is the primary interface. Structured Markdown ensures content is navigable and meaningful without visual rendering.
+          </li>
+        </ul>
+      </div>
+
+      <div class="features-page-category">
+        <h3><span class="icon" aria-hidden="true">🏗️</span> Infrastructure</h3>
+        <ul class="features-page-list">
+          <li>
+            <strong>Turborepo monorepo</strong> — Shared types, independent packages, parallel builds. TypeScript throughout with strict mode.
+          </li>
+          <li>
+            <strong>MUDdown parser</strong> — Extracts blocks, attributes, links, sections, and frontmatter from MUDdown documents. 56 unit tests.
+          </li>
+          <li>
+            <strong>Production deployment</strong> — Debian server with nginx, TLS via Let's Encrypt, systemd service, CI/CD via GitHub Actions.
+          </li>
+          <li>
+            <strong>Comprehensive test suite</strong> — 337 tests across parser and server packages via vitest.
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</Base>
