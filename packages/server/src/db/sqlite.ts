@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
-import type { DefeatedNpcRecord, EquipSlot, AccountRecord, CharacterRecord, CharacterClass, IdentityLinkRecord, OAuthProvider } from "@muddown/shared";
+import type { DefeatedNpcRecord, EquipSlot, AccountRecord, CharacterRecord, CharacterClass, IdentityLinkRecord, OAuthProvider, GameServerRecord, ServerProtocol } from "@muddown/shared";
 import { isCharacterClass, isOAuthProvider } from "@muddown/shared";
-import type { GameDatabase, CharacterStateUpdate, AuthSession } from "./types.js";
+import type { GameDatabase, CharacterStateUpdate, AuthSession, GameServerUpdate } from "./types.js";
 
 export class SqliteDatabase implements GameDatabase {
   private db: Database.Database;
@@ -79,6 +79,24 @@ export class SqliteDatabase implements GameDatabase {
       );
 
       CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions(expires_at);
+
+      CREATE TABLE IF NOT EXISTS game_servers (
+        id                TEXT PRIMARY KEY,
+        owner_id          TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        name              TEXT NOT NULL,
+        description       TEXT NOT NULL DEFAULT '',
+        hostname          TEXT NOT NULL,
+        port              INTEGER,
+        protocol          TEXT NOT NULL DEFAULT 'websocket',
+        website_url       TEXT,
+        certification     TEXT NOT NULL DEFAULT 'listed',
+        last_check_at     TEXT,
+        last_check_result TEXT,
+        created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_game_servers_owner ON game_servers(owner_id);
     `);
   }
 
@@ -350,6 +368,60 @@ export class SqliteDatabase implements GameDatabase {
   cleanExpiredSessions(): void {
     this.db.prepare("DELETE FROM auth_sessions WHERE expires_at < ?").run(new Date().toISOString());
   }
+
+  // ── Game Servers (Directory) ─────────────────────────────────────────────
+
+  getGameServer(id: string): GameServerRecord | undefined {
+    const row = this.db.prepare("SELECT * FROM game_servers WHERE id = ?").get(id) as GameServerRow | undefined;
+    return row ? rowToGameServer(row) : undefined;
+  }
+
+  getGameServersByOwner(ownerId: string): GameServerRecord[] {
+    const rows = this.db.prepare("SELECT * FROM game_servers WHERE owner_id = ? ORDER BY created_at").all(ownerId) as GameServerRow[];
+    return rows.map(rowToGameServer);
+  }
+
+  getAllGameServers(): GameServerRecord[] {
+    const rows = this.db.prepare("SELECT * FROM game_servers ORDER BY certification, name").all() as GameServerRow[];
+    return rows.map(rowToGameServer);
+  }
+
+  createGameServer(server: GameServerRecord): void {
+    this.db.prepare(`
+      INSERT INTO game_servers (id, owner_id, name, description, hostname, port, protocol, website_url, certification, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      server.id, server.ownerId, server.name, server.description,
+      server.hostname, server.port, server.protocol, server.websiteUrl,
+      server.certification, server.createdAt, server.updatedAt,
+    );
+  }
+
+  updateGameServer(id: string, update: GameServerUpdate): void {
+    const sets: string[] = ["updated_at = @updatedAt"];
+    const params: Record<string, unknown> = { id, updatedAt: new Date().toISOString() };
+
+    if (update.name !== undefined) { sets.push("name = @name"); params.name = update.name; }
+    if (update.description !== undefined) { sets.push("description = @description"); params.description = update.description; }
+    if (update.hostname !== undefined) { sets.push("hostname = @hostname"); params.hostname = update.hostname; }
+    if (update.port !== undefined) { sets.push("port = @port"); params.port = update.port; }
+    if (update.protocol !== undefined) { sets.push("protocol = @protocol"); params.protocol = update.protocol; }
+    if (update.websiteUrl !== undefined) { sets.push("website_url = @websiteUrl"); params.websiteUrl = update.websiteUrl; }
+    if (update.certification !== undefined) { sets.push("certification = @certification"); params.certification = update.certification; }
+
+    this.db.prepare(`UPDATE game_servers SET ${sets.join(", ")} WHERE id = @id`).run(params);
+  }
+
+  deleteGameServer(id: string): void {
+    this.db.prepare("DELETE FROM game_servers WHERE id = ?").run(id);
+  }
+
+  updateGameServerCheck(id: string, checkResult: string, certification: GameServerRecord["certification"]): void {
+    const ts = new Date().toISOString();
+    this.db.prepare(
+      "UPDATE game_servers SET last_check_at = ?, last_check_result = ?, certification = ?, updated_at = ? WHERE id = ?"
+    ).run(ts, checkResult, certification, ts, id);
+  }
 }
 
 // ── Internal row types ────────────────────────────────────────────────────────
@@ -430,6 +502,65 @@ function rowToCharacter(row: CharacterRow): CharacterRecord {
     hp: row.hp,
     maxHp: row.max_hp,
     xp: row.xp,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+interface GameServerRow {
+  id: string;
+  owner_id: string;
+  name: string;
+  description: string;
+  hostname: string;
+  port: number | null;
+  protocol: string;
+  website_url: string | null;
+  certification: string;
+  last_check_at: string | null;
+  last_check_result: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+const VALID_PROTOCOLS: ReadonlySet<string> = new Set(["websocket", "telnet", "mcp", "other"]);
+const VALID_CERTIFICATIONS: ReadonlySet<string> = new Set(["verified", "self-certified", "listed"]);
+
+function rowToGameServer(row: GameServerRow): GameServerRecord {
+  let protocol: ServerProtocol;
+  if (VALID_PROTOCOLS.has(row.protocol)) {
+    protocol = row.protocol as ServerProtocol;
+  } else {
+    console.error(
+      `Game server ${row.id} ("${row.name}") has unrecognized protocol ` +
+      `"${row.protocol}" — defaulting to "other". This indicates a data integrity issue.`
+    );
+    protocol = "other";
+  }
+
+  let certification: GameServerRecord["certification"];
+  if (VALID_CERTIFICATIONS.has(row.certification)) {
+    certification = row.certification as GameServerRecord["certification"];
+  } else {
+    console.error(
+      `Game server ${row.id} ("${row.name}") has unrecognized certification ` +
+      `"${row.certification}" — defaulting to "listed". This indicates a data integrity issue.`
+    );
+    certification = "listed";
+  }
+
+  return {
+    id: row.id,
+    ownerId: row.owner_id,
+    name: row.name,
+    description: row.description,
+    hostname: row.hostname,
+    port: row.port,
+    protocol,
+    websiteUrl: row.website_url,
+    certification,
+    lastCheckAt: row.last_check_at,
+    lastCheckResult: row.last_check_result,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -1,4 +1,4 @@
-import type { DefeatedNpcRecord, EquipSlot, AccountRecord, CharacterRecord, IdentityLinkRecord, OAuthProvider } from "@muddown/shared";
+import type { DefeatedNpcRecord, EquipSlot, AccountRecord, CharacterRecord, IdentityLinkRecord, OAuthProvider, GameServerRecord, UserSettableCertification } from "@muddown/shared";
 
 // ─── Database Abstraction ────────────────────────────────────────────────────
 // All persistence goes through this interface so the storage backend
@@ -52,6 +52,15 @@ export interface GameDatabase {
   updateSessionCharacter(token: string, characterId: string | null): void;
   deleteSession(token: string): void;
   cleanExpiredSessions(): void;
+
+  // ── Game Servers (Directory) ─────────────────────────────────────────────
+  getGameServer(id: string): GameServerRecord | undefined;
+  getGameServersByOwner(ownerId: string): GameServerRecord[];
+  getAllGameServers(): GameServerRecord[];
+  createGameServer(server: GameServerRecord): void;
+  updateGameServer(id: string, update: GameServerUpdate): void;
+  deleteGameServer(id: string): void;
+  updateGameServerCheck(id: string, checkResult: string, certification: GameServerRecord["certification"]): void;
 }
 
 // ── Supporting Types ──────────────────────────────────────────────────────────
@@ -71,4 +80,14 @@ export interface AuthSession {
   accountId: string;
   activeCharacterId: string | null;
   expiresAt: string; // ISO 8601
+}
+
+export interface GameServerUpdate {
+  name?: string;
+  description?: string;
+  hostname?: string;
+  port?: number | null;
+  protocol?: GameServerRecord["protocol"];
+  websiteUrl?: string | null;
+  certification?: UserSettableCertification;  // "verified" is set only by the compliance checker
 }

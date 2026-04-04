@@ -280,3 +280,28 @@ export interface OnResetHookContext extends HookContextBase {
 }
 
 export type HookContext = OnContactHookContext | OnCreateHookContext | OnResetHookContext;
+
+// ─── Games Directory ─────────────────────────────────────────────────────────
+
+export type CertificationTier = "verified" | "self-certified" | "listed";
+
+/** The subset of CertificationTier that users may set directly. "verified" is system-only. */
+export type UserSettableCertification = Exclude<CertificationTier, "verified">;
+
+export type ServerProtocol = "websocket" | "telnet" | "mcp" | "other";
+
+export interface GameServerRecord {
+  id: string;                   // UUID (primary key)
+  ownerId: string;              // FK → accounts
+  name: string;                 // display name of the game/server
+  description: string;          // short description
+  hostname: string;             // connection hostname
+  port: number | null;          // connection port (null for default)
+  protocol: ServerProtocol;     // primary protocol
+  websiteUrl: string | null;    // optional website link
+  certification: CertificationTier;
+  lastCheckAt: string | null;   // ISO 8601 — last automated check
+  lastCheckResult: string | null; // JSON — compliance check details
+  createdAt: string;            // ISO 8601
+  updatedAt: string;            // ISO 8601
+}

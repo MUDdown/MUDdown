@@ -16,6 +16,7 @@ import {
   handleAuthRoute, resolveTicket, setCorsHeaders,
   type OAuthConfig, type ProviderConfig,
 } from "./auth.js";
+import { handleGamesRoute } from "./games.js";
 import { fireHook, registerHook, createGreetingHook } from "./hooks.js";
 
 // ─── Player Session ──────────────────────────────────────────────────────────
@@ -247,6 +248,9 @@ const server = createServer((req, res) => {
 
     // CORS for non-auth routes
     setCorsHeaders(req, res);
+
+    // Games directory API
+    if (await handleGamesRoute(req, res, db)) return;
 
     // Health check
     if (req.url === "/health") {

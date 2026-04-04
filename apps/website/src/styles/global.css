@@ -18,6 +18,10 @@
   --font-body: "Inter", system-ui, sans-serif;
   --radius: 8px;
   --header-height: 80px;
+  --cert-verified-bg: #2d4a2d;
+  --cert-verified-fg: #6fbf73;
+  --cert-self-certified-bg: #4a3d1a;
+  --cert-self-certified-fg: #e6c46e;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -827,3 +831,120 @@ body:has(.play-section) footer {
     box-shadow: -4px 0 16px rgba(0, 0, 0, 0.4);
   }
 }
+
+/* ─── Games Directory Page ──────────────────────────────────────────────── */
+
+.games-page { padding: 2rem 0; }
+.games-page h2 { margin-bottom: 0.5rem; }
+.games-page-intro { color: var(--text-dim); margin-bottom: 2rem; max-width: 700px; }
+
+.games-list { margin-bottom: 2rem; }
+.games-loading, .games-empty, .games-error { color: var(--text-dim); font-style: italic; }
+.games-error { color: var(--red); }
+
+.tier-heading {
+  color: var(--text-bright);
+  font-size: 1.1rem;
+  margin: 1.5rem 0 0.75rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.3rem;
+}
+
+.server-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.server-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem;
+}
+.server-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+.server-name { margin: 0; font-size: 1rem; color: var(--text-bright); }
+.server-desc { color: var(--text-dim); font-size: 0.9rem; margin: 0 0 0.6rem; }
+.server-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  font-size: 0.85rem;
+}
+.server-connection {
+  background: var(--bg);
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+  font-size: 0.85rem;
+}
+.server-link { color: var(--accent); }
+.last-check { color: var(--text-dim); font-size: 0.8rem; }
+
+.cert-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.15em 0.5em;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.cert-verified { background: var(--cert-verified-bg); color: var(--cert-verified-fg); }
+.cert-self-certified { background: var(--cert-self-certified-bg); color: var(--cert-self-certified-fg); }
+.cert-listed { background: var(--bg); color: var(--text-dim); border: 1px solid var(--border); }
+
+/* ─── Registration Form ─────────────────────────────────────────────────── */
+
+.register-section { margin-top: 2rem; }
+.register-section h3 { margin-bottom: 0.5rem; }
+.register-section p { color: var(--text-dim); margin-bottom: 1rem; }
+.register-steps { color: var(--text-dim); margin: 0 0 1.5rem 1.25rem; padding: 0; font-size: 0.95rem; line-height: 1.6; }
+.register-steps li { margin-bottom: 0.25rem; }
+.register-steps a { color: var(--accent); }
+
+.register-form { max-width: 600px; }
+.form-row { margin-bottom: 1rem; }
+.form-row label { display: block; margin-bottom: 0.3rem; color: var(--text-bright); font-size: 0.9rem; }
+.form-row .required { color: var(--accent); }
+.form-row input, .form-row textarea, .form-row select {
+  width: 100%;
+  padding: 0.5rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+.form-row input:focus, .form-row textarea:focus, .form-row select:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+.form-row-inline { display: flex; gap: 1rem; }
+.form-row-inline > div { flex: 1; }
+
+.form-actions { display: flex; align-items: center; gap: 1rem; }
+.btn-primary {
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  padding: 0.5rem 1.2rem;
+  border-radius: 4px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.15s ease;
+}
+.btn-primary:hover { background: var(--accent-dim); }
+
+.form-status { font-size: 0.85rem; color: var(--text-dim); }
+.form-status-ok { color: #6fbf73; }
+.form-status-err { color: var(--red); }
+
+.login-prompt { margin-top: 2rem; color: var(--text-dim); }
+.login-prompt a { color: var(--accent); }

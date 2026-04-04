@@ -1,0 +1,242 @@
+---
+import Base from "../layouts/Base.astro";
+---
+<Base title="MUDdown — Games Directory">
+  <section class="games-page">
+    <div class="container">
+      <h2>Games Directory</h2>
+      <p class="games-page-intro">
+        MUDdown-compatible servers and MUD communities. Servers are listed by certification tier:
+        <strong>Verified</strong> (passes automated compliance checks),
+        <strong>Self-Certified</strong> (operator claims compliance), or
+        <strong>Listed</strong> (any MUD).
+      </p>
+
+      <div id="games-list" class="games-list">
+        <p class="games-loading">Loading directory…</p>
+      </div>
+
+      <div id="register-section" class="register-section" style="display:none;">
+        <h3>Register Your Server</h3>
+        <p>Add your game to the directory. Requires a MUDdown account.</p>
+        <ol class="register-steps">
+          <li>Fill out the form below and choose <strong>Listed</strong> or <strong>Self-Certified</strong>.</li>
+          <li>Your server appears in the directory right away.</li>
+          <li>We periodically connect to WebSocket servers to check compliance with the <a href="/spec">MUDdown specification</a>.</li>
+          <li>Servers that pass are automatically upgraded to <strong>Verified</strong>.</li>
+        </ol>
+        <form id="register-form" class="register-form">
+          <div class="form-row">
+            <label for="reg-name">Server Name <span class="required">*</span></label>
+            <input type="text" id="reg-name" name="name" required minlength="2" maxlength="100" placeholder="My Awesome MUD" />
+          </div>
+          <div class="form-row">
+            <label for="reg-description">Description</label>
+            <textarea id="reg-description" name="description" maxlength="500" rows="3" placeholder="A brief description of your game…"></textarea>
+          </div>
+          <div class="form-row form-row-inline">
+            <div>
+              <label for="reg-hostname">Hostname <span class="required">*</span></label>
+              <input type="text" id="reg-hostname" name="hostname" required placeholder="mud.example.com" />
+            </div>
+            <div>
+              <label for="reg-port">Port</label>
+              <input type="number" id="reg-port" name="port" min="1" max="65535" placeholder="3300" />
+            </div>
+          </div>
+          <div class="form-row form-row-inline">
+            <div>
+              <label for="reg-protocol">Protocol</label>
+              <select id="reg-protocol" name="protocol">
+                <option value="websocket" selected>WebSocket</option>
+                <option value="telnet">Telnet</option>
+                <option value="mcp">MCP</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div>
+              <label for="reg-certification">Certification</label>
+              <select id="reg-certification" name="certification">
+                <option value="listed" selected>Listed</option>
+                <option value="self-certified">Self-Certified</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <label for="reg-website">Website URL</label>
+            <input type="url" id="reg-website" name="websiteUrl" placeholder="https://example.com" />
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">Register Server</button>
+            <span id="register-status" class="form-status"></span>
+          </div>
+        </form>
+      </div>
+
+      <div id="login-prompt" class="login-prompt" style="display:none;">
+        <p>Want to add your server? <a href="/login">Log in</a> to register.</p>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    const API_BASE = import.meta.env.PUBLIC_API_BASE || (location.port ? `${location.protocol}//${location.hostname}:3300` : location.origin);
+
+    // ── Certification Badge ──────────────────────────────────────────────────
+
+    function certBadge(tier) {
+      const labels = { verified: "✓ Verified", "self-certified": "Self-Certified", listed: "Listed" };
+      const safeTier = escapeHtml(tier);
+      return `<span class="cert-badge cert-${safeTier}">${labels[tier] || safeTier}</span>`;
+    }
+
+    // ── Render Server Card ───────────────────────────────────────────────────
+
+    function renderServer(s) {
+      const port = s.port ? `:${s.port}` : "";
+      const proto = s.protocol === "websocket" ? "ws" : s.protocol;
+      const connection = `${proto}://${s.hostname}${port}`;
+      let website = "";
+      if (s.websiteUrl) {
+        try {
+          const parsed = new URL(s.websiteUrl);
+          if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+            website = `<a href="${escapeHtml(parsed.href)}" target="_blank" rel="noopener noreferrer" class="server-link">Website</a>`;
+          }
+        } catch { /* invalid URL — skip the link */ }
+      }
+      const lastCheck = s.lastCheckAt
+        ? `<span class="last-check">Last checked: ${new Date(s.lastCheckAt).toLocaleDateString()}</span>`
+        : "";
+
+      return `
+        <div class="server-card">
+          <div class="server-header">
+            <h4 class="server-name">${escapeHtml(s.name)}</h4>
+            ${certBadge(s.certification)}
+          </div>
+          <p class="server-desc">${escapeHtml(s.description)}</p>
+          <div class="server-meta">
+            <code class="server-connection">${escapeHtml(connection)}</code>
+            ${website}
+            ${lastCheck}
+          </div>
+        </div>
+      `;
+    }
+
+    function escapeHtml(text) {
+      const el = document.createElement("span");
+      el.textContent = text ?? "";
+      return el.innerHTML;
+    }
+
+    // ── Load Directory ───────────────────────────────────────────────────────
+
+    async function loadGames() {
+      const container = document.getElementById("games-list");
+      try {
+        const res = await fetch(`${API_BASE}/api/games`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const servers = data.servers || [];
+
+        if (servers.length === 0) {
+          container.innerHTML = `<p class="games-empty">No servers registered yet. Be the first!</p>`;
+        } else {
+          // Group by certification tier
+          const groups = { verified: [], "self-certified": [], listed: [] };
+          for (const s of servers) {
+            (groups[s.certification] || groups.listed).push(s);
+          }
+
+          let html = "";
+          for (const [tier, list] of Object.entries(groups)) {
+            if (list.length === 0) continue;
+            const tierLabels = { verified: "Verified Servers", "self-certified": "Self-Certified Servers", listed: "Listed Servers" };
+            html += `<h3 class="tier-heading">${tierLabels[tier]}</h3>`;
+            html += `<div class="server-grid">${list.map(renderServer).join("")}</div>`;
+          }
+          container.innerHTML = html;
+        }
+      } catch (err) {
+        container.innerHTML = `<p class="games-error">Could not load the games directory. Please try again later.</p>`;
+        console.error("Failed to load games:", err);
+      }
+    }
+
+    // ── Auth Check & Registration Form ───────────────────────────────────────
+
+    async function checkAuthAndShowForm() {
+      try {
+        const res = await fetch(`${API_BASE}/auth/me`, { credentials: "include" });
+        if (res.ok) {
+          document.getElementById("register-section").style.display = "";
+          document.getElementById("login-prompt").style.display = "none";
+        } else {
+          document.getElementById("register-section").style.display = "none";
+          document.getElementById("login-prompt").style.display = "";
+        }
+      } catch {
+        document.getElementById("register-section").style.display = "none";
+        document.getElementById("login-prompt").style.display = "";
+      }
+    }
+
+    // ── Registration Handler ─────────────────────────────────────────────────
+
+    document.getElementById("register-form")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const status = document.getElementById("register-status");
+      const form = e.target;
+      status.textContent = "Registering…";
+      status.className = "form-status";
+
+      const body = {
+        name: form.name.value.trim(),
+        description: form.description.value.trim(),
+        hostname: form.hostname.value.trim(),
+        port: form.port.value ? Number(form.port.value) : null,
+        protocol: form.protocol.value,
+        certification: form.certification.value,
+        websiteUrl: form.websiteUrl.value.trim() || null,
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/api/games`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+
+        let data;
+        const contentType = res.headers.get("content-type") || "";
+        if (contentType.includes("application/json")) {
+          data = await res.json();
+        } else {
+          const text = await res.text();
+          data = { error: text || `Server returned ${res.status}` };
+        }
+
+        if (res.ok) {
+          status.textContent = "Server registered!";
+          status.className = "form-status form-status-ok";
+          form.reset();
+          loadGames(); // refresh the directory
+        } else {
+          status.textContent = data.error || `Registration failed (${res.status})`;
+          status.className = "form-status form-status-err";
+        }
+      } catch (err) {
+        status.textContent = "Network error — please try again";
+        status.className = "form-status form-status-err";
+      }
+    });
+
+    // ── Init ─────────────────────────────────────────────────────────────────
+
+    loadGames();
+    checkAuthAndShowForm();
+  </script>
+</Base>
