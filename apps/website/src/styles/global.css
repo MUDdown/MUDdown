@@ -157,6 +157,52 @@ footer {
   margin-bottom: 0.4rem;
 }
 
+/* ── Features Page ──────────────────────────── */
+
+.features-page {
+  padding: 3rem 0 2rem;
+}
+.features-page h2 {
+  font-size: 2rem;
+  margin-bottom: 0.75rem;
+}
+.features-page-intro {
+  color: var(--text-dim);
+  font-size: 1.1rem;
+  margin-bottom: 2.5rem;
+}
+.features-page-category {
+  margin-bottom: 2.5rem;
+}
+.features-page-category h3 {
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.features-page-category h3 .icon {
+  margin-right: 0.5rem;
+}
+.features-page-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+.features-page-list li {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  font-size: 0.95rem;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+.features-page-list li strong {
+  color: var(--text-bright);
+  font-weight: 600;
+}
+
 /* Full-height layout for play page */
 body:has(.play-section) {
   height: 100vh;
