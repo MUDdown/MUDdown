@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { GameServerRecord, CertificationTier, ServerProtocol, UserSettableCertification } from "@muddown/shared";
-import { resolveSession, resolveAccount, setCorsHeaders, handleCorsPreflightIfNeeded } from "./auth.js";
+import { resolveAccount, setCorsHeaders, handleCorsPreflightIfNeeded } from "./auth.js";
 import type { GameDatabase, GameServerUpdate } from "./db/types.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -294,9 +294,19 @@ export async function handleGamesRoute(
     return true;
   }
 
+  // If we matched /api/games exactly but method wasn't GET or POST, return 405
+  if (url.pathname === "/api/games") {
+    res.setHeader("Allow", "GET, POST");
+    sendJson(res, 405, { error: "Method not allowed" });
+    return true;
+  }
+
   // Routes with server ID: /api/games/:id
   const idMatch = url.pathname.match(/^\/api\/games\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
-  if (!idMatch) return false;
+  if (!idMatch) {
+    sendJson(res, 400, { error: "Invalid server ID format" });
+    return true;
+  }
   const serverId = idMatch[1].toLowerCase();
 
   // GET /api/games/:id — get single server (public)

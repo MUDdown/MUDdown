@@ -1,5 +1,5 @@
 import { WebSocket } from "ws";
-import type { GameServerRecord, CertificationTier, ServerMessage } from "@muddown/shared";
+import type { CertificationTier } from "@muddown/shared";
 import type { GameDatabase } from "./db/types.js";
 
 // ─── Compliance Check Result ─────────────────────────────────────────────────
@@ -88,7 +88,7 @@ export function checkServer(hostname: string, port: number | null, protocol: str
           result.containerBlocks = true;
         }
       }
-      if (result.wireProtocol) {
+      if (result.wireProtocol && result.containerBlocks) {
         clearTimeout(timeout);
         ws.close();
         settle();
