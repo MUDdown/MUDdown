@@ -130,7 +130,7 @@ export function certificationFromResult(result: ComplianceCheckResult, currentTi
  */
 let running = false;
 
-export async function runComplianceChecks(db: GameDatabase): Promise<void> {
+export async function runComplianceChecks(db: Pick<GameDatabase, "getAllGameServers" | "updateGameServerCheck">): Promise<void> {
   if (running) {
     console.warn("Compliance check skipped — previous run still in progress.");
     return;

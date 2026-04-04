@@ -1575,6 +1575,13 @@ async function shutdown(): Promise<void> {
   clearTimeout(complianceInitialTimer);
   clearInterval(complianceTimer);
 
+  // Force exit if shutdown hangs (e.g., lingering connections or stuck compliance run)
+  const forceExitTimer = setTimeout(() => {
+    console.warn("Forced shutdown after timeout.");
+    process.exit(1);
+  }, 15_000);
+  forceExitTimer.unref();
+
   if (activeComplianceRun) {
     console.log("Waiting for in-progress compliance check to finish...");
     await activeComplianceRun;
@@ -1582,13 +1589,6 @@ async function shutdown(): Promise<void> {
 
   saveAllState();
   db.cleanExpiredSessions();
-
-  // Force exit if shutdown hangs (e.g., lingering connections)
-  const forceExitTimer = setTimeout(() => {
-    console.warn("Forced shutdown after timeout.");
-    process.exit(1);
-  }, 5000);
-  forceExitTimer.unref();
 
   // Close all WebSocket connections first
   for (const ws of wss.clients) {
