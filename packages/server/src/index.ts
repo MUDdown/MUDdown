@@ -1552,10 +1552,12 @@ const COMPLIANCE_INITIAL_DELAY_MS = 60 * 1000; // 1 minute after startup
 let activeComplianceRun: Promise<void> | null = null;
 
 function scheduleCompliance(label: string): void {
+  if (activeComplianceRun) return; // previous run still in progress
   const startedAt = new Date().toISOString();
-  activeComplianceRun = runComplianceChecks(db)
+  const run = runComplianceChecks(db)
     .catch(err => console.error(`[${startedAt}] Compliance check (${label}) failed:`, err))
-    .finally(() => { activeComplianceRun = null; });
+    .finally(() => { if (activeComplianceRun === run) activeComplianceRun = null; });
+  activeComplianceRun = run;
 }
 
 const complianceInitialTimer = setTimeout(() => scheduleCompliance("startup run"), COMPLIANCE_INITIAL_DELAY_MS);
