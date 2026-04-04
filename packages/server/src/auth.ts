@@ -443,7 +443,7 @@ export async function exchangeCodeForToken(
 
     if (!tokenData.access_token) {
       const detail = tokenData.error_description
-        ? `${tokenData.error}: ${tokenData.error_description}`
+        ? `${tokenData.error ?? "unknown_error"}: ${tokenData.error_description}`
         : (tokenData.error ?? "no access_token in response");
       console.error(`${provider} OAuth token error: ${detail}`);
       return null;

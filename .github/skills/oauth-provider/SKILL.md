@@ -11,7 +11,7 @@ You are adding a new OAuth or OIDC identity provider to MUDdown. This is a multi
 
 ### 1. `packages/shared/src/index.ts` — Register the provider
 
-Add the new provider string to the `OAUTH_PROVIDERS` tuple. Position determines display order (gaming-community providers first).
+Add the new provider string to the `OAUTH_PROVIDERS` tuple so it is included in the shared provider type and validation guard. This tuple does **not** control the login-button display order; update `apps/website/src/pages/login.astro` separately if you need to change the UI order.
 
 ```typescript
 export const OAUTH_PROVIDERS = ["discord", "github", "microsoft", "google"] as const;
@@ -47,7 +47,7 @@ Also add a callback-URL warning in the `if (exampleCfg && !process.env.EXAMPLE_C
 
 ### 4. `apps/website/src/pages/login.astro` — Add the login button
 
-Add a new `<button>` in the provider list with the provider's brand SVG icon. Register it in the `providerButtons` record in the `<script>` block. The `/auth/providers` endpoint controls visibility — buttons for unconfigured providers are hidden automatically.
+Add a new `<button>` in the provider list with the provider's brand SVG icon. Register it in the `providerButtons` record in the `<script>` block. The `/auth/providers` endpoint controls provider availability; providers not returned are rendered disabled and dimmed unless you also update `login.astro` to remove them from the rendered list.
 
 ### 5. `packages/server/.env.example` — Document env vars
 
