@@ -375,11 +375,17 @@ Type commands or click links to explore. Try: \`look\`, \`go north\`, \`help\`
   sendRoom(ws, session.currentRoom);
   sendInventoryState(ws, session);
 
+  let lastThrottleNoticeAt = 0;
+
   ws.on("message", (data) => {
     // Rate-limit incoming commands
     if (!session.rateLimiter.consume()) {
-      console.warn(`[rate-limit] throttled session ${session.id} (player: ${session.name})`);
-      send(ws, systemMessage("You're sending commands too quickly. Slow down a bit."));
+      const now = Date.now();
+      if (now - lastThrottleNoticeAt >= 5000) {
+        lastThrottleNoticeAt = now;
+        console.warn(`[rate-limit] throttled session ${session.id} (player: ${session.name})`);
+        send(ws, systemMessage("You're sending commands too quickly. Slow down a bit."));
+      }
       return;
     }
 
