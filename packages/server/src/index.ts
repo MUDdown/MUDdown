@@ -56,7 +56,11 @@ function envInt(key: string, fallback: number): number {
   const raw = process.env[key];
   if (raw === undefined || raw === "") return fallback;
   const n = Number(raw);
-  return Number.isNaN(n) ? fallback : n;
+  if (!Number.isInteger(n) || n <= 0) {
+    console.warn(`[rate-limit] invalid ${key}=${raw} (must be a positive integer), using default ${fallback}`);
+    return fallback;
+  }
+  return n;
 }
 
 const RATE_LIMIT_BURST  = envInt("RATE_LIMIT_BURST", 20);
