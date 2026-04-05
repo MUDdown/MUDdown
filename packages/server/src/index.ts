@@ -9,6 +9,7 @@ import {
   escapeMarkdownLinkLabel, escapeMarkdownLinkDest, escapeDialogueText,
   resolveAttack, formatAttackLine, getPlayerAttackBonus, getPlayerDamage, getPlayerAc,
   resetPlayerAfterDefeat, stripHtmlComments, buildInventoryState, TokenBucket,
+  getHelpEntry, helpEntries, buildHelpBlock, buildHelpTable, buildHintBlock,
 } from "./helpers.js";
 import { SqliteDatabase } from "./db/index.js";
 import type { GameDatabase } from "./db/types.js";
@@ -19,8 +20,8 @@ import {
 import { handleGamesRoute } from "./games.js";
 import { runComplianceChecks } from "./compliance.js";
 import { fireHook, registerHook, createGreetingHook } from "./hooks.js";
-import { getLlmConfig, isLlmConfigured, generateNpcDialogue, MAX_HISTORY_MESSAGES } from "./llm.js";
-import type { ConversationMessage, GeneratedDialogue, LlmConfig } from "./llm.js";
+import { getLlmConfig, isLlmConfigured, generateNpcDialogue, generateHint, MAX_HISTORY_MESSAGES } from "./llm.js";
+import type { ConversationMessage, GeneratedDialogue, LlmConfig, HintContext } from "./llm.js";
 
 // ─── Player Session ──────────────────────────────────────────────────────────
 
@@ -479,7 +480,7 @@ async function handleCommand(ws: WebSocket, msg: ClientMessage): Promise<void> {
       sendRoom(ws, session.currentRoom);
       break;
     case "help":
-      sendHelp(ws);
+      sendHelp(ws, arg || undefined);
       break;
     case "say": {
       broadcast(session, arg);
@@ -533,6 +534,10 @@ async function handleCommand(ws: WebSocket, msg: ClientMessage): Promise<void> {
     }
     case "flee": {
       handleFlee(ws, session);
+      break;
+    }
+    case "hint": {
+      await handleHint(ws, session);
       break;
     }
     default:
@@ -703,36 +708,94 @@ function sendRoom(ws: WebSocket, roomId: string): void {
   });
 }
 
-function sendHelp(ws: WebSocket): void {
+function sendHelp(ws: WebSocket, command?: string): void {
+  if (command) {
+    const entry = getHelpEntry(command);
+    if (!entry) {
+      send(ws, systemMessage(`Unknown command: \`${command}\`. Type \`help\` for a list of commands.`));
+      return;
+    }
+    send(ws, {
+      v: 1,
+      id: randomUUID(),
+      type: "system",
+      timestamp: new Date().toISOString(),
+      muddown: buildHelpBlock(entry),
+    });
+    return;
+  }
+
   send(ws, {
     v: 1,
     id: randomUUID(),
     type: "system",
     timestamp: new Date().toISOString(),
-    muddown: `:::system{type="help"}
-# Commands
+    muddown: buildHelpTable(helpEntries),
+  });
+}
 
-| Command | Description |
-|---------|-------------|
-| \`look\` | Look around the current room |
-| \`go <direction>\` | Move in a direction (n, s, e, w, u, d, ne, nw, se, sw) |
-| \`examine <thing>\` | Examine something in the room |
-| \`talk <npc>\` | Talk to an NPC |
-| \`get <item>\` | Pick up an item |
-| \`drop <item>\` | Drop an item from your inventory |
-| \`inventory\` | Show your inventory and equipment |
-| \`equip <item>\` | Equip a weapon, armor, or accessory |
-| \`unequip <slot>\` | Unequip an item (weapon, armor, accessory) |
-| \`use <item>\` | Use an item |
-| \`combine <item> with <item>\` | Combine two items together |
-| \`attack <npc>\` | Attack a hostile NPC |
-| \`flee\` | Flee from combat |
-| \`say <message>\` | Say something to others in the room |
-| \`who\` | See who is online |
-| \`help\` | Show this help |
+// ─── Static Hint Fallback ────────────────────────────────────────────────────
 
-You can also click on **links** in room descriptions to interact.
-:::`,
+const STATIC_HINTS = [
+  "Try talking to NPCs — they often have useful information. Use `talk <npc>` to start a conversation.",
+  "Exploring new rooms often reveals items and NPCs. Check the exits and head somewhere you haven't been.",
+  "Items on the ground can be picked up with `get <item>`. Use `examine <item>` to learn more about them.",
+  "Some items can be combined together. Try `combine <item> with <item>` if you have interesting pieces.",
+  "Use `inventory` to see what you're carrying and what's equipped.",
+  "Equipping weapons and armor improves your combat stats. Use `equip <item>` to gear up.",
+];
+
+async function handleHint(ws: WebSocket, session: PlayerSession): Promise<void> {
+  if (isLlmConfigured(llmConfig)) {
+    const room = world.rooms.get(session.currentRoom);
+    const exits = Object.keys(world.connections.get(session.currentRoom) ?? {});
+    const npcIds = world.roomNpcs.get(session.currentRoom) ?? [];
+    const npcNames = npcIds
+      .map(id => world.npcDefs.get(id)?.name)
+      .filter((n): n is string => n != null);
+    const roomItemIds = world.roomItems.get(session.currentRoom) ?? [];
+    const roomItemNames = roomItemIds
+      .map(id => world.itemDefs.get(id)?.name)
+      .filter((n): n is string => n != null);
+    const invNames = session.inventory
+      .map(id => world.itemDefs.get(id)?.name ?? id);
+
+    const ctx: HintContext = {
+      playerName: session.name,
+      playerClass: session.characterClass,
+      roomName: getRoomName(session.currentRoom),
+      roomDescription: room?.muddown.substring(0, 300) ?? "",
+      exits,
+      npcs: npcNames,
+      roomItems: roomItemNames,
+      inventoryItems: invNames,
+      inCombat: session.combat !== null,
+      hp: session.hp,
+      maxHp: session.maxHp,
+    };
+
+    const result = await generateHint(llmConfig, ctx);
+    if (result) {
+      send(ws, {
+        v: 1,
+        id: randomUUID(),
+        type: "system",
+        timestamp: new Date().toISOString(),
+        muddown: buildHintBlock(result.hint, result.suggestedCommands),
+      });
+      return;
+    }
+    // LLM failed — fall through to static hints
+  }
+
+  // Static fallback
+  const hint = STATIC_HINTS[Math.floor(Math.random() * STATIC_HINTS.length)];
+  send(ws, {
+    v: 1,
+    id: randomUUID(),
+    type: "system",
+    timestamp: new Date().toISOString(),
+    muddown: buildHintBlock(hint, []),
   });
 }
 

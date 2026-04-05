@@ -494,6 +494,8 @@ import Base from "../layouts/Base.astro";
         sendCommand(`talk ${target}`);
       } else if (scheme === "item") {
         sendCommand(`examine ${target}`);
+      } else if (scheme === "help") {
+        sendCommand(`help ${target}`);
       }
       input.scrollIntoView({ block: "end" });
       input.focus();

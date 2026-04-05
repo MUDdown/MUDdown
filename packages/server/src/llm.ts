@@ -176,3 +176,116 @@ function createProvider(config: LlmConfig) {
       throw new Error(`Unknown LLM provider: ${config.provider}`);
   }
 }
+
+// ─── Hint Generation ─────────────────────────────────────────────────────────
+
+export interface HintContext {
+  playerName: string;
+  playerClass: string | null;
+  roomName: string;
+  roomDescription: string;
+  exits: string[];
+  npcs: string[];
+  roomItems: string[];
+  inventoryItems: string[];
+  inCombat: boolean;
+  hp: number;
+  maxHp: number;
+}
+
+export interface GeneratedHint {
+  hint: string;
+  suggestedCommands: string[];
+}
+
+const hintSchema = z.object({
+  hint: z.string().describe("A helpful, in-character hint or suggestion for the player. 1-3 sentences. Do not reveal spoilers or exact solutions."),
+  suggestedCommands: z.array(z.string()).describe("1-3 specific commands the player could try next (e.g., 'talk crier', 'go north', 'examine fountain')."),
+});
+
+function buildHintSystemPrompt(ctx: HintContext): string {
+  const lines: string[] = [
+    "You are a helpful game assistant for Northkeep, a text-based fantasy MUD.",
+    "",
+    "## Rules",
+    "- Give a brief, encouraging hint based on the player's current situation.",
+    "- Do not reveal exact puzzle solutions. Nudge, don't solve.",
+    "- Mention specific things the player can interact with (NPCs, items, exits).",
+    "- Suggest 1-3 concrete commands they could try.",
+    "- Keep it under 3 sentences.",
+    "- Be warm and helpful, like a friendly narrator.",
+    "",
+    "## Current Situation",
+    `- Player: ${ctx.playerName}${ctx.playerClass ? ` (${ctx.playerClass})` : ""}`,
+    `- Location: ${ctx.roomName}`,
+    `- HP: ${ctx.hp}/${ctx.maxHp}`,
+  ];
+
+  if (ctx.roomDescription) {
+    lines.push(`- Room: ${ctx.roomDescription}`);
+  }
+
+  if (ctx.inCombat) {
+    lines.push("- **Currently in combat!**");
+  }
+
+  if (ctx.exits.length > 0) {
+    lines.push(`- Exits: ${ctx.exits.join(", ")}`);
+  }
+
+  if (ctx.npcs.length > 0) {
+    lines.push(`- NPCs here: ${ctx.npcs.join(", ")}`);
+  }
+
+  if (ctx.roomItems.length > 0) {
+    lines.push(`- Items on ground: ${ctx.roomItems.join(", ")}`);
+  }
+
+  if (ctx.inventoryItems.length > 0) {
+    lines.push(`- Carrying: ${ctx.inventoryItems.join(", ")}`);
+  }
+
+  return lines.join("\n");
+}
+
+const HINT_TIMEOUT = 6_000;
+
+/**
+ * Generate a context-aware hint using the configured LLM provider.
+ * Returns null on any failure so the caller can fall back to static tips.
+ */
+export async function generateHint(
+  config: LlmConfig,
+  ctx: HintContext,
+): Promise<GeneratedHint | null> {
+  if (!isLlmConfigured(config)) return null;
+
+  const system = buildHintSystemPrompt(ctx);
+
+  try {
+    const provider = createProvider(config);
+    const { object } = await generateObject({
+      model: provider(config.model),
+      schema: hintSchema,
+      system,
+      messages: [
+        { role: "user", content: "What should I do?" },
+      ],
+      abortSignal: AbortSignal.timeout(HINT_TIMEOUT),
+    });
+
+    if (!object.hint) return null;
+
+    return {
+      hint: object.hint,
+      suggestedCommands: object.suggestedCommands.slice(0, 3),
+    };
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      console.warn(`Hint generation timeout after ${HINT_TIMEOUT}ms`);
+    } else {
+      console.error("Hint generation error:", err instanceof Error ? err.message : err);
+    }
+    return null;
+  }
+}

@@ -15,11 +15,14 @@ import {
   getLlmConfig,
   isLlmConfigured,
   generateNpcDialogue,
+  generateHint,
 } from "../src/llm.js";
 import type {
   ConversationMessage,
   PlayerContext,
   GeneratedDialogue,
+  HintContext,
+  GeneratedHint,
 } from "../src/llm.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -373,5 +376,147 @@ describe("generateNpcDialogue", () => {
 
     const call = mockedGenerateObject.mock.calls[0][0] as any;
     expect(call.system).toContain("A weathered fisherman with salt-stiff clothes.");
+  });
+});
+
+// ─── generateHint ────────────────────────────────────────────────────────────
+
+describe("generateHint", () => {
+  const anthropicConfig = { provider: "anthropic" as const, model: "claude-haiku-4-5-20251001" };
+  const noneConfig = { provider: "none" as const, model: "" };
+  const mockedGenerateObject = vi.mocked(generateObject);
+
+  function makeHintCtx(overrides: Partial<HintContext> = {}): HintContext {
+    return {
+      playerName: "Tester",
+      playerClass: "warrior",
+      roomName: "Town Square",
+      roomDescription: "A bustling town square.",
+      exits: ["north", "south"],
+      npcs: ["Town Crier"],
+      roomItems: ["Rusty Key"],
+      inventoryItems: ["Bread"],
+      inCombat: false,
+      hp: 20,
+      maxHp: 20,
+      ...overrides,
+    };
+  }
+
+  const GOOD_HINT: GeneratedHint = {
+    hint: "The Town Crier might have news for you. Try talking to them!",
+    suggestedCommands: ["talk crier", "examine rusty key"],
+  };
+
+  beforeEach(() => {
+    mockedGenerateObject.mockReset();
+  });
+
+  it("returns null when provider is 'none'", async () => {
+    const result = await generateHint(noneConfig, makeHintCtx());
+    expect(result).toBeNull();
+    expect(mockedGenerateObject).not.toHaveBeenCalled();
+  });
+
+  it("returns generated hint on success", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_HINT,
+    } as any);
+
+    const result = await generateHint(anthropicConfig, makeHintCtx());
+    expect(result).toEqual(GOOD_HINT);
+    expect(mockedGenerateObject).toHaveBeenCalledOnce();
+  });
+
+  it("includes room name and NPCs in system prompt", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_HINT,
+    } as any);
+
+    await generateHint(anthropicConfig, makeHintCtx());
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).toContain("Town Square");
+    expect(call.system).toContain("Town Crier");
+  });
+
+  it("includes combat state in system prompt", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_HINT,
+    } as any);
+
+    await generateHint(anthropicConfig, makeHintCtx({ inCombat: true }));
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).toContain("combat");
+  });
+
+  it("includes inventory in system prompt", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_HINT,
+    } as any);
+
+    await generateHint(anthropicConfig, makeHintCtx({ inventoryItems: ["Rusty Sword", "Bread"] }));
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).toContain("Rusty Sword");
+    expect(call.system).toContain("Bread");
+  });
+
+  it("returns null on API error", async () => {
+    mockedGenerateObject.mockRejectedValueOnce(new Error("API rate limit"));
+
+    const result = await generateHint(anthropicConfig, makeHintCtx());
+    expect(result).toBeNull();
+  });
+
+  it("returns null on timeout", async () => {
+    const abortError = new DOMException("signal timed out", "AbortError");
+    mockedGenerateObject.mockRejectedValueOnce(abortError);
+
+    const result = await generateHint(anthropicConfig, makeHintCtx());
+    expect(result).toBeNull();
+  });
+
+  it("returns null when hint is empty", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: { hint: "", suggestedCommands: ["look"] },
+    } as any);
+
+    const result = await generateHint(anthropicConfig, makeHintCtx());
+    expect(result).toBeNull();
+  });
+
+  it("returns successfully when suggestedCommands is empty", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: { hint: "Explore the area.", suggestedCommands: [] },
+    } as any);
+
+    const result = await generateHint(anthropicConfig, makeHintCtx());
+    expect(result).not.toBeNull();
+    expect(result!.suggestedCommands).toHaveLength(0);
+  });
+
+  it("omits class from system prompt when playerClass is null", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_HINT,
+    } as any);
+
+    await generateHint(anthropicConfig, makeHintCtx({ playerClass: null }));
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).not.toContain("null");
+    expect(call.system).not.toContain("(null)");
+  });
+
+  it("caps suggestedCommands at 3 even if LLM returns more", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: { hint: "Try everything.", suggestedCommands: ["a", "b", "c", "d", "e"] },
+    } as any);
+
+    const result = await generateHint(anthropicConfig, makeHintCtx());
+    expect(result).not.toBeNull();
+    expect(result!.suggestedCommands).toHaveLength(3);
+    expect(result!.suggestedCommands).toEqual(["a", "b", "c"]);
   });
 });

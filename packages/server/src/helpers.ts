@@ -312,3 +312,207 @@ export class TokenBucket {
     this.lastRefill = now;
   }
 }
+
+// ─── Help Entries ────────────────────────────────────────────────────────────
+
+export interface HelpEntry {
+  command: string;
+  aliases: string[];
+  usage: string;
+  description: string;
+  detail: string;
+  examples: string[];
+}
+
+export const helpEntries: Record<string, HelpEntry> = {
+  look: {
+    command: "look",
+    aliases: ["l"],
+    usage: "look",
+    description: "Look around the current room",
+    detail: "Displays the full room description including exits, NPCs present, and items on the ground.",
+    examples: ["look", "l"],
+  },
+  go: {
+    command: "go",
+    aliases: ["north", "south", "east", "west", "up", "down", "n", "s", "e", "w", "u", "d", "ne", "nw", "se", "sw"],
+    usage: "go <direction>",
+    description: "Move in a direction (n, s, e, w, u, d, ne, nw, se, sw)",
+    detail: "Moves your character to an adjacent room. You can type the full direction name, an abbreviation, or use `go <direction>`. You cannot move while in combat — use `flee` first.",
+    examples: ["go north", "north", "n", "go up", "sw"],
+  },
+  examine: {
+    command: "examine",
+    aliases: [],
+    usage: "examine <thing>",
+    description: "Examine something in the room",
+    detail: "Shows a detailed description of an item on the ground or in your inventory. Also works for items you are carrying.",
+    examples: ["examine rusty key", "examine bread"],
+  },
+  talk: {
+    command: "talk",
+    aliases: [],
+    usage: "talk <npc> [message]",
+    description: "Talk to an NPC",
+    detail: "Starts or continues a conversation with an NPC in the room. You can speak freely — NPCs understand natural language and will respond in character. Say goodbye to end a conversation.",
+    examples: ["talk crier", "talk priestess I need healing", "talk gorath Tell me about your forge"],
+  },
+  get: {
+    command: "get",
+    aliases: ["take"],
+    usage: "get <item>",
+    description: "Pick up an item",
+    detail: "Picks up an item from the ground in the current room and adds it to your inventory. Some items are fixed in place and cannot be picked up.",
+    examples: ["get rusty key", "take bread"],
+  },
+  drop: {
+    command: "drop",
+    aliases: [],
+    usage: "drop <item>",
+    description: "Drop an item from your inventory",
+    detail: "Removes an item from your inventory and places it on the ground in the current room. Equipped items must be unequipped first.",
+    examples: ["drop bread", "drop rusty key"],
+  },
+  inventory: {
+    command: "inventory",
+    aliases: ["inv", "i"],
+    usage: "inventory",
+    description: "Show your inventory and equipment",
+    detail: "Lists all items you are carrying and what you have equipped in each slot (weapon, armor, accessory).",
+    examples: ["inventory", "inv", "i"],
+  },
+  equip: {
+    command: "equip",
+    aliases: [],
+    usage: "equip <item>",
+    description: "Equip a weapon, armor, or accessory",
+    detail: "Equips an item from your inventory into its appropriate slot. The item must be equippable. If a slot is already occupied, unequip the current item first.",
+    examples: ["equip rusty sword", "equip cloak"],
+  },
+  unequip: {
+    command: "unequip",
+    aliases: [],
+    usage: "unequip <slot>",
+    description: "Unequip an item (weapon, armor, accessory)",
+    detail: "Removes the item from the specified equipment slot and returns it to your inventory.",
+    examples: ["unequip weapon", "unequip armor", "unequip accessory"],
+  },
+  use: {
+    command: "use",
+    aliases: [],
+    usage: "use <item>",
+    description: "Use an item",
+    detail: "Activates a usable item from your inventory. Effects depend on the item — food heals you, a lantern lights a dark room, a rod lets you fish, and so on.",
+    examples: ["use bread", "use fishing rod", "use candle"],
+  },
+  combine: {
+    command: "combine",
+    aliases: [],
+    usage: "combine <item> with <item>",
+    description: "Combine two items together",
+    detail: "Attempts to combine two items from your inventory using a known recipe. Both items are consumed and a new item is produced if the recipe is valid.",
+    examples: ["combine broken lantern with candle"],
+  },
+  attack: {
+    command: "attack",
+    aliases: [],
+    usage: "attack <npc>",
+    description: "Attack a hostile NPC",
+    detail: "Initiates combat with an NPC in the room. Combat is turn-based — each `attack` command resolves one round. Your equipped weapon affects your damage and attack bonus.",
+    examples: ["attack gorath", "attack bandit"],
+  },
+  flee: {
+    command: "flee",
+    aliases: [],
+    usage: "flee",
+    description: "Flee from combat",
+    detail: "Attempts to escape from combat. You will move to a random adjacent room. If there are no exits, you cannot flee.",
+    examples: ["flee"],
+  },
+  say: {
+    command: "say",
+    aliases: [],
+    usage: "say <message>",
+    description: "Say something to others in the room",
+    detail: "Broadcasts a message to all other players in the same room. Only players in your current room will see it.",
+    examples: ["say Hello everyone!", "say Anyone know where the key is?"],
+  },
+  who: {
+    command: "who",
+    aliases: [],
+    usage: "who",
+    description: "See who is online",
+    detail: "Shows a list of all players currently connected to the game and which room they are in.",
+    examples: ["who"],
+  },
+  help: {
+    command: "help",
+    aliases: [],
+    usage: "help [command]",
+    description: "Show help or detailed command info",
+    detail: "Without an argument, shows the full command list. With a command name, shows detailed usage, examples, and tips for that specific command.",
+    examples: ["help", "help go", "help talk", "help combine"],
+  },
+  hint: {
+    command: "hint",
+    aliases: [],
+    usage: "hint",
+    description: "Get a context-aware hint",
+    detail: "Provides a helpful suggestion based on your current situation — where you are, what you're carrying, and what's around you. Uses AI when available, otherwise shows general tips.",
+    examples: ["hint"],
+  },
+};
+
+/** Look up a help entry by command name or alias. */
+export function getHelpEntry(query: string): HelpEntry | undefined {
+  const q = query.toLowerCase();
+  if (helpEntries[q]) return helpEntries[q];
+  for (const entry of Object.values(helpEntries)) {
+    if (entry.aliases.includes(q)) return entry;
+  }
+  return undefined;
+}
+
+/** Build the MUDdown content string for a single command's detail block. */
+export function buildHelpBlock(entry: HelpEntry): string {
+  const aliasLine = entry.aliases.length > 0
+    ? `\n**Aliases:** ${entry.aliases.map(a => `\`${a}\``).join(", ")}`
+    : "";
+  const examplesBlock = entry.examples.map(e => `- \`${e}\``).join("\n");
+  return `:::system{type="help"}
+# Help: ${entry.command}
+
+**Usage:** \`${entry.usage}\`${aliasLine}
+
+${entry.detail}
+
+## Examples
+
+${examplesBlock}
+:::`;
+}
+
+/** Build the MUDdown content string for the full command table. */
+export function buildHelpTable(entries: Record<string, HelpEntry>): string {
+  const rows = Object.values(entries).map(e =>
+    `| [${e.command}](help:${e.command}) | ${e.description} |`
+  ).join("\n");
+  return `:::system{type="help"}
+# Commands
+
+| Command | Description |
+|---------|-------------|
+${rows}
+
+You can also click on **links** in room descriptions to interact.
+Type \`help <command>\` for detailed usage and examples.
+:::`;
+}
+
+/** Build the MUDdown content string for a hint block. */
+export function buildHintBlock(hint: string, suggestedCommands: string[]): string {
+  const cmdSection = suggestedCommands.length > 0
+    ? `\n\n**Try:**\n${suggestedCommands.map(c => `- \`${c}\``).join("\n")}`
+    : "";
+  return `:::system{type="hint"}\n${hint}${cmdSection}\n:::`;
+}

@@ -59,6 +59,12 @@ import Base from "../layouts/Base.astro";
           <li>
             <strong>Entity lifecycle hooks</strong> — NPCs react to events: greet players on room entry, respawn to home rooms, reset state on timers.
           </li>
+          <li>
+            <strong>Detailed help system</strong> — Type <code>help &lt;command&gt;</code> for per-command usage, aliases, and examples. The overview table links to each command via <code>help:</code> links.
+          </li>
+          <li>
+            <strong>AI game assistant</strong> — The <code>hint</code> command gives context-aware suggestions based on your location, inventory, and surroundings. Uses AI when available, with a static fallback.
+          </li>
         </ul>
       </div>
 
@@ -144,7 +150,7 @@ import Base from "../layouts/Base.astro";
             <strong>Production deployment</strong> — Debian server with nginx, TLS via Let's Encrypt, systemd service, CI/CD via GitHub Actions.
           </li>
           <li>
-            <strong>Comprehensive test suite</strong> — 337 tests across parser and server packages via vitest.
+            <strong>Comprehensive test suite</strong> — 368 tests across parser and server packages via vitest.
           </li>
         </ul>
       </div>
