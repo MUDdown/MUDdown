@@ -753,7 +753,6 @@ async function handleHint(ws: WebSocket, session: PlayerSession): Promise<void> 
     const ctx: HintContext = buildHintContext({
       playerName: session.name,
       playerClass: session.characterClass,
-      currentRoom: session.currentRoom,
       inventory: session.inventory,
       inCombat: session.combat !== null,
       hp: session.hp,

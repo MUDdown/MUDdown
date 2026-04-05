@@ -1,4 +1,5 @@
 import type { ItemDefinition, NpcDefinition } from "@muddown/shared";
+import type { HintContext } from "./llm.js";
 
 // ─── Direction Aliases ───────────────────────────────────────────────────────
 
@@ -538,7 +539,6 @@ export function buildHintBlock(hint: string, suggestedCommands: string[]): strin
 export interface BuildHintContextInput {
   playerName: string;
   playerClass: string | null;
-  currentRoom: string;
   inventory: string[];
   inCombat: boolean;
   hp: number;
@@ -552,22 +552,8 @@ export interface BuildHintContextInput {
   npcDefs: Map<string, NpcDefinition>;
 }
 
-export interface HintContextResult {
-  playerName: string;
-  playerClass: string | null;
-  roomName: string;
-  roomDescription: string;
-  exits: string[];
-  npcs: string[];
-  roomItems: string[];
-  inventoryItems: string[];
-  inCombat: boolean;
-  hp: number;
-  maxHp: number;
-}
-
 /** Pure helper to build a HintContext from world/session data. */
-export function buildHintContext(input: BuildHintContextInput): HintContextResult {
+export function buildHintContext(input: BuildHintContextInput): HintContext {
   const npcNames = input.npcIds
     .map(id => input.npcDefs.get(id)?.name)
     .filter((n): n is string => n != null);

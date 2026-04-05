@@ -298,7 +298,7 @@ export async function generateHint(
       const cause = (err as Error & { cause?: unknown }).cause;
       console.error(
         "Hint generation: LLM response failed schema validation:",
-        err.message,
+        err,
         cause instanceof Error ? cause.message : cause,
       );
     } else {

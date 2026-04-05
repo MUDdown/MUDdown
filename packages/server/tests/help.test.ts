@@ -209,7 +209,6 @@ describe("buildHintContext", () => {
     const result = buildHintContext({
       playerName: "Tester",
       playerClass: "warrior",
-      currentRoom: "town-square",
       inventory: ["bread"],
       inCombat: false,
       hp: 20,
@@ -231,7 +230,6 @@ describe("buildHintContext", () => {
     const result = buildHintContext({
       playerName: "Tester",
       playerClass: "warrior",
-      currentRoom: "town-square",
       inventory: ["unknown-item"],
       inCombat: false,
       hp: 20,
@@ -251,7 +249,6 @@ describe("buildHintContext", () => {
     const result = buildHintContext({
       playerName: "Tester",
       playerClass: "warrior",
-      currentRoom: "town-square",
       inventory: [],
       inCombat: false,
       hp: 20,
@@ -271,7 +268,6 @@ describe("buildHintContext", () => {
     const result = buildHintContext({
       playerName: "Tester",
       playerClass: null,
-      currentRoom: "nonexistent-room",
       inventory: [],
       inCombat: false,
       hp: 10,
