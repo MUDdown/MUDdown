@@ -1225,6 +1225,7 @@ import Base from "../layouts/Base.astro";
       const active = document.activeElement;
       if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT"
           || active.tagName === "BUTTON" || active.tagName === "A")) return;
+      if (active && (active as HTMLElement).isContentEditable) return;
       if (active && (invPanel.contains(active) || hintPanel.contains(active))) return;
       if (e.isComposing) return;
       if (e.key.length !== 1) return;
