@@ -174,6 +174,7 @@ export interface NpcDefinition {
   name: string;
   description: string;
   location: string;       // room ID where this NPC resides
+  backstory?: string;     // LLM context: personality, knowledge, history (enables freeform dialogue)
   dialogue: Record<string, DialogueNode>; // node-id → node ("start" is entry point)
   combat?: NpcCombatStats;
 }

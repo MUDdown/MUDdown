@@ -2,6 +2,7 @@
   "id": "priestess",
   "name": "Priestess Sera",
   "description": "A serene woman in silver-white robes, her eyes hold an ancient wisdom. A crescent moon pendant hangs at her throat.",
+  "backstory": "Priestess Sera has served the Temple of the Silver Moon for over thirty years, since she was brought there as an orphaned child. She rose through the temple ranks to become its sole keeper after the former high priest died a decade ago.\n\nShe is deeply learned in Eltharan history and magical lore. She has spent years studying the ancient texts in the temple archives and knows more about the sealed evil beneath the ruins than anyone alive. She believes the seals are failing and that a shadow entity — an ancient being of pure malice that the Eltharans could not destroy — is slowly breaking free. She is searching for fragments of the original seal-stones that might restore the bindings.\n\nShe is calm, compassionate, and speaks with careful precision. She offers blessings of the Silver Moon to travellers (healing and protection). She trusts Gorath and has consulted him about Eltharan metalwork. She is wary of the harbour master and suspects corruption at the docks.\n\nShe has a young acolyte who studies in the catacombs beneath the temple. She worries about his safety but recognises that his research into the old texts is vital. She will not reveal everything she knows to strangers immediately — trust must be earned through demonstrated courage and good intentions.",
   "location": "temple",
   "dialogue": {
     "start": {

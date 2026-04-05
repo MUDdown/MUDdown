@@ -188,7 +188,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [x] Entity lifecycle hooks (onCreate, onReset, onContact — e.g., NPC greets player on room entry)
 - [x] Character creation (name, class, starting stats)
 - [x] Inventory and equipment UI in the web client
-- [x] OIDC login providers (Microsoft, Google) — extend OAuth2 foundation
+- [x] OIDC login providers (Microsoft, Google, Discord) — extend OAuth2 foundation
 
 ### Phase 3 — Deployment & Infrastructure
 - [x] Debian server setup (nginx + systemd)
@@ -197,10 +197,21 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [x] nginx config: static site + WebSocket proxy to game server
 - [x] CI/CD: GitHub Actions for build/test/deploy
 - [x] Environment-based configuration (.env)
+- [x] WebSocket rate limiting (token-bucket per session)
+- [x] Privacy policy page and automated compliance tests
+- [x] Security hardening (CSP directives, nginx header cleanup)
+- [x] Dependabot for automated dependency updates
+- [x] Branding: favicon, logo mark, PWA manifest, app icons
+- [x] Landing page refresh (MUD/Markdown explainers, rendered example)
+- [x] Features page showcasing implemented functionality
+- [x] Licenses page (third-party dependency attribution)
+- [x] Games directory with certification tiers and compliance checking
+- [x] Discord community integration (widget, nav links)
 
 ### Phase 4 — AI Integration
 - [x] MCP server: expose game state as MCP resources
-- [ ] LLM-powered NPC conversations (RAG over NPC backstories)
+- [x] LLM-powered NPC conversations (RAG over NPC backstories)
+- [ ] Improved in-game help system (detailed per-command usage, examples, LLM-aware `talk` tips)
 - [ ] AI game assistant: context-aware help, command suggestions
 - [ ] Tool-calling integration: AI agents can play the game
 - [ ] Dynamic room descriptions via LLM (based on player state)

@@ -45,6 +45,9 @@ import Base from "../layouts/Base.astro";
             <strong>NPC dialogue</strong> — 16 NPCs with branching dialogue trees. Talk to merchants, guards, and townsfolk across Northkeep.
           </li>
           <li>
+            <strong>LLM-powered conversations</strong> — NPCs with backstories use an LLM to generate freeform, in-character dialogue. Dynamic speech, mood, narrative, and response suggestions — with automatic fallback to static dialogue trees when the LLM is unavailable.
+          </li>
+          <li>
             <strong>Turn-based combat</strong> — Attack NPCs, flee from danger. Shared NPC HP for players in the same room, defeat tracking, and 20-minute respawn timers.
           </li>
           <li>
@@ -109,6 +112,9 @@ import Base from "../layouts/Base.astro";
           </li>
           <li>
             <strong>Structured schemas</strong> — All game constructs are typed data that LLMs can parse, reason about, and act on.
+          </li>
+          <li>
+            <strong>LLM NPC abstraction</strong> — Provider-agnostic dialogue generation via the Vercel AI SDK. Anthropic supported out of the box; swap in other providers (OpenAI, Ollama) by changing a single env var.
           </li>
         </ul>
       </div>

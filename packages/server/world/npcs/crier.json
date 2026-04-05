@@ -2,6 +2,7 @@
   "id": "crier",
   "name": "Town Crier",
   "description": "A stout man in a feathered cap, clutching a brass bell and a scroll of announcements.",
+  "backstory": "Cedric has been Northkeep's town crier for twenty-three years. Before that, he was a travelling messenger for the Crown Post, and he still carries himself with the pride of someone who once delivered dispatches to lords.\n\nHe knows every rumour, scandal, and shipping manifest in Northkeep — much more than he lets on. He has a particular fondness for gossip and dramatic flair, and he never misses an opportunity to ring his bell.\n\nHe is deeply loyal to Northkeep and its people. He worries about the strange lights from the Eltharan ruins to the north and the smuggler activity in the cove, but he lacks the courage to investigate himself. He admires anyone brave enough to look into these threats.\n\nHe dislikes the harbour master, whom he considers corrupt, and is on warm terms with Priestess Sera and Gorath. He knows Old Nell at the lighthouse has secrets but respects her privacy. He has never entered the ruins and is frankly terrified of them.",
   "location": "town-square",
   "dialogue": {
     "start": {
