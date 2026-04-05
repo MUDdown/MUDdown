@@ -22,6 +22,10 @@
   --cert-verified-fg: #6fbf73;
   --cert-self-certified-bg: #4a3d1a;
   --cert-self-certified-fg: #e6c46e;
+  --conformance-interactive-bg: #2a3a5a;
+  --conformance-interactive-fg: #8ab4f8;
+  --conformance-full-bg: #1a3a2a;
+  --conformance-full-fg: #6fcf97;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1046,6 +1050,20 @@ body:has(.play-section) footer {
 .cert-verified { background: var(--cert-verified-bg); color: var(--cert-verified-fg); }
 .cert-self-certified { background: var(--cert-self-certified-bg); color: var(--cert-self-certified-fg); }
 .cert-listed { background: var(--bg); color: var(--text-dim); border: 1px solid var(--border); }
+
+.conformance-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.15em 0.5em;
+  border-radius: 4px;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.conformance-text { background: var(--bg); color: var(--text-dim); border: 1px solid var(--border); }
+.conformance-interactive { background: var(--conformance-interactive-bg); color: var(--conformance-interactive-fg); }
+.conformance-full { background: var(--conformance-full-bg); color: var(--conformance-full-fg); }
 
 /* ─── Registration Form ─────────────────────────────────────────────────── */
 

@@ -1,4 +1,4 @@
-import type { DefeatedNpcRecord, EquipSlot, AccountRecord, CharacterRecord, IdentityLinkRecord, OAuthProvider, GameServerRecord, UserSettableCertification } from "@muddown/shared";
+import type { DefeatedNpcRecord, EquipSlot, AccountRecord, CharacterRecord, IdentityLinkRecord, OAuthProvider, GameServerRecord, UserSettableCertification, ConformanceLevel } from "@muddown/shared";
 
 // ─── Database Abstraction ────────────────────────────────────────────────────
 // All persistence goes through this interface so the storage backend
@@ -60,7 +60,7 @@ export interface GameDatabase {
   createGameServer(server: GameServerRecord): void;
   updateGameServer(id: string, update: GameServerUpdate): void;
   deleteGameServer(id: string): void;
-  updateGameServerCheck(id: string, checkResult: string, certification: GameServerRecord["certification"]): void;
+  updateGameServerCheck(id: string, checkResult: string, certification: GameServerRecord["certification"], conformanceLevel: ConformanceLevel | null): void;
 }
 
 // ── Supporting Types ──────────────────────────────────────────────────────────

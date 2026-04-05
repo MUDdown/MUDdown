@@ -301,6 +301,7 @@ export interface GameServerRecord {
   protocol: ServerProtocol;     // primary protocol
   websiteUrl: string | null;    // optional website link
   certification: CertificationTier;
+  conformanceLevel: ConformanceLevel | null; // detected spec conformance level
   lastCheckAt: string | null;   // ISO 8601 — last automated check
   lastCheckResult: string | null; // JSON — compliance check details
   createdAt: string;            // ISO 8601

@@ -1,5 +1,5 @@
 import { WebSocket } from "ws";
-import type { CertificationTier } from "@muddown/shared";
+import type { CertificationTier, ConformanceLevel } from "@muddown/shared";
 import type { GameDatabase } from "./db/types.js";
 
 // ─── Compliance Check Result ─────────────────────────────────────────────────
@@ -9,12 +9,16 @@ export interface ComplianceCheckResult {
   reachable: boolean;
   wireProtocol: boolean;      // responds with valid v:1 JSON envelope
   containerBlocks: boolean;   // muddown field contains :::type{} blocks
+  interactiveLinks: boolean;  // muddown field contains cmd: or go: link schemes
+  wireId: boolean;            // envelope contains string `id` field
+  wireTimestamp: boolean;     // envelope contains string `timestamp` field
   errors: string[];
 }
 
 // ─── Single Server Check ─────────────────────────────────────────────────────
 
 const CHECK_TIMEOUT_MS = 10_000;
+const TIMEOUT_ERROR = "Connection timed out";
 
 /**
  * Probe a single game server via WebSocket and validate MUDdown compliance.
@@ -27,6 +31,9 @@ export function checkServer(hostname: string, port: number | null, protocol: str
       reachable: false,
       wireProtocol: false,
       containerBlocks: false,
+      interactiveLinks: false,
+      wireId: false,
+      wireTimestamp: false,
       errors: [],
     };
 
@@ -57,7 +64,7 @@ export function checkServer(hostname: string, port: number | null, protocol: str
     }
 
     const timeout = setTimeout(() => {
-      result.errors.push("Connection timed out");
+      result.errors.push(TIMEOUT_ERROR);
       ws.terminate();
       settle();
     }, CHECK_TIMEOUT_MS);
@@ -84,11 +91,28 @@ export function checkServer(hostname: string, port: number | null, protocol: str
       }
       if (msg.v === 1 && typeof msg.muddown === "string" && typeof msg.type === "string") {
         result.wireProtocol = true;
-        if (/^:::[a-z]+\{/m.test(msg.muddown as string)) {
+        const md = msg.muddown as string;
+        if (/^:::[a-z]+\{/m.test(md)) {
           result.containerBlocks = true;
         }
+        if (/\[.*?\]\((cmd|go):/.test(md)) {
+          result.interactiveLinks = true;
+        }
+        if (typeof msg.id === "string" && msg.id.length > 0) {
+          result.wireId = true;
+        }
+        if (typeof msg.timestamp === "string" && msg.timestamp.length > 0) {
+          result.wireTimestamp = true;
+        }
       }
-      if (result.wireProtocol && result.containerBlocks) {
+      if (result.wireProtocol && result.containerBlocks && result.interactiveLinks && result.wireId && result.wireTimestamp) {
+        // Full conformance — all signals observed
+        clearTimeout(timeout);
+        ws.close();
+        settle();
+      } else if (result.wireProtocol && result.containerBlocks && result.interactiveLinks) {
+        // Interactive conformance — wireId/wireTimestamp are envelope-level fields;
+        // if absent from this message they won't appear in later ones.
         clearTimeout(timeout);
         ws.close();
         settle();
@@ -106,6 +130,28 @@ export function checkServer(hostname: string, port: number | null, protocol: str
       settle();
     });
   });
+}
+
+// ─── Determine Conformance Level from Check ─────────────────────────────────
+
+/**
+ * Derive which spec conformance level a server satisfies based on check results.
+ *
+ * - **full**: wire protocol with id+timestamp, container blocks, interactive links
+ * - **interactive**: container blocks + interactive links (cmd:/go:)
+ * - **text**: reachable + wire protocol (content is valid Markdown in muddown field)
+ * - **null**: unreachable or no wire protocol
+ */
+export function conformanceLevelFromResult(result: ComplianceCheckResult): ConformanceLevel | null {
+  if (!result.reachable || !result.wireProtocol) return null;
+
+  if (result.containerBlocks && result.interactiveLinks && result.wireId && result.wireTimestamp) {
+    return "full";
+  }
+  if (result.containerBlocks && result.interactiveLinks) {
+    return "interactive";
+  }
+  return "text";
 }
 
 // ─── Determine Certification from Check ──────────────────────────────────────
@@ -154,10 +200,19 @@ export async function runComplianceChecks(db: Pick<GameDatabase, "getAllGameServ
       }
       const newTier = certificationFromResult(result, server.certification);
       try {
-        db.updateGameServerCheck(server.id, JSON.stringify(result), newTier);
-        console.log(`  ${server.name} (${server.hostname}): ${newTier} — reachable=${result.reachable}, wire=${result.wireProtocol}, blocks=${result.containerBlocks}`);
+        const newLevel = conformanceLevelFromResult(result);
+        const timedOut = result.errors.some(e => e === TIMEOUT_ERROR);
+        if (timedOut && result.wireProtocol) {
+          console.warn(
+            `  ${server.name} (${server.hostname}): timed out before all conformance signals observed ` +
+            `(interactiveLinks=${result.interactiveLinks}, wireId=${result.wireId}, wireTimestamp=${result.wireTimestamp}) — ` +
+            `conformance capped at "${newLevel ?? "none"}"`
+          );
+        }
+        db.updateGameServerCheck(server.id, JSON.stringify(result), newTier, newLevel);
+        console.log(`  ${server.name} (${server.hostname}): ${newTier} (${newLevel ?? "none"}) — reachable=${result.reachable}, wire=${result.wireProtocol}, blocks=${result.containerBlocks}`);
       } catch (err) {
-        console.error(`  ${server.name} (${server.hostname}): DB write failed after successful probe (tier=${newTier}) —`, err);
+        console.error(`  ${server.name} (${server.hostname}): DB write failed after successful probe (tier=${newTier}, level=unknown) —`, err);
         failureCount++;
       }
     }

@@ -21,7 +21,7 @@ vi.mock("ws", () => ({
   },
 }));
 
-import { certificationFromResult, runComplianceChecks, type ComplianceCheckResult } from "../src/compliance.js";
+import { certificationFromResult, conformanceLevelFromResult, runComplianceChecks, type ComplianceCheckResult } from "../src/compliance.js";
 
 function makeResult(overrides: Partial<ComplianceCheckResult> = {}): ComplianceCheckResult {
   return {
@@ -29,6 +29,9 @@ function makeResult(overrides: Partial<ComplianceCheckResult> = {}): ComplianceC
     reachable: false,
     wireProtocol: false,
     containerBlocks: false,
+    interactiveLinks: false,
+    wireId: false,
+    wireTimestamp: false,
     errors: [],
     ...overrides,
   };
@@ -78,12 +81,66 @@ describe("certificationFromResult", () => {
   });
 });
 
+// ─── conformanceLevelFromResult tests ────────────────────────────────────────
+
+describe("conformanceLevelFromResult", () => {
+  it("returns null when server is unreachable", () => {
+    const result = makeResult({ reachable: false });
+    expect(conformanceLevelFromResult(result)).toBeNull();
+  });
+
+  it("returns null when wire protocol fails", () => {
+    const result = makeResult({ reachable: true, wireProtocol: false });
+    expect(conformanceLevelFromResult(result)).toBeNull();
+  });
+
+  it("returns text when only reachable + wire protocol", () => {
+    const result = makeResult({ reachable: true, wireProtocol: true });
+    expect(conformanceLevelFromResult(result)).toBe("text");
+  });
+
+  it("returns text when container blocks present but no interactive links", () => {
+    const result = makeResult({ reachable: true, wireProtocol: true, containerBlocks: true });
+    expect(conformanceLevelFromResult(result)).toBe("text");
+  });
+
+  it("returns text when interactive links present but no container blocks", () => {
+    const result = makeResult({ reachable: true, wireProtocol: true, interactiveLinks: true });
+    expect(conformanceLevelFromResult(result)).toBe("text");
+  });
+
+  it("returns interactive when container blocks and interactive links present", () => {
+    const result = makeResult({ reachable: true, wireProtocol: true, containerBlocks: true, interactiveLinks: true });
+    expect(conformanceLevelFromResult(result)).toBe("interactive");
+  });
+
+  it("returns interactive when missing wireId", () => {
+    const result = makeResult({ reachable: true, wireProtocol: true, containerBlocks: true, interactiveLinks: true, wireTimestamp: true });
+    expect(conformanceLevelFromResult(result)).toBe("interactive");
+  });
+
+  it("returns interactive when missing wireTimestamp", () => {
+    const result = makeResult({ reachable: true, wireProtocol: true, containerBlocks: true, interactiveLinks: true, wireId: true });
+    expect(conformanceLevelFromResult(result)).toBe("interactive");
+  });
+
+  it("returns full when all checks pass", () => {
+    const result = makeResult({
+      reachable: true, wireProtocol: true, containerBlocks: true,
+      interactiveLinks: true, wireId: true, wireTimestamp: true,
+    });
+    expect(conformanceLevelFromResult(result)).toBe("full");
+  });
+});
+
 // ─── runComplianceChecks tests ───────────────────────────────────────────────
 
 const validMessage = JSON.stringify({
   v: 1,
+  id: "msg-01",
   type: "room",
-  muddown: ':::room{id="test"}\n# Test\n:::',
+  timestamp: new Date().toISOString(),
+  muddown: ':::room{id="test"}\n# Test\n\n## Exits\n- [North](go:north)\n:::',
 });
 
 function makeServer(overrides: Partial<GameServerRecord> = {}): GameServerRecord {
@@ -97,6 +154,7 @@ function makeServer(overrides: Partial<GameServerRecord> = {}): GameServerRecord
     protocol: "websocket",
     websiteUrl: null,
     certification: "self-certified",
+    conformanceLevel: null,
     lastCheckAt: null,
     lastCheckResult: null,
     createdAt: new Date().toISOString(),
@@ -198,6 +256,7 @@ describe("runComplianceChecks", () => {
     const checkResult = JSON.parse(calls[0][1] as string);
     expect(checkResult.wireProtocol).toBe(true);
     expect(calls[0][2]).toBe("verified");
+    expect(calls[0][3]).toBe("full");
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
@@ -236,5 +295,32 @@ describe("runComplianceChecks", () => {
     await runComplianceChecks(db);
     expect(mockWsInstances).toHaveLength(0);
     expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("passes 'text' conformance level when server only satisfies wire protocol", async () => {
+    const partialMessage = JSON.stringify({
+      v: 1,
+      type: "system",
+      muddown: "Welcome to the game.",
+      id: "abc",
+      timestamp: new Date().toISOString(),
+      // No container blocks, no interactive links
+    });
+
+    const db = makeMockDb([makeServer()]);
+
+    const p = runComplianceChecks(db);
+
+    const { handlers } = mockWsInstances[0];
+    handlers["open"]?.();
+    handlers["message"]?.(partialMessage);
+    handlers["close"]?.();
+
+    await p;
+
+    const calls = (db.updateGameServerCheck as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(1);
+    // 4th argument is conformanceLevel
+    expect(calls[0][3]).toBe("text");
   });
 });

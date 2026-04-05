@@ -115,6 +115,13 @@ import Base from "../layouts/Base.astro";
       return `<span class="cert-badge cert-${safeTier}">${labels[tier] || safeTier}</span>`;
     }
 
+    function conformanceBadge(level) {
+      if (!level) return "";
+      const labels = { text: "Text", interactive: "Interactive", full: "Full" };
+      const safeLevel = escapeHtml(level);
+      return `<span class="conformance-badge conformance-${safeLevel}">MUDdown ${labels[level] || safeLevel}</span>`;
+    }
+
     // ── Render Server Card ───────────────────────────────────────────────────
 
     function renderServer(s) {
@@ -139,6 +146,7 @@ import Base from "../layouts/Base.astro";
           <div class="server-header">
             <h4 class="server-name">${escapeHtml(s.name)}</h4>
             ${certBadge(s.certification)}
+            ${conformanceBadge(s.conformanceLevel)}
           </div>
           <p class="server-desc">${escapeHtml(s.description)}</p>
           <div class="server-meta">

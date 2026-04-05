@@ -45,6 +45,7 @@ function makeServer(overrides: Partial<GameServerRecord> = {}): GameServerRecord
     protocol: "websocket",
     websiteUrl: "https://mud.example.com",
     certification: "listed",
+    conformanceLevel: null,
     lastCheckAt: null,
     lastCheckResult: null,
     createdAt: now,
@@ -133,13 +134,37 @@ describe("game servers CRUD", () => {
     db.createGameServer(server);
 
     const result = JSON.stringify({ reachable: true, wireProtocol: true, containerBlocks: true, errors: [] });
-    db.updateGameServerCheck(server.id, result, "verified");
+    db.updateGameServerCheck(server.id, result, "verified", "full");
 
     const updated = db.getGameServer(server.id);
     expect(updated).toBeDefined();
     expect(updated!.certification).toBe("verified");
+    expect(updated!.conformanceLevel).toBe("full");
     expect(updated!.lastCheckAt).toBeTruthy();
     expect(updated!.lastCheckResult).toBe(result);
+  });
+
+  it("stores and retrieves conformance level", () => {
+    const server = makeServer({ name: "Conformance Test" });
+    db.createGameServer(server);
+    expect(db.getGameServer(server.id)!.conformanceLevel).toBeNull();
+
+    const result = JSON.stringify({ reachable: true, wireProtocol: true, containerBlocks: true, errors: [] });
+    db.updateGameServerCheck(server.id, result, "verified", "interactive");
+
+    const updated = db.getGameServer(server.id);
+    expect(updated!.conformanceLevel).toBe("interactive");
+  });
+
+  it("coerces unknown conformance_level values to null", () => {
+    const server = makeServer();
+    db.createGameServer(server);
+    // Write an invalid value directly, bypassing the typed interface
+    (db as any).db.prepare(
+      "UPDATE game_servers SET conformance_level = ? WHERE id = ?"
+    ).run("bogus-level", server.id);
+    const fetched = db.getGameServer(server.id);
+    expect(fetched?.conformanceLevel).toBeNull();
   });
 
   it("cascades delete when account is removed", () => {
