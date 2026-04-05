@@ -1217,12 +1217,15 @@ import Base from "../layouts/Base.astro";
     // Printable keystrokes while game is active redirect to command input
     document.addEventListener("keydown", (e) => {
       if (gameArea.style.display === "none") return;
+      if (e.defaultPrevented) return;
       if (settingsDropdown && settingsDropdown.style.display !== "none") return;
       if (invPanel.classList.contains("inv-overlay")) return;
       if (hintPanel.classList.contains("hint-overlay")) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const active = document.activeElement;
-      if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")) return;
+      if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT"
+          || active.tagName === "BUTTON" || active.tagName === "A")) return;
+      if (active && (invPanel.contains(active) || hintPanel.contains(active))) return;
       if (e.isComposing) return;
       if (e.key.length !== 1) return;
       input.focus();
