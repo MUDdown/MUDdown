@@ -14,8 +14,10 @@ export interface LlmConfig {
 
 /** Read LLM configuration from environment variables. */
 export function getLlmConfig(): LlmConfig {
-  const raw = process.env.LLM_PROVIDER ?? "none";
-  const provider: LlmProvider = raw === "anthropic" ? "anthropic" : "none";
+  const raw = process.env.LLM_PROVIDER ?? "";
+  // Auto-detect: if ANTHROPIC_API_KEY is set but LLM_PROVIDER isn't, infer anthropic
+  const provider: LlmProvider =
+    raw === "anthropic" || (!raw && process.env.ANTHROPIC_API_KEY) ? "anthropic" : "none";
   if (provider === "anthropic") {
     if (!process.env.ANTHROPIC_API_KEY) {
       console.warn("LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set — falling back to static dialogue");
@@ -104,7 +106,7 @@ function buildSystemPrompt(npc: NpcDefinition, ctx: PlayerContext): string {
 // ─── Generation ──────────────────────────────────────────────────────────────
 
 const LLM_TIMEOUT = 8_000; // 8 seconds max
-const MAX_HISTORY_MESSAGES = 20;
+export const MAX_HISTORY_MESSAGES = 20;
 
 /**
  * Generate an NPC dialogue response using the configured LLM provider.

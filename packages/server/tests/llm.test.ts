@@ -77,11 +77,21 @@ describe("getLlmConfig", () => {
     process.env.LLM_MODEL = envBackup.LLM_MODEL;
   });
 
-  it("returns 'none' when LLM_PROVIDER is not set", () => {
+  it("returns 'none' when LLM_PROVIDER is not set and no API key", () => {
     delete process.env.LLM_PROVIDER;
+    delete process.env.ANTHROPIC_API_KEY;
     const config = getLlmConfig();
     expect(config.provider).toBe("none");
     expect(config.model).toBe("");
+  });
+
+  it("auto-detects anthropic when ANTHROPIC_API_KEY is set without LLM_PROVIDER", () => {
+    delete process.env.LLM_PROVIDER;
+    delete process.env.LLM_MODEL;
+    process.env.ANTHROPIC_API_KEY = "sk-ant-test";
+    const config = getLlmConfig();
+    expect(config.provider).toBe("anthropic");
+    expect(config.model).toBe("claude-haiku-4-5-20251001");
   });
 
   it("returns 'none' when LLM_PROVIDER is explicitly 'none'", () => {
@@ -96,7 +106,7 @@ describe("getLlmConfig", () => {
     delete process.env.LLM_MODEL;
     const config = getLlmConfig();
     expect(config.provider).toBe("anthropic");
-    expect(config.model).toBe("claude-sonnet-4-20250514");
+    expect(config.model).toBe("claude-haiku-4-5-20251001");
   });
 
   it("honours LLM_MODEL override", () => {

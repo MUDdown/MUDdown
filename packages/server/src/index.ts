@@ -19,7 +19,7 @@ import {
 import { handleGamesRoute } from "./games.js";
 import { runComplianceChecks } from "./compliance.js";
 import { fireHook, registerHook, createGreetingHook } from "./hooks.js";
-import { getLlmConfig, isLlmConfigured, generateNpcDialogue } from "./llm.js";
+import { getLlmConfig, isLlmConfigured, generateNpcDialogue, MAX_HISTORY_MESSAGES } from "./llm.js";
 import type { ConversationMessage, GeneratedDialogue, LlmConfig } from "./llm.js";
 
 // ─── Player Session ──────────────────────────────────────────────────────────
@@ -875,6 +875,10 @@ async function handleTalk(ws: WebSocket, session: PlayerSession, arg: string): P
         history.push({ role: "user", content: playerMessage });
       }
       history.push({ role: "assistant", content: result.speech });
+      // Cap stored history to prevent unbounded memory growth
+      if (history.length > MAX_HISTORY_MESSAGES) {
+        history.splice(0, history.length - MAX_HISTORY_MESSAGES);
+      }
       session.npcConversations.set(npc.id, history);
 
       // Build :::dialogue block from LLM response
@@ -942,14 +946,21 @@ function sendDialogueNode(ws: WebSocket, npc: NpcDefinition, nodeId: string, nod
   });
 }
 
+/** Strip characters that could break attribute parsing or close container blocks. */
+function sanitizeLlmField(text: string): string {
+  return text.replace(/\r?\n/g, " ").replace(/:{3,}/g, "").trim();
+}
+
 function sendLlmDialogue(ws: WebSocket, npc: NpcDefinition, result: GeneratedDialogue): void {
-  const safeMood = result.mood.replace(/["\}]/g, "").trim() || "neutral";
+  const safeMood = sanitizeLlmField(result.mood).replace(/["\}]/g, "") || "neutral";
+  const safeSpeech = sanitizeLlmField(result.speech);
+  const safeNarrative = result.narrative ? sanitizeLlmField(result.narrative) : "";
   const lines: string[] = [];
   lines.push(`:::dialogue{npc="${npc.id}" mood="${safeMood}"}`);
-  lines.push(`> **${npc.name}** says, "${escapeDialogueText(result.speech)}"`);
-  if (result.narrative) {
+  lines.push(`> **${npc.name}** says, "${escapeDialogueText(safeSpeech)}"`);
+  if (safeNarrative) {
     lines.push("");
-    lines.push(result.narrative);
+    lines.push(safeNarrative);
   }
   if (result.responses.length > 0 && !result.endConversation) {
     lines.push("");
