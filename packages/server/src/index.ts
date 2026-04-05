@@ -19,6 +19,8 @@ import {
 import { handleGamesRoute } from "./games.js";
 import { runComplianceChecks } from "./compliance.js";
 import { fireHook, registerHook, createGreetingHook } from "./hooks.js";
+import { getLlmConfig, isLlmConfigured, generateNpcDialogue } from "./llm.js";
+import type { ConversationMessage, GeneratedDialogue, LlmConfig } from "./llm.js";
 
 // ─── Player Session ──────────────────────────────────────────────────────────
 
@@ -47,6 +49,8 @@ interface PlayerSession {
   baseDamage: string;
   xp: number;
   rateLimiter: TokenBucket;
+  /** Active LLM conversation histories per NPC (npc-id → messages). Cleared on room change or disconnect. */
+  npcConversations: Map<string, ConversationMessage[]>;
 }
 
 const RESPAWN_ROOM = "town-square";
@@ -68,6 +72,15 @@ function envInt(key: string, fallback: number): number {
 const RATE_LIMIT_BURST  = envInt("RATE_LIMIT_BURST", 20);
 const RATE_LIMIT_REFILL = envInt("RATE_LIMIT_REFILL", 5);
 console.log(`[rate-limit] burst=${RATE_LIMIT_BURST} refill=${RATE_LIMIT_REFILL}/s`);
+
+// ─── LLM Configuration ───────────────────────────────────────────────────────
+
+const llmConfig: LlmConfig = getLlmConfig();
+if (isLlmConfigured(llmConfig)) {
+  console.log(`[llm] provider=${llmConfig.provider} model=${llmConfig.model}`);
+} else {
+  console.log("[llm] No LLM provider configured — NPCs will use static dialogue trees");
+}
 
 // ─── Shared NPC HP (for multi-player combat) ─────────────────────────────────
 
@@ -334,6 +347,7 @@ wss.on("connection", (ws, req: IncomingMessage) => {
         baseDamage: CLASS_STATS[character.characterClass].damage,
         xp: character.xp,
         rateLimiter,
+        npcConversations: new Map(),
       }
     : {
         id: randomUUID(),
@@ -353,6 +367,7 @@ wss.on("connection", (ws, req: IncomingMessage) => {
         baseDamage: PLAYER_DEFAULTS.damage,
         xp: 0,
         rateLimiter,
+        npcConversations: new Map(),
       };
   sessions.set(ws, session);
 
@@ -407,13 +422,11 @@ Type commands or click links to explore. Try: \`look\`, \`go north\`, \`help\`
       send(ws, systemMessage("Could not understand that command."));
       return;
     }
-    try {
-      handleCommand(ws, msg);
-    } catch (err) {
+    handleCommand(ws, msg).catch((err) => {
       const session = sessions.get(ws);
       console.error(`Command error [player=${session?.id}] [command=${msg.command}]:`, err);
       send(ws, systemMessage("An internal error occurred."));
-    }
+    });
   });
 
   ws.on("close", () => {
@@ -427,7 +440,7 @@ Type commands or click links to explore. Try: \`look\`, \`go north\`, \`help\`
 
 // ─── Command Handling ────────────────────────────────────────────────────────
 
-function handleCommand(ws: WebSocket, msg: ClientMessage): void {
+async function handleCommand(ws: WebSocket, msg: ClientMessage): Promise<void> {
   const session = sessions.get(ws);
   if (!session) return;
 
@@ -511,7 +524,7 @@ function handleCommand(ws: WebSocket, msg: ClientMessage): void {
       break;
     }
     case "talk": {
-      handleTalk(ws, session, arg);
+      await handleTalk(ws, session, arg);
       break;
     }
     case "attack": {
@@ -550,6 +563,7 @@ function move(ws: WebSocket, session: PlayerSession, direction: string): void {
   broadcastToRoom(session.currentRoom, session, `*${session.name} heads ${direction}.*`);
 
   session.currentRoom = targetRoom;
+  session.npcConversations.clear();
 
   // Notify others in new room
   broadcastToRoom(session.currentRoom, session, `*${session.name} arrives.*`);
@@ -788,7 +802,15 @@ function sendExamine(ws: WebSocket, session: PlayerSession, target: string): voi
 
 // ─── NPC & Dialogue ──────────────────────────────────────────────────────────
 
-function handleTalk(ws: WebSocket, session: PlayerSession, arg: string): void {
+/** Extract the room title from the first `# Heading` in the muddown source. */
+function getRoomName(roomId: string): string {
+  const room = world.rooms.get(roomId);
+  if (!room) return roomId;
+  const match = room.muddown.match(/^# (.+)$/m);
+  return match ? match[1] : roomId;
+}
+
+async function handleTalk(ws: WebSocket, session: PlayerSession, arg: string): Promise<void> {
   if (!arg) {
     send(ws, systemMessage("Talk to whom? Usage: `talk <npc>`"));
     return;
@@ -820,6 +842,7 @@ function handleTalk(ws: WebSocket, session: PlayerSession, arg: string): void {
 
   // Explicit "end" sentinel — conversation is over
   if (nodeId === "end") {
+    session.npcConversations.delete(npc.id);
     send(ws, {
       v: 1,
       id: randomUUID(),
@@ -830,6 +853,45 @@ function handleTalk(ws: WebSocket, session: PlayerSession, arg: string): void {
     return;
   }
 
+  // ── LLM freeform path ────────────────────────────────────────────────────
+  if (isLlmConfigured(llmConfig) && npc.backstory) {
+    const playerMessage = nodeId === "start" ? null : nodeId;
+    const history = session.npcConversations.get(npc.id) ?? [];
+    const itemNames = session.inventory
+      .map((id) => world.itemDefs.get(id)?.name ?? id)
+      .filter(Boolean);
+
+    const result = await generateNpcDialogue(llmConfig, npc, {
+      playerName: session.name,
+      playerClass: session.characterClass,
+      currentRoom: session.currentRoom,
+      roomName: getRoomName(session.currentRoom),
+      inventory: itemNames,
+    }, history, playerMessage);
+
+    if (result) {
+      // Update conversation history
+      if (playerMessage) {
+        history.push({ role: "user", content: playerMessage });
+      }
+      history.push({ role: "assistant", content: result.speech });
+      session.npcConversations.set(npc.id, history);
+
+      // Build :::dialogue block from LLM response
+      sendLlmDialogue(ws, npc, result);
+
+      if (result.endConversation) {
+        session.npcConversations.delete(npc.id);
+      }
+      return;
+    }
+    // LLM failed — clear stale history and inform player
+    session.npcConversations.delete(npc.id);
+    send(ws, systemMessage(`${npc.name} seems distracted and doesn't respond.`));
+    return;
+  }
+
+  // ── Static dialogue tree path ────────────────────────────────────────────
   const node = npc.dialogue[nodeId];
   if (!node) {
     console.warn(`Unknown dialogue node "${nodeId}" for NPC "${npc.id}"`);
@@ -867,6 +929,35 @@ function sendDialogueNode(ws: WebSocket, npc: NpcDefinition, nodeId: string, nod
         const dest = escapeMarkdownLinkDest(`cmd:talk ${npc.id} ${resp.next}`);
         lines.push(`- ["${label}"](${dest})`);
       }
+    }
+  }
+  lines.push(":::");
+
+  send(ws, {
+    v: 1,
+    id: randomUUID(),
+    type: "dialogue",
+    timestamp: new Date().toISOString(),
+    muddown: lines.join("\n"),
+  });
+}
+
+function sendLlmDialogue(ws: WebSocket, npc: NpcDefinition, result: GeneratedDialogue): void {
+  const safeMood = result.mood.replace(/["\}]/g, "").trim() || "neutral";
+  const lines: string[] = [];
+  lines.push(`:::dialogue{npc="${npc.id}" mood="${safeMood}"}`);
+  lines.push(`> **${npc.name}** says, "${escapeDialogueText(result.speech)}"`);
+  if (result.narrative) {
+    lines.push("");
+    lines.push(result.narrative);
+  }
+  if (result.responses.length > 0 && !result.endConversation) {
+    lines.push("");
+    lines.push("## Responses");
+    for (const resp of result.responses) {
+      const label = escapeMarkdownLinkLabel(resp);
+      const dest = escapeMarkdownLinkDest(`cmd:talk ${npc.id} ${resp}`);
+      lines.push(`- ["${label}"](${dest})`);
     }
   }
   lines.push(":::");
@@ -1105,6 +1196,7 @@ function handleFlee(ws: WebSocket, session: PlayerSession): void {
       const targetRoom = exits[dir];
       broadcastToRoom(session.currentRoom, session, `*${session.name} flees ${dir}!*`);
       session.currentRoom = targetRoom;
+      session.npcConversations.clear();
       broadcastToRoom(session.currentRoom, session, `*${session.name} arrives in a panic.*`);
       send(ws, systemMessage("You flee from combat!"));
       sendRoom(ws, session.currentRoom);

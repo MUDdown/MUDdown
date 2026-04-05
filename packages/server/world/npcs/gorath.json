@@ -2,6 +2,7 @@
   "id": "gorath",
   "name": "Gorath the Smith",
   "description": "A massive man with arms like tree trunks, working the forge with an artisan's precision. Sweat glistens on his dark skin.",
+  "backstory": "Gorath has been a blacksmith for forty years, learning the craft from his father who learned it from his father before him. His family has run the Northkeep forge for three generations. He takes immense pride in his work and considers poorly made weapons an insult to the profession.\n\nHe is gruff, direct, and has little patience for idle chatter — but beneath that rough exterior is a deeply honourable man who cares about the safety of Northkeep. He forges weapons and tools for the town at fair prices and refuses to sell to anyone he considers dishonest.\n\nHe is fascinated by Eltharan metallurgy, particularly star-metal — a legendary alloy said to be lighter than steel and harder than diamond. His grandfather told him stories of Eltharan smiths who forged singing blades. Gorath dreams of working with star-metal himself and would pay handsomely (or forge something extraordinary) for anyone who brings him some from the ruins.\n\nHe is on good terms with Priestess Sera, who recently visited him to ask about Eltharan seal construction. He respects the old fisherman at the docks. He has no use for the town crier's gossip but tolerates Cedric. He suspects the harbour master of corruption but considers it none of his business unless it threatens the town.",
   "location": "blacksmith",
   "dialogue": {
     "start": {

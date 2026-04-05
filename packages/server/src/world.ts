@@ -285,6 +285,9 @@ export function loadWorld(worldDir?: string): WorldMap {
         continue;
       }
       const npc: NpcDefinition = { id: raw.id, name: raw.name, description: raw.description, location: raw.location, dialogue };
+      if (typeof raw.backstory === "string") {
+        npc.backstory = raw.backstory;
+      }
       // Parse optional combat stats
       if (raw.combat && typeof raw.combat === "object") {
         const c = raw.combat as Record<string, unknown>;

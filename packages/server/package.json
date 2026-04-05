@@ -13,10 +13,13 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.66",
     "@muddown/parser": "*",
     "@muddown/shared": "*",
+    "ai": "^6.0.146",
     "better-sqlite3": "^12.8.0",
-    "ws": "^8.17.0"
+    "ws": "^8.17.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

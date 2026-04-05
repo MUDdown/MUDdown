@@ -1,0 +1,367 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { NpcDefinition } from "@muddown/shared";
+
+// Mock the AI SDK before importing llm.ts
+vi.mock("ai", () => ({
+  generateObject: vi.fn(),
+}));
+
+vi.mock("@ai-sdk/anthropic", () => ({
+  createAnthropic: vi.fn(() => vi.fn((model: string) => ({ modelId: model }))),
+}));
+
+import { generateObject } from "ai";
+import {
+  getLlmConfig,
+  isLlmConfigured,
+  generateNpcDialogue,
+} from "../src/llm.js";
+import type {
+  ConversationMessage,
+  PlayerContext,
+  GeneratedDialogue,
+} from "../src/llm.js";
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function makeNpc(overrides: Partial<NpcDefinition> = {}): NpcDefinition {
+  return {
+    id: "crier",
+    name: "Town Crier",
+    description: "A stout man in a feathered cap.",
+    location: "town-square",
+    dialogue: {
+      start: {
+        text: "Hear ye!",
+        mood: "enthusiastic",
+        responses: [{ text: "Hi", next: null }],
+      },
+    },
+    ...overrides,
+  };
+}
+
+function makeCtx(overrides: Partial<PlayerContext> = {}): PlayerContext {
+  return {
+    playerName: "Tester",
+    playerClass: "warrior",
+    currentRoom: "town-square",
+    roomName: "Town Square",
+    inventory: [],
+    ...overrides,
+  };
+}
+
+const GOOD_RESPONSE: GeneratedDialogue = {
+  speech: "Hello there, traveller!",
+  mood: "friendly",
+  narrative: "The crier waves his bell.",
+  responses: ["Tell me more.", "Goodbye."],
+  endConversation: false,
+};
+
+// ─── getLlmConfig ────────────────────────────────────────────────────────────
+
+describe("getLlmConfig", () => {
+  const envBackup: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    envBackup.LLM_PROVIDER = process.env.LLM_PROVIDER;
+    envBackup.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+    envBackup.LLM_MODEL = process.env.LLM_MODEL;
+  });
+
+  afterEach(() => {
+    process.env.LLM_PROVIDER = envBackup.LLM_PROVIDER;
+    process.env.ANTHROPIC_API_KEY = envBackup.ANTHROPIC_API_KEY;
+    process.env.LLM_MODEL = envBackup.LLM_MODEL;
+  });
+
+  it("returns 'none' when LLM_PROVIDER is not set", () => {
+    delete process.env.LLM_PROVIDER;
+    const config = getLlmConfig();
+    expect(config.provider).toBe("none");
+    expect(config.model).toBe("");
+  });
+
+  it("returns 'none' when LLM_PROVIDER is explicitly 'none'", () => {
+    process.env.LLM_PROVIDER = "none";
+    const config = getLlmConfig();
+    expect(config.provider).toBe("none");
+  });
+
+  it("configures anthropic with default model", () => {
+    process.env.LLM_PROVIDER = "anthropic";
+    process.env.ANTHROPIC_API_KEY = "sk-ant-test";
+    delete process.env.LLM_MODEL;
+    const config = getLlmConfig();
+    expect(config.provider).toBe("anthropic");
+    expect(config.model).toBe("claude-sonnet-4-20250514");
+  });
+
+  it("honours LLM_MODEL override", () => {
+    process.env.LLM_PROVIDER = "anthropic";
+    process.env.ANTHROPIC_API_KEY = "sk-ant-test";
+    process.env.LLM_MODEL = "claude-haiku-3";
+    const config = getLlmConfig();
+    expect(config.model).toBe("claude-haiku-3");
+  });
+
+  it("falls back to 'none' when API key is missing", () => {
+    process.env.LLM_PROVIDER = "anthropic";
+    delete process.env.ANTHROPIC_API_KEY;
+    const config = getLlmConfig();
+    expect(config.provider).toBe("none");
+  });
+});
+
+// ─── isLlmConfigured ────────────────────────────────────────────────────────
+
+describe("isLlmConfigured", () => {
+  it("returns false for provider 'none'", () => {
+    expect(isLlmConfigured({ provider: "none", model: "" })).toBe(false);
+  });
+
+  it("returns true for provider 'anthropic'", () => {
+    expect(isLlmConfigured({ provider: "anthropic", model: "claude-sonnet-4-20250514" })).toBe(true);
+  });
+});
+
+// ─── generateNpcDialogue ─────────────────────────────────────────────────────
+
+describe("generateNpcDialogue", () => {
+  const anthropicConfig = { provider: "anthropic" as const, model: "claude-sonnet-4-20250514" };
+  const noneConfig = { provider: "none" as const, model: "" };
+  const mockedGenerateObject = vi.mocked(generateObject);
+
+  beforeEach(() => {
+    mockedGenerateObject.mockReset();
+  });
+
+  it("returns null when provider is 'none'", async () => {
+    const result = await generateNpcDialogue(
+      noneConfig,
+      makeNpc(),
+      makeCtx(),
+      [],
+      null,
+    );
+    expect(result).toBeNull();
+    expect(mockedGenerateObject).not.toHaveBeenCalled();
+  });
+
+  it("returns generated dialogue on success", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_RESPONSE,
+      toJsonResponse: vi.fn(),
+    } as any);
+
+    const result = await generateNpcDialogue(
+      anthropicConfig,
+      makeNpc({ backstory: "A friendly town crier." }),
+      makeCtx(),
+      [],
+      null,
+    );
+
+    expect(result).toEqual(GOOD_RESPONSE);
+    expect(mockedGenerateObject).toHaveBeenCalledOnce();
+  });
+
+  it("passes endConversation: true through unmodified", async () => {
+    const farewellResponse: GeneratedDialogue = {
+      ...GOOD_RESPONSE,
+      endConversation: true,
+      speech: "Farewell, traveller. Safe roads to you.",
+    };
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: farewellResponse,
+    } as any);
+
+    const result = await generateNpcDialogue(
+      anthropicConfig,
+      makeNpc({ backstory: "A friendly town crier." }),
+      makeCtx(),
+      [],
+      "Goodbye",
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.endConversation).toBe(true);
+    expect(result!.speech).toBe("Farewell, traveller. Safe roads to you.");
+  });
+
+  it("passes conversation history and player message to the model", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_RESPONSE,
+    } as any);
+
+    const history: ConversationMessage[] = [
+      { role: "user", content: "Hello" },
+      { role: "assistant", content: "Greetings!" },
+    ];
+
+    await generateNpcDialogue(
+      anthropicConfig,
+      makeNpc({ backstory: "A crier." }),
+      makeCtx(),
+      history,
+      "What news?",
+    );
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.messages).toHaveLength(3);
+    expect(call.messages[0]).toEqual({ role: "user", content: "Hello" });
+    expect(call.messages[1]).toEqual({ role: "assistant", content: "Greetings!" });
+    expect(call.messages[2]).toEqual({ role: "user", content: "What news?" });
+  });
+
+  it("generates an intro prompt when playerMessage is null", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_RESPONSE,
+    } as any);
+
+    await generateNpcDialogue(
+      anthropicConfig,
+      makeNpc({ backstory: "A crier." }),
+      makeCtx({ playerName: "Ada", playerClass: "mage" }),
+      [],
+      null,
+    );
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.messages).toHaveLength(1);
+    expect(call.messages[0].content).toContain("Ada");
+    expect(call.messages[0].content).toContain("mage");
+  });
+
+  it("uses 'traveller' in intro prompt when playerClass is null", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_RESPONSE,
+    } as any);
+
+    await generateNpcDialogue(
+      anthropicConfig,
+      makeNpc({ backstory: "A crier." }),
+      makeCtx({ playerClass: null }),
+      [],
+      null,
+    );
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.messages[0].content).toContain("traveller");
+  });
+
+  it("returns null on API error", async () => {
+    mockedGenerateObject.mockRejectedValueOnce(new Error("API rate limit"));
+
+    const result = await generateNpcDialogue(
+      anthropicConfig,
+      makeNpc({ backstory: "A crier." }),
+      makeCtx(),
+      [],
+      "Hello",
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null on timeout (AbortError)", async () => {
+    const abortError = new DOMException("signal timed out", "AbortError");
+    mockedGenerateObject.mockRejectedValueOnce(abortError);
+
+    const result = await generateNpcDialogue(
+      anthropicConfig,
+      makeNpc({ backstory: "A crier." }),
+      makeCtx(),
+      [],
+      "Hello",
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null when response has empty speech", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: { ...GOOD_RESPONSE, speech: "" },
+    } as any);
+
+    const result = await generateNpcDialogue(
+      anthropicConfig,
+      makeNpc({ backstory: "A crier." }),
+      makeCtx(),
+      [],
+      "Hello",
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null when response has fewer than 2 responses", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: { ...GOOD_RESPONSE, responses: ["Goodbye."] },
+    } as any);
+
+    const result = await generateNpcDialogue(
+      anthropicConfig,
+      makeNpc({ backstory: "A crier." }),
+      makeCtx(),
+      [],
+      "Hello",
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("includes inventory in system prompt when player has items", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_RESPONSE,
+    } as any);
+
+    await generateNpcDialogue(
+      anthropicConfig,
+      makeNpc({ backstory: "A crier." }),
+      makeCtx({ inventory: ["rusty sword", "bread"] }),
+      [],
+      "Hello",
+    );
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).toContain("rusty sword");
+    expect(call.system).toContain("bread");
+  });
+
+  it("includes NPC name in system prompt", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_RESPONSE,
+    } as any);
+
+    await generateNpcDialogue(
+      anthropicConfig,
+      makeNpc({ name: "Gorath the Smith", backstory: "A blacksmith." }),
+      makeCtx(),
+      [],
+      "Hello",
+    );
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).toContain("Gorath the Smith");
+  });
+
+  it("uses description as fallback when backstory is absent", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_RESPONSE,
+    } as any);
+
+    await generateNpcDialogue(
+      anthropicConfig,
+      makeNpc({ description: "A weathered fisherman with salt-stiff clothes." }),
+      makeCtx(),
+      [],
+      "Hello",
+    );
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).toContain("A weathered fisherman with salt-stiff clothes.");
+  });
+});

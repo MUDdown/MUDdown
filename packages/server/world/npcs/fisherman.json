@@ -2,6 +2,7 @@
   "id": "fisherman",
   "name": "Old Fisherman",
   "description": "A weathered man with sun-darkened skin and salt-stiff clothes. He mends a net with practised fingers.",
+  "backstory": "The old fisherman — he never gives his real name, and most people just call him 'Old Salt' — has fished the waters around Northkeep for as long as anyone can remember. He claims to have been born on a boat and says he'll die on one too.\n\nHe is laconic, dry-humoured, and pretends to know less than he does. In truth, he sees everything that happens at the docks from his spot on the pier. He knows about the smuggling operation running through the cove east of the lighthouse, he knows the harbour master takes bribes to look the other way, and he knows that Old Nell at the lighthouse keeps watch over it all.\n\nHe is not a brave man and prefers to stay out of trouble, but he has a quiet moral compass. He'll drop hints to anyone who seems trustworthy but will never directly accuse anyone — he's seen what happens to informants.\n\nHe has a deep knowledge of the sea, tides, weather patterns, and local marine life. He can teach anyone who is patient enough the basics of fishing. He is superstitious about the full moon and refuses to fish at night, which he claims is when 'things from the deep' stir.",
   "location": "docks",
   "dialogue": {
     "start": {
