@@ -39,7 +39,9 @@ Source: `packages/server/src/auth.ts` — `SESSION_DURATION_MS` constant and `Se
 | Key | Value | Purpose |
 |-----|-------|---------|
 | `muddown_inv_mode` | `"off"` \| `"persistent"` \| `"overlay"` | Inventory panel display mode |
-| `muddown_inv_pos` | `{x: number, y: number}` JSON | Overlay panel screen position |
+| `muddown_inv_pos` | `{top, left, width, height}` JSON | Inventory overlay panel screen position |
+| `muddown_hint_mode` | `"off"` \| `"persistent"` \| `"overlay"` | Hint panel display mode |
+| `muddown_hint_pos` | `{top, left, width, height}` JSON | Hint overlay panel screen position |
 
 These never leave the browser. Source: `apps/website/src/pages/play.astro`.
 

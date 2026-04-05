@@ -78,6 +78,18 @@ const { title } = Astro.props;
                   <label><input type="radio" name="inv-mode" value="overlay" /> Overlay</label>
                 </div>
               </fieldset>
+              <fieldset>
+                <legend>Hint panel</legend>
+                <div class="settings-option">
+                  <label><input type="radio" name="hint-mode" value="off" checked /> Off</label>
+                </div>
+                <div class="settings-option">
+                  <label><input type="radio" name="hint-mode" value="persistent" /> Sidebar</label>
+                </div>
+                <div class="settings-option">
+                  <label><input type="radio" name="hint-mode" value="overlay" /> Overlay</label>
+                </div>
+              </fieldset>
               <a href="/privacy" class="settings-link">Privacy Policy</a>
             </div>
           </span>

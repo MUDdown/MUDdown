@@ -54,8 +54,25 @@ import Base from "../layouts/Base.astro";
       </form>
     </div>
 
-    <!-- Game area: terminal + optional inventory sidebar -->
+    <!-- Game area: hint sidebar + terminal + inventory sidebar -->
     <div id="game-area" class="game-area" style="display:none">
+
+      <!-- Hint panel (left sidebar / overlay) -->
+      <aside id="hint-panel" class="hint-panel hint-off" role="complementary" aria-label="Hint assistant">
+        <div class="hint-header" id="hint-drag-handle">
+          <h2>💡 Hint</h2>
+          <button id="hint-close-btn" class="inv-icon-btn" aria-label="Close hint panel">&times;</button>
+        </div>
+        <div class="hint-body">
+          <div id="hint-text" class="hint-text">
+            <p class="hint-empty">Type <code>hint</code> to get a contextual suggestion.</p>
+          </div>
+          <div id="hint-commands" class="hint-commands"></div>
+          <button id="hint-refresh-btn" class="hint-refresh-btn" title="Get a new hint">↻ New Hint</button>
+        </div>
+        <div id="hint-status" class="inv-status" aria-live="polite"></div>
+      </aside>
+
       <div id="game-terminal">
         <div id="game-output" role="log" aria-live="polite"></div>
         <div id="game-input-row">
@@ -116,6 +133,10 @@ import Base from "../layouts/Base.astro";
     const invPanel = document.getElementById("inventory-panel")!;
     const invItemsList = document.getElementById("inv-items")!;
     const invStatus = document.getElementById("inv-status")!;
+    const hintPanel = document.getElementById("hint-panel")!;
+    const hintText = document.getElementById("hint-text")!;
+    const hintCommands = document.getElementById("hint-commands")!;
+    const hintStatus = document.getElementById("hint-status")!;
 
     // ── Types ───────────────────────────────────────────────────────────
 
@@ -494,6 +515,8 @@ import Base from "../layouts/Base.astro";
         sendCommand(`talk ${target}`);
       } else if (scheme === "item") {
         sendCommand(`examine ${target}`);
+      } else if (scheme === "help") {
+        sendCommand(`help ${target}`);
       }
       input.scrollIntoView({ block: "end" });
       input.focus();
@@ -535,10 +558,20 @@ import Base from "../layouts/Base.astro";
             }
           }
 
-          // Only append non-empty muddown to game output
+          // Handle hint panel updates
           if (msg.muddown) {
-            const className = msg.type || "narrative";
-            appendMessage(msg.muddown, className);
+            const parsed = parseHintBlock(msg.muddown);
+            if (parsed) {
+              renderHintPanel(parsed.hint, parsed.commands);
+              // Auto-show hint panel if it's currently off
+              if (currentHintMode === "off") {
+                applyHintMode("persistent");
+              }
+            } else {
+              // Only append non-hint muddown to game output
+              const className = msg.type || "narrative";
+              appendMessage(msg.muddown, className);
+            }
           }
         } catch (err) {
           console.error("Failed to parse server message:", err);
@@ -898,6 +931,211 @@ import Base from "../layouts/Base.astro";
       }).observe(invPanel);
     }
 
+    // ── Hint panel ─────────────────────────────────────────────────
+
+    type HintMode = "off" | "persistent" | "overlay";
+    const HINT_STORAGE_KEY = "muddown_hint_mode";
+    const VALID_HINT_MODES = new Set<string>(["off", "persistent", "overlay"]);
+    let _storedHintMode: string | null = null;
+    try {
+      _storedHintMode = localStorage.getItem(HINT_STORAGE_KEY);
+    } catch {
+      _storedHintMode = null;
+    }
+    let currentHintMode: HintMode = (_storedHintMode && VALID_HINT_MODES.has(_storedHintMode))
+      ? (_storedHintMode as HintMode)
+      : "off";
+
+    function applyHintMode(mode: HintMode): void {
+      currentHintMode = mode;
+      try {
+        localStorage.setItem(HINT_STORAGE_KEY, mode);
+      } catch {
+        // SecurityError or QuotaExceededError — mode will not persist
+      }
+
+      hintPanel.classList.remove("hint-persistent", "hint-overlay", "hint-off");
+
+      if (mode === "off") {
+        hintPanel.classList.add("hint-off");
+        hintPanel.style.display = "none";
+      } else if (mode === "persistent") {
+        hintPanel.classList.add("hint-persistent");
+        hintPanel.style.display = "";
+        hintPanel.style.top = "";
+        hintPanel.style.left = "";
+        hintPanel.style.width = "";
+        hintPanel.style.height = "";
+      } else {
+        hintPanel.classList.add("hint-overlay");
+        hintPanel.style.display = "";
+        try {
+          const saved = localStorage.getItem("muddown_hint_pos");
+          if (saved) {
+            try {
+              const pos = JSON.parse(saved) as unknown;
+              if (
+                pos !== null &&
+                typeof pos === "object" &&
+                typeof (pos as Record<string, unknown>).top === "string" &&
+                typeof (pos as Record<string, unknown>).left === "string"
+              ) {
+                const p = pos as Record<string, string>;
+                hintPanel.style.top = p.top;
+                hintPanel.style.left = p.left;
+                if (p.width) hintPanel.style.width = p.width;
+                if (p.height) hintPanel.style.height = p.height;
+              } else {
+                localStorage.removeItem("muddown_hint_pos");
+              }
+            } catch {
+              localStorage.removeItem("muddown_hint_pos");
+            }
+          }
+        } catch {
+          // localStorage unavailable — use default position
+        }
+      }
+
+      document.querySelectorAll<HTMLInputElement>("input[name='hint-mode']").forEach(radio => {
+        radio.checked = radio.value === mode;
+      });
+    }
+
+    function renderHintPanel(hintContent: string, commands: string[]): void {
+      hintText.innerHTML = hintContent
+        .split("\n")
+        .filter(l => l.trim())
+        .map(l => `<p>${escapeHtml(l)}</p>`)
+        .join("");
+
+      if (commands.length > 0) {
+        hintCommands.innerHTML = commands
+          .map(c => `<button class="hint-cmd-btn" data-cmd="${escapeHtml(c)}" title="Run: ${escapeHtml(c)}">${escapeHtml(c)}</button>`)
+          .join("");
+      } else {
+        hintCommands.innerHTML = "";
+      }
+
+      const now = new Date();
+      hintStatus.textContent = `Updated ${now.toLocaleTimeString()}`;
+    }
+
+    /** Parse a hint system block into text + commands. */
+    function parseHintBlock(muddown: string): { hint: string; commands: string[] } | null {
+      if (!/\btype\s*=\s*(['"])hint\1/.test(muddown)) return null;
+      // Strip container fences
+      let body = muddown
+        .replace(/^:::[\w-]+\{[^}]*\}\s*$/gm, "")
+        .replace(/^:::\s*$/gm, "")
+        .trim();
+
+      const parts = body.split(/\*\*Try:\*\*/);
+      const hint = parts[0].trim();
+      if (!hint) return null;
+      const commands: string[] = [];
+      if (parts[1]) {
+        for (const line of parts[1].split("\n")) {
+          const m = line.match(/^- `([^`]+)`/);
+          if (m) commands.push(m[1]);
+        }
+      }
+      return { hint, commands };
+    }
+
+    // Hint panel close button
+    document.getElementById("hint-close-btn")?.addEventListener("click", () => {
+      applyHintMode("off");
+    });
+
+    // Hint panel refresh button
+    document.getElementById("hint-refresh-btn")?.addEventListener("click", () => {
+      sendCommand("hint");
+    });
+
+    // Hint command buttons
+    hintCommands.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-cmd]");
+      if (btn) sendCommand(btn.getAttribute("data-cmd") ?? "");
+    });
+
+    // Drag support for hint overlay
+    {
+      const dragHandle = document.getElementById("hint-drag-handle")!;
+      let dragging = false;
+      let startX = 0, startY = 0, origLeft = 0, origTop = 0;
+
+      dragHandle.addEventListener("mousedown", (e) => {
+        if (!hintPanel.classList.contains("hint-overlay")) return;
+        dragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        origLeft = hintPanel.offsetLeft;
+        origTop = hintPanel.offsetTop;
+        e.preventDefault();
+      });
+
+      document.addEventListener("mousemove", (e) => {
+        if (!dragging) return;
+        hintPanel.style.left = `${origLeft + e.clientX - startX}px`;
+        hintPanel.style.top = `${origTop + e.clientY - startY}px`;
+      });
+
+      document.addEventListener("mouseup", () => {
+        if (!dragging) return;
+        dragging = false;
+        saveHintOverlayPosition();
+      });
+
+      // Touch support for drag
+      dragHandle.addEventListener("touchstart", (e) => {
+        if (!hintPanel.classList.contains("hint-overlay")) return;
+        if ((e.target as HTMLElement).closest("button")) return;
+        const touch = e.touches[0];
+        dragging = true;
+        startX = touch.clientX;
+        startY = touch.clientY;
+        origLeft = hintPanel.offsetLeft;
+        origTop = hintPanel.offsetTop;
+      }, { passive: true });
+
+      document.addEventListener("touchmove", (e) => {
+        if (!dragging) return;
+        e.preventDefault();
+        const touch = e.touches[0];
+        hintPanel.style.left = `${origLeft + touch.clientX - startX}px`;
+        hintPanel.style.top = `${origTop + touch.clientY - startY}px`;
+      }, { passive: false });
+
+      document.addEventListener("touchend", () => {
+        if (!dragging) return;
+        dragging = false;
+        saveHintOverlayPosition();
+      });
+    }
+
+    function saveHintOverlayPosition(): void {
+      try {
+        localStorage.setItem("muddown_hint_pos", JSON.stringify({
+          top: hintPanel.style.top,
+          left: hintPanel.style.left,
+          width: hintPanel.style.width,
+          height: hintPanel.style.height,
+        }));
+      } catch (err) {
+        console.error("Failed to save hint overlay position to localStorage:", err);
+      }
+    }
+
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(() => {
+        if (currentHintMode === "overlay") saveHintOverlayPosition();
+      }).observe(hintPanel);
+    }
+
+    // Apply stored hint mode on load
+    applyHintMode(currentHintMode);
+
     // ── Settings dropdown ──────────────────────────────────────────
 
     const settingsBtn = document.getElementById("settings-btn");
@@ -933,6 +1171,15 @@ import Base from "../layouts/Base.astro";
         if (!VALID_INV_MODES.has(raw)) return;
         applyInvMode(raw as InvMode);
         if (lastInvState) renderInventoryState(lastInvState);
+      });
+    });
+
+    // Hint mode radio inputs
+    document.querySelectorAll<HTMLInputElement>("input[name='hint-mode']").forEach(radio => {
+      radio.addEventListener("change", () => {
+        const raw = radio.value;
+        if (!VALID_HINT_MODES.has(raw)) return;
+        applyHintMode(raw as HintMode);
       });
     });
 

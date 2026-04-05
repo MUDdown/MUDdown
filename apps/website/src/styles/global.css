@@ -102,9 +102,8 @@ header h1 .logo-text span { color: var(--accent); }
 header nav {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+  flex-wrap: wrap;
+  gap: 0.25rem 0;
   padding-bottom: 2px;
 }
 header nav a {
@@ -737,6 +736,133 @@ body:has(.play-section) footer {
   flex-shrink: 0;
 }
 
+/* ── Hint panel ─────────────────────────────── */
+
+.hint-panel {
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-elevated);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.hint-panel.hint-persistent {
+  width: 280px;
+  min-width: 200px;
+  max-width: 400px;
+}
+.hint-panel.hint-overlay {
+  position: fixed;
+  top: var(--header-height);
+  left: 24px;
+  width: 300px;
+  height: 360px;
+  min-width: 220px;
+  min-height: 200px;
+  border: 1px solid var(--border-elevated);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  resize: both;
+  overflow: hidden;
+}
+.hint-panel.hint-off {
+  display: none;
+}
+.hint-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  cursor: default;
+  user-select: none;
+  flex-shrink: 0;
+}
+.hint-overlay .hint-header {
+  cursor: grab;
+}
+.hint-overlay .hint-header:active {
+  cursor: grabbing;
+}
+.hint-header h2 {
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 0;
+}
+.hint-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.hint-text {
+  color: var(--text);
+  line-height: 1.5;
+}
+.hint-text p {
+  margin: 0 0 0.5rem;
+}
+.hint-text p:last-child {
+  margin-bottom: 0;
+}
+.hint-empty {
+  color: var(--text-dim);
+  font-style: italic;
+}
+.hint-commands {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.hint-cmd-btn {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-elevated);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+}
+.hint-cmd-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-bright);
+  border-color: var(--accent-dim);
+}
+.hint-cmd-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.hint-refresh-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+  margin-top: auto;
+}
+.hint-refresh-btn:hover {
+  color: var(--text-bright);
+  border-color: var(--border-elevated);
+  background: var(--bg-hover);
+}
+.hint-refresh-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* ── Settings dropdown ──────────────────────── */
 
 .settings-wrap {
@@ -838,6 +964,20 @@ body:has(.play-section) footer {
     border-radius: 0;
     z-index: 100;
     box-shadow: -4px 0 16px rgba(0, 0, 0, 0.4);
+  }
+
+  /* Hint panel collapses to overlay on small screens */
+  .hint-panel.hint-persistent {
+    position: fixed;
+    top: var(--header-height);
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: 320px;
+    border-right: 1px solid var(--border-elevated);
+    border-radius: 0;
+    z-index: 100;
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.4);
   }
 }
 
