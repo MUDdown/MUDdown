@@ -519,4 +519,20 @@ describe("generateHint", () => {
     expect(result!.suggestedCommands).toHaveLength(3);
     expect(result!.suggestedCommands).toEqual(["a", "b", "c"]);
   });
+
+  it("omits exits, NPCs, and items sections when context arrays are empty", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({ object: GOOD_HINT } as any);
+    await generateHint(anthropicConfig, makeHintCtx({ exits: [], npcs: [], roomItems: [] }));
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).not.toContain("Exits:");
+    expect(call.system).not.toContain("NPCs here:");
+    expect(call.system).not.toContain("Items on ground:");
+  });
+
+  it("omits combat line when player is not in combat", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({ object: GOOD_HINT } as any);
+    await generateHint(anthropicConfig, makeHintCtx({ inCombat: false }));
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).not.toContain("in combat");
+  });
 });

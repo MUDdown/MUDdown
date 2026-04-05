@@ -520,7 +520,7 @@ Type \`help <command>\` for detailed usage and examples.
 function sanitizeBlockContent(value: string): string {
   return value
     .split("\n")
-    .map(line => /^:{3,}/.test(line) ? line.replace(/^:{3,}/, "\u200b") : line)
+    .map(line => /^:{3,}/.test(line) ? line.replace(/^:{3,}/, m => "\u200b" + m) : line)
     .join("\n");
 }
 
@@ -531,4 +531,63 @@ export function buildHintBlock(hint: string, suggestedCommands: string[]): strin
     ? `\n\n**Try:**\n${suggestedCommands.map(c => `- \`${sanitizeBlockContent(c)}\``).join("\n")}`
     : "";
   return `:::system{type="hint"}\n${safeHint}${cmdSection}\n:::`;
+}
+
+// ─── Hint Context Builder ────────────────────────────────────────────────────
+
+export interface BuildHintContextInput {
+  playerName: string;
+  playerClass: string | null;
+  currentRoom: string;
+  inventory: string[];
+  inCombat: boolean;
+  hp: number;
+  maxHp: number;
+  roomMuddown: string | undefined;
+  roomName: string;
+  exits: string[];
+  npcIds: string[];
+  roomItemIds: string[];
+  itemDefs: Map<string, ItemDefinition>;
+  npcDefs: Map<string, NpcDefinition>;
+}
+
+export interface HintContextResult {
+  playerName: string;
+  playerClass: string | null;
+  roomName: string;
+  roomDescription: string;
+  exits: string[];
+  npcs: string[];
+  roomItems: string[];
+  inventoryItems: string[];
+  inCombat: boolean;
+  hp: number;
+  maxHp: number;
+}
+
+/** Pure helper to build a HintContext from world/session data. */
+export function buildHintContext(input: BuildHintContextInput): HintContextResult {
+  const npcNames = input.npcIds
+    .map(id => input.npcDefs.get(id)?.name)
+    .filter((n): n is string => n != null);
+  const roomItemNames = input.roomItemIds
+    .map(id => input.itemDefs.get(id)?.name)
+    .filter((n): n is string => n != null);
+  const invNames = input.inventory
+    .map(id => input.itemDefs.get(id)?.name ?? id);
+
+  return {
+    playerName: input.playerName,
+    playerClass: input.playerClass,
+    roomName: input.roomName,
+    roomDescription: input.roomMuddown?.substring(0, 300) ?? "",
+    exits: input.exits,
+    npcs: npcNames,
+    roomItems: roomItemNames,
+    inventoryItems: invNames,
+    inCombat: input.inCombat,
+    hp: input.hp,
+    maxHp: input.maxHp,
+  };
 }

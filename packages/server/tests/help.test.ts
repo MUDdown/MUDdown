@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { helpEntries, getHelpEntry, buildHelpBlock, buildHelpTable, buildHintBlock, isValidCommand } from "../src/helpers.js";
+import { helpEntries, getHelpEntry, buildHelpBlock, buildHelpTable, buildHintBlock, isValidCommand, buildHintContext } from "../src/helpers.js";
+import type { ItemDefinition, NpcDefinition } from "@muddown/shared";
 
 describe("helpEntries", () => {
   it("contains entries for all core commands", () => {
@@ -150,8 +151,8 @@ describe("buildHintBlock", () => {
 
   it("neutralizes ::: in hint text to prevent block breakout", () => {
     const block = buildHintBlock("Safe text\n:::\nInjected block", []);
-    // The raw ::: at start of line should be neutralized
-    expect(block).not.toMatch(/\n:::\n(?!$)/);
+    // The raw ::: at start of line should be replaced with zero-width-space prefix
+    expect(block).toContain("\u200b:::");
     expect(block).toContain("Injected block");
   });
 
@@ -192,5 +193,97 @@ describe("isValidCommand", () => {
     expect(isValidCommand("LOOK")).toBe(true);
     expect(isValidCommand("Go north")).toBe(true);
     expect(isValidCommand("TALK crier")).toBe(true);
+  });
+});
+
+describe("buildHintContext", () => {
+  const baseItemDefs = new Map<string, ItemDefinition>([
+    ["bread", { id: "bread", name: "Bread", description: "A loaf.", weight: 0.5, rarity: "common", fixed: false, equippable: false, usable: true, useEffect: "eat" }],
+  ]);
+
+  const baseNpcDefs = new Map<string, NpcDefinition>([
+    ["crier", { id: "crier", name: "Town Crier", description: "A loud man.", location: "town-square", dialogue: { start: { text: "Hear ye!", mood: "happy", responses: [{ text: "Hi", next: null }] } } }],
+  ]);
+
+  it("resolves inventory and NPC IDs to display names via definitions", () => {
+    const result = buildHintContext({
+      playerName: "Tester",
+      playerClass: "warrior",
+      currentRoom: "town-square",
+      inventory: ["bread"],
+      inCombat: false,
+      hp: 20,
+      maxHp: 20,
+      roomMuddown: "# Town Square\nA bustling square.",
+      roomName: "Town Square",
+      exits: ["north", "south"],
+      npcIds: ["crier"],
+      roomItemIds: [],
+      itemDefs: baseItemDefs,
+      npcDefs: baseNpcDefs,
+    });
+    expect(result.inventoryItems).toEqual(["Bread"]);
+    expect(result.npcs).toHaveLength(1);
+    expect(result.npcs[0]).toBe("Town Crier");
+  });
+
+  it("falls back to raw item ID when itemDefs has no matching entry", () => {
+    const result = buildHintContext({
+      playerName: "Tester",
+      playerClass: "warrior",
+      currentRoom: "town-square",
+      inventory: ["unknown-item"],
+      inCombat: false,
+      hp: 20,
+      maxHp: 20,
+      roomMuddown: "# Town Square\nA square.",
+      roomName: "Town Square",
+      exits: ["north"],
+      npcIds: [],
+      roomItemIds: [],
+      itemDefs: new Map(),
+      npcDefs: new Map(),
+    });
+    expect(result.inventoryItems).toEqual(["unknown-item"]);
+  });
+
+  it("silently filters out NPC IDs with no matching npcDefs entry", () => {
+    const result = buildHintContext({
+      playerName: "Tester",
+      playerClass: "warrior",
+      currentRoom: "town-square",
+      inventory: [],
+      inCombat: false,
+      hp: 20,
+      maxHp: 20,
+      roomMuddown: "# Town Square\nA square.",
+      roomName: "Town Square",
+      exits: [],
+      npcIds: ["nonexistent-npc"],
+      roomItemIds: [],
+      itemDefs: baseItemDefs,
+      npcDefs: new Map(),
+    });
+    expect(result.npcs).toEqual([]);
+  });
+
+  it("returns empty roomDescription when room is undefined", () => {
+    const result = buildHintContext({
+      playerName: "Tester",
+      playerClass: null,
+      currentRoom: "nonexistent-room",
+      inventory: [],
+      inCombat: false,
+      hp: 10,
+      maxHp: 20,
+      roomMuddown: undefined,
+      roomName: "nonexistent-room",
+      exits: [],
+      npcIds: [],
+      roomItemIds: [],
+      itemDefs: baseItemDefs,
+      npcDefs: baseNpcDefs,
+    });
+    expect(result.roomDescription).toBe("");
   });
 });

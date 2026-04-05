@@ -10,7 +10,7 @@ import {
   resolveAttack, formatAttackLine, getPlayerAttackBonus, getPlayerDamage, getPlayerAc,
   resetPlayerAfterDefeat, stripHtmlComments, buildInventoryState, TokenBucket,
   getHelpEntry, helpEntries, buildHelpBlock, buildHelpTable, buildHintBlock,
-  isValidCommand,
+  isValidCommand, buildHintContext,
 } from "./helpers.js";
 import { SqliteDatabase } from "./db/index.js";
 import type { GameDatabase } from "./db/types.js";
@@ -749,31 +749,23 @@ const STATIC_HINTS = [
 async function handleHint(ws: WebSocket, session: PlayerSession): Promise<void> {
   if (isLlmConfigured(llmConfig)) {
     const room = world.rooms.get(session.currentRoom);
-    const exits = Object.keys(world.connections.get(session.currentRoom) ?? {});
-    const npcIds = world.roomNpcs.get(session.currentRoom) ?? [];
-    const npcNames = npcIds
-      .map(id => world.npcDefs.get(id)?.name)
-      .filter((n): n is string => n != null);
-    const roomItemIds = world.roomItems.get(session.currentRoom) ?? [];
-    const roomItemNames = roomItemIds
-      .map(id => world.itemDefs.get(id)?.name)
-      .filter((n): n is string => n != null);
-    const invNames = session.inventory
-      .map(id => world.itemDefs.get(id)?.name ?? id);
 
-    const ctx: HintContext = {
+    const ctx: HintContext = buildHintContext({
       playerName: session.name,
       playerClass: session.characterClass,
-      roomName: getRoomName(session.currentRoom),
-      roomDescription: room?.muddown.substring(0, 300) ?? "",
-      exits,
-      npcs: npcNames,
-      roomItems: roomItemNames,
-      inventoryItems: invNames,
+      currentRoom: session.currentRoom,
+      inventory: session.inventory,
       inCombat: session.combat !== null,
       hp: session.hp,
       maxHp: session.maxHp,
-    };
+      roomMuddown: room?.muddown,
+      roomName: getRoomName(session.currentRoom),
+      exits: Object.keys(world.connections.get(session.currentRoom) ?? {}),
+      npcIds: world.roomNpcs.get(session.currentRoom) ?? [],
+      roomItemIds: world.roomItems.get(session.currentRoom) ?? [],
+      itemDefs: world.itemDefs,
+      npcDefs: world.npcDefs,
+    });
 
     const result = await generateHint(llmConfig, ctx);
     if (result) {
@@ -788,6 +780,7 @@ async function handleHint(ws: WebSocket, session: PlayerSession): Promise<void> 
       return;
     }
     // LLM failed — fall through to static hints
+    console.warn(`[hint] LLM hint generation failed for player="${session.name}" room="${session.currentRoom}" — using static fallback`);
   }
 
   // Static fallback
@@ -797,7 +790,7 @@ async function handleHint(ws: WebSocket, session: PlayerSession): Promise<void> 
     id: randomUUID(),
     type: "system",
     timestamp: new Date().toISOString(),
-    muddown: buildHintBlock(hint, []),
+    muddown: buildHintBlock("I'm having trouble thinking right now. Here's a general tip instead:\n\n" + hint, []),
   });
 }
 

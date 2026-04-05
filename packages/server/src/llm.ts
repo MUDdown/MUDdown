@@ -218,7 +218,7 @@ function buildHintSystemPrompt(ctx: HintContext): string {
     "",
     "## Available Commands",
     "look, go <direction>, examine <target>, talk <npc>, get <item>, drop <item>,",
-    "inventory, equip <item>, unequip <item>, use <item>, combine <item1> and <item2>,",
+    "inventory, equip <item>, unequip <slot>, use <item>, combine <item> with <item>,",
     "attack <target>, flee, say <message>, who, help, hint",
     "",
     "Directions: north, south, east, west, up, down, northeast, northwest, southeast, southwest",
@@ -282,7 +282,10 @@ export async function generateHint(
       abortSignal: AbortSignal.timeout(HINT_TIMEOUT),
     });
 
-    if (!object.hint) return null;
+    if (!object.hint) {
+      console.warn("Hint generation: LLM returned empty hint field — falling back to static");
+      return null;
+    }
 
     return {
       hint: object.hint,
@@ -291,8 +294,15 @@ export async function generateHint(
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {
       console.warn(`Hint generation timeout after ${HINT_TIMEOUT}ms`);
+    } else if (err instanceof Error && err.name === "AI_NoObjectGeneratedError") {
+      const cause = (err as Error & { cause?: unknown }).cause;
+      console.error(
+        "Hint generation: LLM response failed schema validation:",
+        err.message,
+        cause instanceof Error ? cause.message : cause,
+      );
     } else {
-      console.error("Hint generation error:", err instanceof Error ? err.message : err);
+      console.error("Hint generation error:", err);
     }
     return null;
   }
