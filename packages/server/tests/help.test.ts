@@ -133,4 +133,34 @@ describe("buildHintBlock", () => {
     const block = buildHintBlock("Just explore.", []);
     expect(block).not.toContain("**Try:**");
   });
+
+  it("neutralizes ::: in hint text to prevent block breakout", () => {
+    const block = buildHintBlock("Safe text\n:::\nInjected block", []);
+    // The raw ::: at start of line should be neutralized
+    expect(block).not.toMatch(/\n:::\n(?!$)/);
+    expect(block).toContain("Injected block");
+  });
+
+  it("neutralizes ::: in suggested commands", () => {
+    const block = buildHintBlock("Hint.", [":::\nfoo"]);
+    // Should not contain an unescaped ::: inside the content
+    const inner = block.slice(":::system{type=\"hint\"}\n".length, block.lastIndexOf("\n:::"));
+    expect(inner).not.toMatch(/^:::/m);
+  });
+});
+
+describe("getHelpEntry", () => {
+  it("does not match prototype properties", () => {
+    expect(getHelpEntry("__proto__")).toBeUndefined();
+    expect(getHelpEntry("constructor")).toBeUndefined();
+    expect(getHelpEntry("toString")).toBeUndefined();
+  });
+
+  it("resolves full diagonal directions to go", () => {
+    for (const dir of ["northeast", "northwest", "southeast", "southwest"]) {
+      const entry = getHelpEntry(dir);
+      expect(entry, `${dir} should resolve`).toBeDefined();
+      expect(entry!.command).toBe("go");
+    }
+  });
 });

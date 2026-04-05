@@ -335,7 +335,7 @@ export const helpEntries: Record<string, HelpEntry> = {
   },
   go: {
     command: "go",
-    aliases: ["north", "south", "east", "west", "up", "down", "n", "s", "e", "w", "u", "d", "ne", "nw", "se", "sw"],
+    aliases: ["north", "south", "east", "west", "up", "down", "n", "s", "e", "w", "u", "d", "ne", "nw", "se", "sw", "northeast", "northwest", "southeast", "southwest"],
     usage: "go <direction>",
     description: "Move in a direction (n, s, e, w, u, d, ne, nw, se, sw)",
     detail: "Moves your character to an adjacent room. You can type the full direction name, an abbreviation, or use `go <direction>`. You cannot move while in combat — use `flee` first.",
@@ -466,7 +466,7 @@ export const helpEntries: Record<string, HelpEntry> = {
 /** Look up a help entry by command name or alias. */
 export function getHelpEntry(query: string): HelpEntry | undefined {
   const q = query.toLowerCase();
-  if (helpEntries[q]) return helpEntries[q];
+  if (Object.hasOwn(helpEntries, q)) return helpEntries[q];
   for (const entry of Object.values(helpEntries)) {
     if (entry.aliases.includes(q)) return entry;
   }
@@ -509,10 +509,19 @@ Type \`help <command>\` for detailed usage and examples.
 :::`;
 }
 
+/** Neutralize content that could break out of a MUDdown container block. */
+function sanitizeBlockContent(value: string): string {
+  return value
+    .split("\n")
+    .map(line => /^:{3,}/.test(line) ? line.replace(/^:{3,}/, "\u200b") : line)
+    .join("\n");
+}
+
 /** Build the MUDdown content string for a hint block. */
 export function buildHintBlock(hint: string, suggestedCommands: string[]): string {
+  const safeHint = sanitizeBlockContent(hint);
   const cmdSection = suggestedCommands.length > 0
-    ? `\n\n**Try:**\n${suggestedCommands.map(c => `- \`${c}\``).join("\n")}`
+    ? `\n\n**Try:**\n${suggestedCommands.map(c => `- \`${sanitizeBlockContent(c)}\``).join("\n")}`
     : "";
-  return `:::system{type="hint"}\n${hint}${cmdSection}\n:::`;
+  return `:::system{type="hint"}\n${safeHint}${cmdSection}\n:::`;
 }
