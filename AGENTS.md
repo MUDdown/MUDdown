@@ -187,8 +187,8 @@ The website licenses page (`apps/website/src/pages/licenses.astro`) lists every 
 - **New dependency**: When a new runtime or build dependency is added to any `package.json`, add a row to the licenses table with the package name (linked to its homepage or repo), license type, and a one-line description.
 - **Removed dependency**: Remove the corresponding row.
 - **License or version change**: Update the license column if an upgrade changes the license type (e.g., MIT → Apache-2.0).
-- **Audit command**: Run `npm ls --depth=0 --json | jq '((.dependencies // {}) + (.devDependencies // {})) | to_entries[] | {name: .key, version: .value.version}'` at the repo root to list current top-level dependencies and devDependencies. Check each package's `package.json` (or `node_modules/<pkg>/package.json`) for its `license` field.
-- **What to include**: All direct `dependencies` and `devDependencies` that ship runtime code or are essential build tools (Astro, TypeScript, Turborepo, vitest, etc.). Omit transitive dependencies unless they have a non-MIT/Apache-2.0 license that requires attribution.
+- **Audit command**: Run `npm ls --depth=0 --json | jq '((.dependencies // {}) + (.devDependencies // {})) | to_entries[] | {name: .key, version: .value.version}'` at the repo root to list current top-level dependencies. This is a workspaces monorepo, so also check each workspace's `package.json` (under `apps/*` and `packages/*`) for its `dependencies` and `devDependencies`. Look up each package's license in `node_modules/<pkg>/package.json`.
+- **What to include**: All direct `dependencies` and `devDependencies` from the root and workspaces that ship runtime code or are essential build tools (Astro, TypeScript, Turborepo, vitest, etc.). Omit `@types/*` packages (all MIT) and internal `@muddown/*` workspace references. Omit transitive dependencies unless they have a non-MIT/Apache-2.0 license that requires attribution.
 
 ## What NOT to Do
 
