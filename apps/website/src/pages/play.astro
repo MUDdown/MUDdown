@@ -848,6 +848,7 @@ import Base from "../layouts/Base.astro";
     // Close button
     document.getElementById("inv-close-btn")!.addEventListener("click", () => {
       applyInvMode("off");
+      input.focus();
     });
 
     // ── Overlay drag ───────────────────────────────────────────────
@@ -1044,8 +1045,9 @@ import Base from "../layouts/Base.astro";
     }
 
     // Hint panel close button
-    document.getElementById("hint-close-btn")?.addEventListener("click", () => {
+    document.getElementById("hint-close-btn")!.addEventListener("click", () => {
       applyHintMode("off");
+      input.focus();
     });
 
     // Hint panel refresh button
@@ -1147,11 +1149,17 @@ import Base from "../layouts/Base.astro";
       if (settingsDropdown) settingsDropdown.style.display = expanded ? "none" : "";
     });
 
+    function refocusIfPlaying(): void {
+      if (gameArea.style.display !== "none") input.focus();
+    }
+
     // Close dropdown on outside click
     document.addEventListener("click", (e) => {
       if (settingsBtn && settingsDropdown && !settingsBtn.contains(e.target as Node) && !settingsDropdown.contains(e.target as Node)) {
+        const wasOpen = settingsDropdown.style.display !== "none";
         settingsBtn.setAttribute("aria-expanded", "false");
         settingsDropdown.style.display = "none";
+        if (wasOpen) refocusIfPlaying();
       }
     });
 
@@ -1185,6 +1193,40 @@ import Base from "../layouts/Base.astro";
 
     // Sync initial mode to UI (reflects persisted localStorage value)
     applyInvMode(currentInvMode);
+
+    // ── Command-line focus ─────────────────────────────────────────────
+
+    // Refocus when the tab/window regains focus (skip if settings dropdown is open)
+    window.addEventListener("focus", () => {
+      if (settingsDropdown && settingsDropdown.style.display !== "none") return;
+      refocusIfPlaying();
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden || (settingsDropdown && settingsDropdown.style.display !== "none")) return;
+      refocusIfPlaying();
+    });
+
+    // Click on game terminal refocuses input (unless selecting text)
+    document.getElementById("game-terminal")!.addEventListener("mouseup", (e) => {
+      if ((e.target as HTMLElement).closest("a, button, input, select, textarea")) return;
+      const sel = window.getSelection();
+      if (sel && sel.toString().length > 0) return;
+      refocusIfPlaying();
+    });
+
+    // Printable keystrokes while game is active redirect to command input
+    document.addEventListener("keydown", (e) => {
+      if (gameArea.style.display === "none") return;
+      if (settingsDropdown && settingsDropdown.style.display !== "none") return;
+      if (invPanel.classList.contains("inv-overlay")) return;
+      if (hintPanel.classList.contains("hint-overlay")) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const active = document.activeElement;
+      if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT")) return;
+      if (e.isComposing) return;
+      if (e.key.length !== 1) return;
+      input.focus();
+    });
 
     // ── Start ──────────────────────────────────────────────────────────
 

@@ -520,6 +520,16 @@ describe("generateHint", () => {
     expect(result!.suggestedCommands).toEqual(["a", "b", "c"]);
   });
 
+  it("returns null on AI_NoObjectGeneratedError (schema validation failure)", async () => {
+    const schemaErr = Object.assign(new Error("No object generated: response did not match schema."), {
+      name: "AI_NoObjectGeneratedError",
+      cause: new Error("unexpected token"),
+    });
+    mockedGenerateObject.mockRejectedValueOnce(schemaErr);
+    const result = await generateHint(anthropicConfig, makeHintCtx());
+    expect(result).toBeNull();
+  });
+
   it("omits exits, NPCs, and items sections when context arrays are empty", async () => {
     mockedGenerateObject.mockResolvedValueOnce({ object: GOOD_HINT } as any);
     await generateHint(anthropicConfig, makeHintCtx({ exits: [], npcs: [], roomItems: [] }));
