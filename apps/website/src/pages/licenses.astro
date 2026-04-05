@@ -1,0 +1,88 @@
+---
+import Base from "../layouts/Base.astro";
+---
+<Base title="MUDdown — Open Source Licenses">
+  <section class="licenses-page">
+    <div class="container">
+      <h2>Open Source Licenses</h2>
+      <p class="licenses-intro">
+        MUDdown is built with open source software. We are grateful to the maintainers and contributors of these projects.
+        MUDdown itself is released under the <a href="https://github.com/MUDdown/MUDdown/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a>.
+      </p>
+
+      <div class="licenses-table-wrapper">
+      <table class="licenses-table">
+        <thead>
+          <tr>
+            <th>Package</th>
+            <th>License</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><a href="https://astro.build/" target="_blank" rel="noopener noreferrer">Astro</a></td>
+            <td>MIT</td>
+            <td>Web framework for the MUDdown website</td>
+          </tr>
+          <tr>
+            <td><a href="https://github.com/JoshuaWise/better-sqlite3" target="_blank" rel="noopener noreferrer">better-sqlite3</a></td>
+            <td>MIT</td>
+            <td>SQLite3 database driver for Node.js</td>
+          </tr>
+          <tr>
+            <td><a href="https://marked.js.org/" target="_blank" rel="noopener noreferrer">Marked</a></td>
+            <td>MIT</td>
+            <td>Markdown parser used by the website</td>
+          </tr>
+          <tr>
+            <td><a href="https://modelcontextprotocol.io/" target="_blank" rel="noopener noreferrer">Model Context Protocol SDK</a></td>
+            <td>MIT</td>
+            <td>MCP server SDK for AI agent integration</td>
+          </tr>
+          <tr>
+            <td><a href="https://turbo.build/" target="_blank" rel="noopener noreferrer">Turborepo</a></td>
+            <td>MIT</td>
+            <td>Monorepo build system</td>
+          </tr>
+          <tr>
+            <td><a href="https://www.typescriptlang.org/" target="_blank" rel="noopener noreferrer">TypeScript</a></td>
+            <td>Apache-2.0</td>
+            <td>Typed JavaScript used across all packages</td>
+          </tr>
+          <tr>
+            <td><a href="https://vitest.dev/" target="_blank" rel="noopener noreferrer">Vitest</a></td>
+            <td>MIT</td>
+            <td>Unit testing framework</td>
+          </tr>
+          <tr>
+            <td><a href="https://github.com/websockets/ws" target="_blank" rel="noopener noreferrer">ws</a></td>
+            <td>MIT</td>
+            <td>WebSocket library for the game server</td>
+          </tr>
+          <tr>
+            <td><a href="https://zod.dev/" target="_blank" rel="noopener noreferrer">Zod</a></td>
+            <td>MIT</td>
+            <td>Schema validation for the MCP bridge</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </section>
+
+  <style>
+    .licenses-page { padding: 2rem 0; }
+    .licenses-page h2 { margin-bottom: 0.5rem; }
+    .licenses-intro { color: var(--text-dim); margin-bottom: 2rem; max-width: 700px; }
+    .licenses-intro a { color: var(--accent); }
+    .licenses-table { width: 100%; border-collapse: collapse; margin-top: 1rem; min-width: 500px; }
+    .licenses-table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .licenses-table th,
+    .licenses-table td { text-align: left; padding: 0.6rem 1rem; border-bottom: 1px solid var(--border-elevated); }
+    .licenses-table th { color: var(--text-dim); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .licenses-table td a { color: var(--accent); }
+    .licenses-table td a:hover { color: var(--text-bright); }
+    .licenses-table tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
+  </style>
+</Base>

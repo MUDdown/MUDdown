@@ -180,6 +180,16 @@ The website features page (`apps/website/src/pages/features.astro`) showcases im
 - **Removed or replaced feature**: Remove or update the corresponding entry so the page stays accurate.
 - **When in doubt**: If the change is visible to players or operators (new command, new UI element, new integration), it belongs on the features page. Internal refactors and test-only changes do not.
 
+### Maintaining the Licenses Page
+
+The website licenses page (`apps/website/src/pages/licenses.astro`) lists every third-party open source dependency with its license type. Keep it accurate when dependencies change:
+
+- **New dependency**: When a new runtime or build dependency is added to any `package.json`, add a row to the licenses table with the package name (linked to its homepage or repo), license type, and a one-line description.
+- **Removed dependency**: Remove the corresponding row.
+- **License or version change**: Update the license column if an upgrade changes the license type (e.g., MIT → Apache-2.0).
+- **Audit command**: Run `npm ls --depth=0 --json | jq '((.dependencies // {}) + (.devDependencies // {})) | to_entries[] | {name: .key, version: .value.version}'` at the repo root to list current top-level dependencies and devDependencies. Check each package's `package.json` (or `node_modules/<pkg>/package.json`) for its `license` field.
+- **What to include**: All direct `dependencies` and `devDependencies` that ship runtime code or are essential build tools (Astro, TypeScript, Turborepo, vitest, etc.). Omit transitive dependencies unless they have a non-MIT/Apache-2.0 license that requires attribution.
+
 ## What NOT to Do
 
 - Don't add `copilot-instructions.md` — this file (`AGENTS.md`) replaces it
