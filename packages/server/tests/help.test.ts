@@ -71,6 +71,20 @@ describe("getHelpEntry", () => {
     expect(getHelpEntry("teleport")).toBeUndefined();
     expect(getHelpEntry("")).toBeUndefined();
   });
+
+  it("does not match prototype properties", () => {
+    expect(getHelpEntry("__proto__")).toBeUndefined();
+    expect(getHelpEntry("constructor")).toBeUndefined();
+    expect(getHelpEntry("toString")).toBeUndefined();
+  });
+
+  it("resolves full diagonal directions to go", () => {
+    for (const dir of ["northeast", "northwest", "southeast", "southwest"]) {
+      const entry = getHelpEntry(dir);
+      expect(entry, `${dir} should resolve`).toBeDefined();
+      expect(entry!.command).toBe("go");
+    }
+  });
 });
 
 describe("buildHelpBlock", () => {
@@ -146,22 +160,6 @@ describe("buildHintBlock", () => {
     // Should not contain an unescaped ::: inside the content
     const inner = block.slice(":::system{type=\"hint\"}\n".length, block.lastIndexOf("\n:::"));
     expect(inner).not.toMatch(/^:::/m);
-  });
-});
-
-describe("getHelpEntry", () => {
-  it("does not match prototype properties", () => {
-    expect(getHelpEntry("__proto__")).toBeUndefined();
-    expect(getHelpEntry("constructor")).toBeUndefined();
-    expect(getHelpEntry("toString")).toBeUndefined();
-  });
-
-  it("resolves full diagonal directions to go", () => {
-    for (const dir of ["northeast", "northwest", "southeast", "southwest"]) {
-      const entry = getHelpEntry(dir);
-      expect(entry, `${dir} should resolve`).toBeDefined();
-      expect(entry!.command).toBe("go");
-    }
   });
 });
 
