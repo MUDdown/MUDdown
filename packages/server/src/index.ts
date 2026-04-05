@@ -10,6 +10,7 @@ import {
   resolveAttack, formatAttackLine, getPlayerAttackBonus, getPlayerDamage, getPlayerAc,
   resetPlayerAfterDefeat, stripHtmlComments, buildInventoryState, TokenBucket,
   getHelpEntry, helpEntries, buildHelpBlock, buildHelpTable, buildHintBlock,
+  isValidCommand,
 } from "./helpers.js";
 import { SqliteDatabase } from "./db/index.js";
 import type { GameDatabase } from "./db/types.js";
@@ -776,12 +777,13 @@ async function handleHint(ws: WebSocket, session: PlayerSession): Promise<void> 
 
     const result = await generateHint(llmConfig, ctx);
     if (result) {
+      const validCommands = result.suggestedCommands.filter(isValidCommand);
       send(ws, {
         v: 1,
         id: randomUUID(),
         type: "system",
         timestamp: new Date().toISOString(),
-        muddown: buildHintBlock(result.hint, result.suggestedCommands),
+        muddown: buildHintBlock(result.hint, validCommands),
       });
       return;
     }

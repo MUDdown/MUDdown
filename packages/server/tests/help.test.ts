@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { helpEntries, getHelpEntry, buildHelpBlock, buildHelpTable, buildHintBlock } from "../src/helpers.js";
+import { helpEntries, getHelpEntry, buildHelpBlock, buildHelpTable, buildHintBlock, isValidCommand } from "../src/helpers.js";
 
 describe("helpEntries", () => {
   it("contains entries for all core commands", () => {
@@ -162,5 +162,37 @@ describe("getHelpEntry", () => {
       expect(entry, `${dir} should resolve`).toBeDefined();
       expect(entry!.command).toBe("go");
     }
+  });
+});
+
+describe("isValidCommand", () => {
+  it("accepts known commands with arguments", () => {
+    expect(isValidCommand("talk crier")).toBe(true);
+    expect(isValidCommand("go north")).toBe(true);
+    expect(isValidCommand("examine notice board")).toBe(true);
+    expect(isValidCommand("look")).toBe(true);
+  });
+
+  it("accepts direction aliases as commands", () => {
+    expect(isValidCommand("north")).toBe(true);
+    expect(isValidCommand("ne")).toBe(true);
+    expect(isValidCommand("southwest")).toBe(true);
+  });
+
+  it("rejects unknown commands", () => {
+    expect(isValidCommand("listen")).toBe(false);
+    expect(isValidCommand("dance")).toBe(false);
+    expect(isValidCommand("cast fireball")).toBe(false);
+  });
+
+  it("rejects empty input", () => {
+    expect(isValidCommand("")).toBe(false);
+    expect(isValidCommand("  ")).toBe(false);
+  });
+
+  it("is case-insensitive", () => {
+    expect(isValidCommand("LOOK")).toBe(true);
+    expect(isValidCommand("Go north")).toBe(true);
+    expect(isValidCommand("TALK crier")).toBe(true);
   });
 });

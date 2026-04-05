@@ -473,6 +473,13 @@ export function getHelpEntry(query: string): HelpEntry | undefined {
   return undefined;
 }
 
+/** Check whether a command string starts with a recognized game verb. */
+export function isValidCommand(command: string): boolean {
+  const verb = command.trim().split(/\s+/)[0]?.toLowerCase();
+  if (!verb) return false;
+  return getHelpEntry(verb) !== undefined;
+}
+
 /** Build the MUDdown content string for a single command's detail block. */
 export function buildHelpBlock(entry: HelpEntry): string {
   const aliasLine = entry.aliases.length > 0

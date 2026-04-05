@@ -279,9 +279,9 @@ describe("generateNpcDialogue", () => {
     expect(result).toBeNull();
   });
 
-  it("returns null on timeout (AbortError)", async () => {
-    const abortError = new DOMException("signal timed out", "AbortError");
-    mockedGenerateObject.mockRejectedValueOnce(abortError);
+  it("returns null on timeout (TimeoutError)", async () => {
+    const timeoutError = new DOMException("signal timed out", "TimeoutError");
+    mockedGenerateObject.mockRejectedValueOnce(timeoutError);
 
     const result = await generateNpcDialogue(
       anthropicConfig,
@@ -471,8 +471,8 @@ describe("generateHint", () => {
   });
 
   it("returns null on timeout", async () => {
-    const abortError = new DOMException("signal timed out", "AbortError");
-    mockedGenerateObject.mockRejectedValueOnce(abortError);
+    const timeoutError = new DOMException("signal timed out", "TimeoutError");
+    mockedGenerateObject.mockRejectedValueOnce(timeoutError);
 
     const result = await generateHint(anthropicConfig, makeHintCtx());
     expect(result).toBeNull();

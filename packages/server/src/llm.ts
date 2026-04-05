@@ -157,7 +157,7 @@ export async function generateNpcDialogue(
 
     return object;
   } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
+    if (err instanceof Error && err.name === "TimeoutError") {
       console.warn(`LLM timeout for NPC "${npc.id}" after ${LLM_TIMEOUT}ms — falling back to static dialogue`);
     } else {
       console.error(`LLM error for NPC "${npc.id}":`, err instanceof Error ? err.message : err);
@@ -212,8 +212,16 @@ function buildHintSystemPrompt(ctx: HintContext): string {
     "- Do not reveal exact puzzle solutions. Nudge, don't solve.",
     "- Mention specific things the player can interact with (NPCs, items, exits).",
     "- Suggest 1-3 concrete commands they could try.",
+    "- **Only suggest commands from the Available Commands list below.** Do not invent commands.",
     "- Keep it under 3 sentences.",
     "- Be warm and helpful, like a friendly narrator.",
+    "",
+    "## Available Commands",
+    "look, go <direction>, examine <target>, talk <npc>, get <item>, drop <item>,",
+    "inventory, equip <item>, unequip <item>, use <item>, combine <item1> and <item2>,",
+    "attack <target>, flee, say <message>, who, help, hint",
+    "",
+    "Directions: north, south, east, west, up, down, northeast, northwest, southeast, southwest",
     "",
     "## Current Situation",
     `- Player: ${ctx.playerName}${ctx.playerClass ? ` (${ctx.playerClass})` : ""}`,
@@ -281,7 +289,7 @@ export async function generateHint(
       suggestedCommands: object.suggestedCommands.slice(0, 3),
     };
   } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
+    if (err instanceof Error && err.name === "TimeoutError") {
       console.warn(`Hint generation timeout after ${HINT_TIMEOUT}ms`);
     } else {
       console.error("Hint generation error:", err instanceof Error ? err.message : err);

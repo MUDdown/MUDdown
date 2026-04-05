@@ -116,13 +116,13 @@ describe("no analytics or tracking", () => {
 describe("localStorage usage matches privacy policy", () => {
   const playSource = readSource("apps/website/src/pages/play.astro");
 
-  // Privacy policy documents: "inventory display mode and panel position"
-  // Actual keys: muddown_inv_mode, muddown_inv_pos
+  // Privacy policy documents: "inventory display mode and panel position", "hint panel mode and position"
+  // Actual keys: muddown_inv_mode, muddown_inv_pos, muddown_hint_mode, muddown_hint_pos
 
   it("only uses documented localStorage keys", () => {
     const storageWrites = [...playSource.matchAll(/localStorage\.setItem\(\s*["'`]([^"'`]+)["'`]/g)];
     const keys = storageWrites.map(m => m[1]);
-    const allowedKeys = ["muddown_inv_mode", "muddown_inv_pos"];
+    const allowedKeys = ["muddown_inv_mode", "muddown_inv_pos", "muddown_hint_mode", "muddown_hint_pos"];
     for (const key of keys) {
       expect(allowedKeys, `Undocumented localStorage key: ${key}`).toContain(key);
     }
