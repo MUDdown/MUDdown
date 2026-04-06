@@ -9,7 +9,7 @@ import {
   escapeMarkdownLinkLabel, escapeMarkdownLinkDest, escapeDialogueText,
   resolveAttack, formatAttackLine, getPlayerAttackBonus, getPlayerDamage, getPlayerAc,
   resetPlayerAfterDefeat, stripHtmlComments, buildInventoryState, TokenBucket,
-  getHelpEntry, helpEntries, buildHelpBlock, buildHelpTable, buildHintBlock,
+  getHelpEntry, helpEntries, buildHelpBlock, buildHelpTable, buildHintBlock, buildLoreBlock,
   isValidCommand, buildHintContext, extractNarrativeDescription,
   sanitizeRoomDescription,
 } from "./helpers.js";
@@ -22,8 +22,9 @@ import {
 import { handleGamesRoute } from "./games.js";
 import { runComplianceChecks } from "./compliance.js";
 import { fireHook, registerHook, createGreetingHook } from "./hooks.js";
-import { getLlmConfig, isLlmConfigured, generateNpcDialogue, generateHint, generateRoomDescription, MAX_HISTORY_MESSAGES } from "./llm.js";
-import type { ConversationMessage, GeneratedDialogue, LlmConfig, HintContext, RoomDescriptionContext } from "./llm.js";
+import { getLlmConfig, isLlmConfigured, generateNpcDialogue, generateHint, generateRoomDescription, generateLoreAnswer, MAX_HISTORY_MESSAGES } from "./llm.js";
+import type { ConversationMessage, GeneratedDialogue, LlmConfig, HintContext, RoomDescriptionContext, LoreContext } from "./llm.js";
+import { LoreVectorStore, buildLoreCorpus } from "./vectorstore.js";
 
 // ─── Player Session ──────────────────────────────────────────────────────────
 
@@ -99,6 +100,17 @@ const npcHpMap = new Map<string, number>();
 const PORT = Number(process.env.PORT) || 3300;
 const world: WorldMap = loadWorld();
 const sessions = new Map<WebSocket, PlayerSession>();
+
+// ── Lore Vector Store ──────────────────────────────────────────────────────
+
+const loreStore = new LoreVectorStore();
+try {
+  const loreDocs = buildLoreCorpus(world);
+  loreStore.index(loreDocs);
+  console.log(`[lore] Indexed ${loreStore.size} documents for RAG search`);
+} catch (err) {
+  console.error("[lore] Failed to build or index lore corpus — lore command will return no results:", err);
+}
 
 // ── Database ───────────────────────────────────────────────────────────────
 
@@ -551,6 +563,11 @@ async function handleCommand(ws: WebSocket, msg: ClientMessage): Promise<void> {
       await handleHint(ws, session);
       break;
     }
+    case "lore":
+    case "ask": {
+      await handleLore(ws, session, arg);
+      break;
+    }
     default:
       send(ws, systemMessage(`Unknown command: \`${verb}\`. Type \`help\` for a list of commands.`));
   }
@@ -875,6 +892,78 @@ async function handleHint(ws: WebSocket, session: PlayerSession): Promise<void> 
     timestamp: new Date().toISOString(),
     muddown: buildHintBlock("I'm having trouble thinking right now. Here's a general tip instead:\n\n" + hint, []),
   });
+}
+
+// ─── Lore (RAG) ──────────────────────────────────────────────────────────────
+
+const LORE_TOP_K = 5;
+
+async function handleLore(ws: WebSocket, session: PlayerSession, query: string): Promise<void> {
+  if (!query) {
+    send(ws, systemMessage("Ask a question about the game world. Usage: `lore <question>`\n\nExamples: `lore who is the priestess?`, `lore where can I find a weapon?`"));
+    return;
+  }
+
+  try {
+    const results = loreStore.search(query, LORE_TOP_K);
+
+    if (results.length === 0) {
+      send(ws, {
+        v: 1,
+        id: randomUUID(),
+        type: "system",
+        timestamp: new Date().toISOString(),
+        muddown: buildLoreBlock("I don't have any information about that. Try asking about places, characters, items, or game commands.", []),
+      });
+      return;
+    }
+
+    // Try LLM-synthesized answer
+    if (isLlmConfigured(llmConfig)) {
+      const ctx: LoreContext = {
+        query,
+        relevantDocuments: results.map(r => ({
+          title: r.document.title,
+          content: r.document.content,
+          category: r.document.category,
+        })),
+        playerName: session.name,
+        playerClass: session.characterClass,
+      };
+
+      const answer = await generateLoreAnswer(llmConfig, ctx);
+      if (answer) {
+        const sources = results.slice(0, 3).map(r => r.document.title);
+        send(ws, {
+          v: 1,
+          id: randomUUID(),
+          type: "system",
+          timestamp: new Date().toISOString(),
+          muddown: buildLoreBlock(answer.answer, sources),
+        });
+        return;
+      }
+      console.warn(`[lore] LLM synthesis failed for query="${query}" — using excerpt fallback`);
+    }
+
+    // Fallback: show retrieved excerpts directly
+    const excerpts = results.slice(0, 3).map(r => {
+      const snippet = r.document.content.length > 200
+        ? r.document.content.substring(0, 200) + "…"
+        : r.document.content;
+      return `**${r.document.title}** *(${r.document.category})*\n${snippet}`;
+    });
+    send(ws, {
+      v: 1,
+      id: randomUUID(),
+      type: "system",
+      timestamp: new Date().toISOString(),
+      muddown: buildLoreBlock(excerpts.join("\n\n"), []),
+    });
+  } catch (err) {
+    console.error(`[lore] search failed for query="${query}":`, err);
+    send(ws, systemMessage("The lorekeeper is unavailable right now. Try `look` to explore your surroundings, or `help` for a list of commands."));
+  }
 }
 
 function sendWho(ws: WebSocket): void {

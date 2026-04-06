@@ -215,7 +215,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [x] AI game assistant: context-aware help, command suggestions
 - [x] Tool-calling integration: AI agents can play the game
 - [x] Dynamic room descriptions via LLM (based on player state)
-- [ ] Vector store for game lore/help (RAG for player questions)
+- [x] Vector store for game lore/help (RAG for player questions)
 
 ### Phase 5 — Multi-Platform Client
 - [ ] Extract web client into standalone `packages/client`
@@ -253,9 +253,9 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 | Markdown rendering | marked |
 | Future client | React / React Native |
 | Future desktop | Tauri (Rust shell) |
-| Future AI | Vercel AI SDK, LangChain.js, transformers.js |
+| AI | Vercel AI SDK + @ai-sdk/anthropic (NPC dialogue, hints, room descriptions, lore RAG) |
 | Database | SQLite via better-sqlite3 (player state, world state, auth sessions) |
-| Future database | Vector store (RAG for AI features) |
+| Vector store | In-memory TF-IDF with cosine similarity (lore/help RAG) |
 | Deployment | Debian, nginx, systemd, Let's Encrypt |
 
 ---

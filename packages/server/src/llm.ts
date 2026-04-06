@@ -428,7 +428,116 @@ export async function generateRoomDescription(
         cause instanceof Error ? cause.message : cause,
       );
     } else {
-      console.error(`Room description error for "${ctx.roomId}":`, err instanceof Error ? err.message : err);
+      console.error(`Room description error for "${ctx.roomId}":`, err);
+    }
+    return null;
+  }
+}
+
+// ─── Lore / RAG Answer Generation ────────────────────────────────────────────
+
+export interface LoreContext {
+  query: string;
+  relevantDocuments: Array<{
+    title: string;
+    content: string;
+    category: string;
+  }>;
+  playerName: string;
+  playerClass: string | null;
+}
+
+export interface GeneratedLoreAnswer {
+  answer: string;
+}
+
+const loreSchema = z.object({
+  answer: z.string().describe(
+    "A helpful answer to the player's question about the game world, " +
+    "based on the provided context. 1-4 sentences. Stay factual and " +
+    "grounded in the source material. If the context doesn't contain " +
+    "relevant information, say so honestly."
+  ),
+});
+
+export function buildLoreSystemPrompt(ctx: LoreContext): string {
+  const lines: string[] = [
+    "You are the lorekeeper for Northkeep, a text-based fantasy MUD.",
+    "Answer the player's question using ONLY the provided context documents.",
+    "",
+    "## Rules",
+    "- Be concise: 1-4 sentences.",
+    "- Stay factual — only state things supported by the context below.",
+    "- If the context does not answer the question, say you don't have information about that.",
+    "- Be in character as a knowledgeable narrator or sage.",
+    "- Do not reveal exact game mechanics (HP values, AC, damage dice) unless specifically asked.",
+    "- Refer to game entities by their proper names.",
+    "",
+    "## Context Documents",
+  ];
+
+  for (const doc of ctx.relevantDocuments) {
+    lines.push("");
+    lines.push(`### ${doc.title} (${doc.category})`);
+    lines.push(doc.content);
+  }
+
+  if (ctx.relevantDocuments.length === 0) {
+    lines.push("");
+    lines.push("No context documents available — state that you don't have information about the topic.");
+  }
+
+  lines.push("");
+  lines.push(`The player is ${ctx.playerName}${ctx.playerClass ? ` (${ctx.playerClass})` : ""}.`);
+
+  return lines.join("\n");
+}
+
+const LORE_TIMEOUT = 8_000;
+
+/**
+ * Generate a lore answer using the configured LLM provider with
+ * retrieved context documents (RAG).
+ * Returns null on any failure so the caller can fall back to raw excerpts.
+ */
+export async function generateLoreAnswer(
+  config: LlmConfig,
+  ctx: LoreContext,
+): Promise<GeneratedLoreAnswer | null> {
+  if (!isLlmConfigured(config)) return null;
+
+  const system = buildLoreSystemPrompt(ctx);
+
+  try {
+    const provider = createProvider(config);
+    const { object } = await generateObject({
+      model: provider(config.model),
+      schema: loreSchema,
+      system,
+      messages: [
+        { role: "user", content: ctx.query },
+      ],
+      abortSignal: AbortSignal.timeout(LORE_TIMEOUT),
+    });
+
+    if (!object.answer) {
+      console.warn("Lore generation: LLM returned empty answer field");
+      return null;
+    }
+
+    return { answer: object.answer };
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      console.warn(`Lore generation timeout after ${LORE_TIMEOUT}ms`);
+    } else if (err instanceof Error && err.name === "AI_NoObjectGeneratedError") {
+      const cause = (err as Error & { cause?: unknown }).cause;
+      console.error(
+        "Lore generation: LLM response failed schema validation:",
+        err.message,
+        cause instanceof Error ? cause.message : cause,
+      );
+    } else {
+      console.error("Lore generation error:", err);
     }
     return null;
   }

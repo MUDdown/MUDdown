@@ -17,6 +17,8 @@ import {
   generateNpcDialogue,
   generateHint,
   generateRoomDescription,
+  generateLoreAnswer,
+  buildLoreSystemPrompt,
 } from "../src/llm.js";
 import type {
   ConversationMessage,
@@ -26,6 +28,8 @@ import type {
   GeneratedHint,
   RoomDescriptionContext,
   GeneratedRoomDescription,
+  LoreContext,
+  GeneratedLoreAnswer,
 } from "../src/llm.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -751,5 +755,213 @@ describe("generateRoomDescription", () => {
     mockedGenerateObject.mockRejectedValueOnce(schemaErr);
     const result = await generateRoomDescription(anthropicConfig, makeRoomCtx());
     expect(result).toBeNull();
+  });
+});
+
+// ─── generateLoreAnswer ──────────────────────────────────────────────────────
+
+describe("generateLoreAnswer", () => {
+  const anthropicConfig = { provider: "anthropic" as const, model: "claude-haiku-4-5-20251001" };
+  const noneConfig = { provider: "none" as const, model: "" };
+  const mockedGenerateObject = vi.mocked(generateObject);
+
+  function makeLoreCtx(overrides: Partial<LoreContext> = {}): LoreContext {
+    return {
+      query: "Where is the blacksmith?",
+      relevantDocuments: [
+        { title: "Forge", content: "A hot forge with anvils and hammers.", category: "room" },
+        { title: "Blacksmith", content: "A burly smith who repairs weapons.", category: "npc" },
+      ],
+      playerName: "Tester",
+      playerClass: "warrior",
+      ...overrides,
+    };
+  }
+
+  const GOOD_ANSWER: GeneratedLoreAnswer = {
+    answer: "The blacksmith can be found at the Forge, where he repairs weapons at his anvil.",
+  };
+
+  beforeEach(() => {
+    mockedGenerateObject.mockReset();
+  });
+
+  it("returns null when provider is 'none'", async () => {
+    const result = await generateLoreAnswer(noneConfig, makeLoreCtx());
+    expect(result).toBeNull();
+    expect(mockedGenerateObject).not.toHaveBeenCalled();
+  });
+
+  it("returns a generated answer on success", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_ANSWER,
+    } as any);
+
+    const result = await generateLoreAnswer(anthropicConfig, makeLoreCtx());
+    expect(mockedGenerateObject).toHaveBeenCalledOnce();
+    expect(result).toEqual(GOOD_ANSWER);
+  });
+
+  it("passes the query as the user message", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_ANSWER,
+    } as any);
+
+    await generateLoreAnswer(anthropicConfig, makeLoreCtx({ query: "Who is the town crier?" }));
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.messages[0].content).toBe("Who is the town crier?");
+  });
+
+  it("includes context documents in system prompt", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_ANSWER,
+    } as any);
+
+    await generateLoreAnswer(anthropicConfig, makeLoreCtx());
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).toContain("Forge");
+    expect(call.system).toContain("A hot forge with anvils and hammers.");
+    expect(call.system).toContain("Blacksmith");
+    expect(call.system).toContain("(room)");
+    expect(call.system).toContain("(npc)");
+  });
+
+  it("includes player info in system prompt", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_ANSWER,
+    } as any);
+
+    await generateLoreAnswer(anthropicConfig, makeLoreCtx({
+      playerName: "Gandalf",
+      playerClass: "mage",
+    }));
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).toContain("Gandalf");
+    expect(call.system).toContain("mage");
+  });
+
+  it("omits class from system prompt when playerClass is null", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_ANSWER,
+    } as any);
+
+    await generateLoreAnswer(anthropicConfig, makeLoreCtx({ playerClass: null }));
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).not.toContain("null");
+    expect(call.system).not.toContain("(null)");
+  });
+
+  it("returns null when answer is empty", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: { answer: "" },
+    } as any);
+
+    const result = await generateLoreAnswer(anthropicConfig, makeLoreCtx());
+    expect(result).toBeNull();
+  });
+
+  it("returns null on timeout", async () => {
+    const timeoutError = new DOMException("signal timed out", "TimeoutError");
+    mockedGenerateObject.mockRejectedValueOnce(timeoutError);
+
+    const result = await generateLoreAnswer(anthropicConfig, makeLoreCtx());
+    expect(result).toBeNull();
+  });
+
+  it("returns null on API error", async () => {
+    mockedGenerateObject.mockRejectedValueOnce(new Error("API rate limit"));
+
+    const result = await generateLoreAnswer(anthropicConfig, makeLoreCtx());
+    expect(result).toBeNull();
+  });
+
+  it("returns null on AI_NoObjectGeneratedError (schema validation failure)", async () => {
+    const schemaErr = Object.assign(new Error("No object generated: response did not match schema."), {
+      name: "AI_NoObjectGeneratedError",
+      cause: new Error("unexpected token"),
+    });
+    mockedGenerateObject.mockRejectedValueOnce(schemaErr);
+    const result = await generateLoreAnswer(anthropicConfig, makeLoreCtx());
+    expect(result).toBeNull();
+  });
+});
+
+// ─── buildLoreSystemPrompt ───────────────────────────────────────────────────
+
+describe("buildLoreSystemPrompt", () => {
+  it("includes lorekeeper identity", () => {
+    const prompt = buildLoreSystemPrompt({
+      query: "test",
+      relevantDocuments: [],
+      playerName: "Tester",
+      playerClass: null,
+    });
+    expect(prompt).toContain("lorekeeper");
+  });
+
+  it("includes all context document titles and content", () => {
+    const prompt = buildLoreSystemPrompt({
+      query: "test",
+      relevantDocuments: [
+        { title: "Market", content: "A bustling market.", category: "room" },
+        { title: "Sword", content: "A sharp blade.", category: "item" },
+      ],
+      playerName: "Tester",
+      playerClass: "rogue",
+    });
+    expect(prompt).toContain("Market");
+    expect(prompt).toContain("A bustling market.");
+    expect(prompt).toContain("Sword");
+    expect(prompt).toContain("A sharp blade.");
+    expect(prompt).toContain("(room)");
+    expect(prompt).toContain("(item)");
+  });
+
+  it("includes player name and class", () => {
+    const prompt = buildLoreSystemPrompt({
+      query: "test",
+      relevantDocuments: [],
+      playerName: "Aragorn",
+      playerClass: "ranger",
+    });
+    expect(prompt).toContain("Aragorn");
+    expect(prompt).toContain("ranger");
+  });
+
+  it("handles null playerClass without 'null' in output", () => {
+    const prompt = buildLoreSystemPrompt({
+      query: "test",
+      relevantDocuments: [],
+      playerName: "Guest",
+      playerClass: null,
+    });
+    expect(prompt).toContain("Guest");
+    expect(prompt).not.toContain("null");
+  });
+
+  it("includes fallback message when relevantDocuments is empty", () => {
+    const prompt = buildLoreSystemPrompt({
+      query: "test",
+      relevantDocuments: [],
+      playerName: "Tester",
+      playerClass: null,
+    });
+    expect(prompt).toContain("No context documents available");
+  });
+
+  it("omits fallback message when relevantDocuments is non-empty", () => {
+    const prompt = buildLoreSystemPrompt({
+      query: "test",
+      relevantDocuments: [
+        { title: "Forge", content: "A hot forge.", category: "room" },
+      ],
+      playerName: "Tester",
+      playerClass: null,
+    });
+    expect(prompt).not.toContain("No context documents available");
   });
 });
