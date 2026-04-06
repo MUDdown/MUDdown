@@ -1,0 +1,6 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "npx turbo": true,
+        "npm start": true
+    }
+}
