@@ -46,10 +46,11 @@ MUDdown/
 │   ├── shared/         ✅ TypeScript types for protocol, blocks, links, wire messages
 │   ├── parser/         ✅ MUDdown parser (blocks, attributes, sections, links, frontmatter)
 │   ├── server/         ✅ WebSocket game server with demo world
-│   ├── client/         📁 Directory created (empty — web client is in website for now)
+│   ├── client/         ✅ Framework-agnostic client library (renderer, connection, history, links, hints, inventory)
 │   └── bridge/         📁 Directory created (empty — telnet bridge future)
 ├── apps/
-│   └── website/        ✅ Astro site: landing page, spec docs, playable web client
+│   ├── website/        ✅ Astro site: landing page, spec docs, playable web client
+│   └── mobile/         ✅ Expo React Native app for iOS/Android
 ├── turbo.json          ✅ Build orchestration
 ├── package.json        ✅ Workspace root
 ├── tsconfig.json       ✅ Shared TypeScript config
@@ -219,7 +220,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 
 ### Phase 5 — Multi-Platform Client
 - [x] Extract web client into standalone `packages/client`
-- [ ] React Native wrapper for iOS/Android
+- [x] React Native wrapper for iOS/Android
 - [ ] Tauri desktop app (lightweight native shell)
 - [ ] Terminal client (renders MUDdown as styled terminal output)
 - [ ] Telnet bridge (`packages/bridge`): legacy client support (plain telnet + TELNETS/TLS)
