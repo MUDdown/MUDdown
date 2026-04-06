@@ -10,6 +10,7 @@
     "clean": "rm -rf dist .astro"
   },
   "dependencies": {
+    "@muddown/client": "*",
     "astro": "^6.1.1",
     "marked": "^12.0.0"
   },

@@ -218,11 +218,11 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [x] Vector store for game lore/help (RAG for player questions)
 
 ### Phase 5 — Multi-Platform Client
-- [ ] Extract web client into standalone `packages/client`
+- [x] Extract web client into standalone `packages/client`
 - [ ] React Native wrapper for iOS/Android
 - [ ] Tauri desktop app (lightweight native shell)
 - [ ] Terminal client (renders MUDdown as styled terminal output)
-- [ ] Telnet bridge (`packages/bridge`): legacy client support
+- [ ] Telnet bridge (`packages/bridge`): legacy client support (plain telnet + TELNETS/TLS)
 
 ### Phase 6 — Federation & Social
 - [ ] Federation protocol design (realm discovery, portal linking)
