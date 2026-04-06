@@ -99,6 +99,13 @@ export class SqliteDatabase implements GameDatabase {
 
       CREATE INDEX IF NOT EXISTS idx_game_servers_owner ON game_servers(owner_id);
     `);
+
+    // ── Column migrations for existing databases ──────────────────────────
+    const cols = this.db.prepare("PRAGMA table_info(game_servers)").all() as Array<{ name: string }>;
+    const colNames = new Set(cols.map(c => c.name));
+    if (!colNames.has("conformance_level")) {
+      this.db.exec("ALTER TABLE game_servers ADD COLUMN conformance_level TEXT");
+    }
   }
 
   close(): void {

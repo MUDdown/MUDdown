@@ -117,9 +117,10 @@ import Base from "../layouts/Base.astro";
 
     function conformanceBadge(level) {
       if (!level) return "";
-      const labels = { text: "Text", interactive: "Interactive", full: "Full" };
-      const safeLevel = escapeHtml(level);
-      return `<span class="conformance-badge conformance-${safeLevel}">MUDdown ${labels[level] || safeLevel}</span>`;
+      const allowed = { text: "Text", interactive: "Interactive", full: "Full" };
+      const label = allowed[level];
+      if (!label) return "";
+      return `<span class="conformance-badge conformance-${level}">MUDdown ${label}</span>`;
     }
 
     // ── Render Server Card ───────────────────────────────────────────────────
