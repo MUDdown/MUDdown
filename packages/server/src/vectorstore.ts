@@ -1,4 +1,3 @@
-import type { ItemDefinition, NpcDefinition, CombineRecipe } from "@muddown/shared";
 import type { WorldMap } from "./world.js";
 import { extractNarrativeDescription, helpEntries } from "./helpers.js";
 
@@ -202,7 +201,7 @@ export function buildLoreCorpus(world: WorldMap): LoreDocument[] {
       parts.push(node.text);
     }
     if (npc.combat) {
-      parts.push(`Combat NPC with ${npc.combat.hp} HP, AC ${npc.combat.ac}`);
+      parts.push("Combat-capable NPC");
     }
     docs.push({ id: `npc:${npcId}`, content: parts.join(". "), category: "npc", title: npc.name });
   }

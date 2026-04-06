@@ -520,12 +520,13 @@ export async function generateLoreAnswer(
       abortSignal: AbortSignal.timeout(LORE_TIMEOUT),
     });
 
-    if (!object.answer) {
+    const answer = object.answer.trim();
+    if (answer.length === 0) {
       console.warn("Lore generation: LLM returned empty answer field");
       return null;
     }
 
-    return { answer: object.answer };
+    return { answer };
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {
       console.warn(`Lore generation timeout after ${LORE_TIMEOUT}ms`);
