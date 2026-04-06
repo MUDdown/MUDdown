@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import type { DefeatedNpcRecord, EquipSlot, AccountRecord, CharacterRecord, CharacterClass, IdentityLinkRecord, OAuthProvider, GameServerRecord, ServerProtocol } from "@muddown/shared";
+import type { DefeatedNpcRecord, EquipSlot, AccountRecord, CharacterRecord, CharacterClass, IdentityLinkRecord, OAuthProvider, GameServerRecord, ServerProtocol, ConformanceLevel } from "@muddown/shared";
 import { isCharacterClass, isOAuthProvider } from "@muddown/shared";
 import type { GameDatabase, CharacterStateUpdate, AuthSession, GameServerUpdate } from "./types.js";
 
@@ -90,6 +90,7 @@ export class SqliteDatabase implements GameDatabase {
         protocol          TEXT NOT NULL DEFAULT 'websocket',
         website_url       TEXT,
         certification     TEXT NOT NULL DEFAULT 'listed',
+        conformance_level TEXT,
         last_check_at     TEXT,
         last_check_result TEXT,
         created_at        TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -98,6 +99,13 @@ export class SqliteDatabase implements GameDatabase {
 
       CREATE INDEX IF NOT EXISTS idx_game_servers_owner ON game_servers(owner_id);
     `);
+
+    // ── Column migrations for existing databases ──────────────────────────
+    const cols = this.db.prepare("PRAGMA table_info(game_servers)").all() as Array<{ name: string }>;
+    const colNames = new Set(cols.map(c => c.name));
+    if (!colNames.has("conformance_level")) {
+      this.db.exec("ALTER TABLE game_servers ADD COLUMN conformance_level TEXT");
+    }
   }
 
   close(): void {
@@ -388,12 +396,12 @@ export class SqliteDatabase implements GameDatabase {
 
   createGameServer(server: GameServerRecord): void {
     this.db.prepare(`
-      INSERT INTO game_servers (id, owner_id, name, description, hostname, port, protocol, website_url, certification, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO game_servers (id, owner_id, name, description, hostname, port, protocol, website_url, certification, conformance_level, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       server.id, server.ownerId, server.name, server.description,
       server.hostname, server.port, server.protocol, server.websiteUrl,
-      server.certification, server.createdAt, server.updatedAt,
+      server.certification, server.conformanceLevel, server.createdAt, server.updatedAt,
     );
   }
 
@@ -416,11 +424,11 @@ export class SqliteDatabase implements GameDatabase {
     this.db.prepare("DELETE FROM game_servers WHERE id = ?").run(id);
   }
 
-  updateGameServerCheck(id: string, checkResult: string, certification: GameServerRecord["certification"]): void {
+  updateGameServerCheck(id: string, checkResult: string, certification: GameServerRecord["certification"], conformanceLevel: ConformanceLevel | null): void {
     const ts = new Date().toISOString();
     this.db.prepare(
-      "UPDATE game_servers SET last_check_at = ?, last_check_result = ?, certification = ?, updated_at = ? WHERE id = ?"
-    ).run(ts, checkResult, certification, ts, id);
+      "UPDATE game_servers SET last_check_at = ?, last_check_result = ?, certification = ?, conformance_level = ?, updated_at = ? WHERE id = ?"
+    ).run(ts, checkResult, certification, conformanceLevel, ts, id);
   }
 }
 
@@ -517,6 +525,7 @@ interface GameServerRow {
   protocol: string;
   website_url: string | null;
   certification: string;
+  conformance_level: string | null;
   last_check_at: string | null;
   last_check_result: string | null;
   created_at: string;
@@ -525,6 +534,7 @@ interface GameServerRow {
 
 const VALID_PROTOCOLS: ReadonlySet<string> = new Set(["websocket", "telnet", "mcp", "other"]);
 const VALID_CERTIFICATIONS: ReadonlySet<string> = new Set(["verified", "self-certified", "listed"]);
+const VALID_CONFORMANCE: ReadonlySet<string> = new Set(["text", "interactive", "full"]);
 
 function rowToGameServer(row: GameServerRow): GameServerRecord {
   let protocol: ServerProtocol;
@@ -549,6 +559,19 @@ function rowToGameServer(row: GameServerRow): GameServerRecord {
     certification = "listed";
   }
 
+  let conformanceLevel: ConformanceLevel | null;
+  if (row.conformance_level == null) {
+    conformanceLevel = null;
+  } else if (VALID_CONFORMANCE.has(row.conformance_level)) {
+    conformanceLevel = row.conformance_level as ConformanceLevel;
+  } else {
+    console.error(
+      `Game server ${row.id} ("${row.name}") has unrecognized conformance_level ` +
+      `"${row.conformance_level}" — defaulting to null. This indicates a data integrity issue.`
+    );
+    conformanceLevel = null;
+  }
+
   return {
     id: row.id,
     ownerId: row.owner_id,
@@ -559,6 +582,7 @@ function rowToGameServer(row: GameServerRow): GameServerRecord {
     protocol,
     websiteUrl: row.website_url,
     certification,
+    conformanceLevel,
     lastCheckAt: row.last_check_at,
     lastCheckResult: row.last_check_result,
     createdAt: row.created_at,

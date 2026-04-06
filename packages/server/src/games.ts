@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { GameServerRecord, CertificationTier, ServerProtocol, UserSettableCertification } from "@muddown/shared";
+import type { GameServerRecord, CertificationTier, ConformanceLevel, ServerProtocol, UserSettableCertification } from "@muddown/shared";
 import { resolveAccount, setCorsHeaders, handleCorsPreflightIfNeeded } from "./auth.js";
 import type { GameDatabase, GameServerUpdate } from "./db/types.js";
 
@@ -207,6 +207,7 @@ interface PublicGameServer {
   protocol: ServerProtocol;
   websiteUrl: string | null;
   certification: CertificationTier;
+  conformanceLevel: ConformanceLevel | null;
   lastCheckAt: string | null;
   createdAt: string;
 }
@@ -221,6 +222,7 @@ function toPublic(server: GameServerRecord): PublicGameServer {
     protocol: server.protocol,
     websiteUrl: server.websiteUrl,
     certification: server.certification,
+    conformanceLevel: server.conformanceLevel,
     lastCheckAt: server.lastCheckAt,
     createdAt: server.createdAt,
   };
@@ -283,6 +285,7 @@ export async function handleGamesRoute(
       protocol: (input.protocol ?? "websocket") as ServerProtocol,
       websiteUrl: input.websiteUrl ?? null,
       certification: (input.certification ?? "listed") as CertificationTier,
+      conformanceLevel: null,
       lastCheckAt: null,
       lastCheckResult: null,
       createdAt: now,
