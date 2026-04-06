@@ -1060,7 +1060,11 @@ body:has(.play-section) footer {
   white-space: nowrap;
   text-transform: uppercase;
   letter-spacing: 0.03em;
+  text-decoration: none;
+  color: inherit;
 }
+.conformance-badge:hover,
+.conformance-badge:focus-visible { opacity: 0.85; outline: 2px solid var(--accent); outline-offset: 2px; }
 .conformance-text { background: var(--bg); color: var(--text-dim); border: 1px solid var(--border); }
 .conformance-interactive { background: var(--conformance-interactive-bg); color: var(--conformance-interactive-fg); }
 .conformance-full { background: var(--conformance-full-bg); color: var(--conformance-full-fg); }

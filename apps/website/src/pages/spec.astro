@@ -6,7 +6,20 @@ import { marked } from "marked";
 
 const specPath = path.resolve("../../packages/spec/SPECIFICATION.md");
 const specMd = fs.readFileSync(specPath, "utf-8");
-const specHtml = await marked(specMd);
+let specHtml = await marked(specMd);
+
+// Replace conformance level names with styled badges
+const badgeMap: Record<string, string> = {
+  "MUDdown Text": "text",
+  "MUDdown Interactive": "interactive",
+  "MUDdown Full": "full",
+};
+for (const [label, level] of Object.entries(badgeMap)) {
+  specHtml = specHtml.replaceAll(
+    `<strong>${label}</strong>`,
+    `<span class="conformance-badge conformance-${level}">${label}</span>`,
+  );
+}
 ---
 <Base title="MUDdown Specification">
   <div class="container spec-content" set:html={specHtml} />

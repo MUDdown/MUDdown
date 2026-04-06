@@ -120,7 +120,7 @@ import Base from "../layouts/Base.astro";
       const allowed = { text: "Text", interactive: "Interactive", full: "Full" };
       const label = allowed[level];
       if (!label) return "";
-      return `<span class="conformance-badge conformance-${level}">MUDdown ${label}</span>`;
+      return `<a href="/spec/#10-conformance-levels" class="conformance-badge conformance-${level}">MUDdown ${label}</a>`;
     }
 
     // ── Render Server Card ───────────────────────────────────────────────────
