@@ -143,8 +143,9 @@ const registerTool = server.tool.bind(server) as (
 registerTool(
   "game_command",
   "Execute a raw game command string. Prefer the specific tools (look, go, " +
-    "examine, get, drop, inventory, equip, unequip, use, talk, attack, say) " +
-    "when possible. Falls back to this for commands without a dedicated tool.",
+    "examine, get, drop, inventory, equip, unequip, use, talk, attack, say, " +
+    "combine) when possible. Use available_actions to see what you can do " +
+    "right now. Falls back to this for commands without a dedicated tool.",
   { command: z.string() },
   handleGameCommand,
 );
