@@ -163,6 +163,18 @@ export class MUDdownConnection {
 /** Build the WebSocket URL from an HTTP API base URL. */
 export function buildWsUrl(apiBase: string, path = "/ws"): string {
   const url = new URL(apiBase);
-  const protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  let protocol: "ws:" | "wss:";
+  switch (url.protocol) {
+    case "http:":
+    case "ws:":
+      protocol = "ws:";
+      break;
+    case "https:":
+    case "wss:":
+      protocol = "wss:";
+      break;
+    default:
+      throw new Error(`Unsupported protocol for WebSocket URL: ${url.protocol}`);
+  }
   return `${protocol}//${url.host}${path}`;
 }
