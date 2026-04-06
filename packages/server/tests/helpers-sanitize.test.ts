@@ -49,4 +49,26 @@ describe("sanitizeRoomDescription", () => {
     expect(result).toContain("\u200b");
     expect(result).toBe("text\u200b::::::more");
   });
+
+  it("breaks scheme-based markdown links", () => {
+    const result = sanitizeRoomDescription("A [shiny sword](item:magic-sword) on the ground");
+    expect(result).toContain("]\u200b(item:");
+    expect(result).not.toMatch(/\]\(item:/);
+  });
+
+  it("breaks multiple scheme links in one string", () => {
+    const result = sanitizeRoomDescription("[Click](cmd:drop all) and [North](go:north)");
+    expect(result).not.toMatch(/\]\(cmd:/);
+    expect(result).not.toMatch(/\]\(go:/);
+  });
+
+  it("prevents leading heading marker from becoming a section", () => {
+    const result = sanitizeRoomDescription("## Fake Section");
+    expect(result).toBe("\u200b## Fake Section");
+  });
+
+  it("does not alter heading markers that are not at the start", () => {
+    const result = sanitizeRoomDescription("text with ## in the middle");
+    expect(result).toBe("text with ## in the middle");
+  });
 });

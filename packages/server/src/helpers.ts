@@ -580,14 +580,18 @@ export function buildHintContext(input: BuildHintContextInput): HintContext {
 
 /**
  * Sanitize LLM-generated description text for safe injection into MUDdown.
- * Collapses newlines to spaces (preventing heading injection) and neutralizes
- * container-block sequences with a zero-width space prefix.
+ * Collapses newlines to spaces, neutralizes container-block sequences,
+ * breaks scheme-based markdown links, and prevents a leading heading marker
+ * from being interpreted as a section/header when injected at line start.
  */
 export function sanitizeRoomDescription(text: string): string {
-  return text
+  const sanitized = text
     .replace(/\r?\n/g, " ")
     .replace(/:{3,}/g, (m) => "\u200b" + m)
+    .replace(/\]\((\w+):/g, "]\u200b($1:")
     .trim();
+
+  return sanitized.replace(/^(#+)(\s)/, "\u200b$1$2");
 }
 
 /**
