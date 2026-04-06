@@ -14,11 +14,12 @@ Turborepo monorepo with npm workspaces:
 | `packages/shared` | TypeScript types: wire protocol, blocks, links, items |
 | `packages/parser` | MUDdown parser (blocks, attributes, sections, links, frontmatter) |
 | `packages/server` | WebSocket game server (Node.js + `ws`, port 3300) |
-| `packages/client` | Future standalone client (empty) |
+| `packages/client` | Framework-agnostic client library (renderer, connection, history, links, hints, inventory) |
 | `packages/bridge` | Future telnet bridge (empty) |
 | `apps/website` | Astro site: landing page, spec docs, playable web client |
+| `apps/mobile` | Expo React Native app for iOS/Android |
 
-Dependency graph: `server` → `shared`; `parser` → `shared`; `website` → `spec` (reads Markdown at build time).
+Dependency graph: `server` → `shared`; `parser` → `shared`; `client` → `shared`; `mobile` → `client`, `shared`; `website` → `spec` (reads Markdown at build time).
 
 ## TypeScript Conventions
 
@@ -121,10 +122,13 @@ npx turbo run build --filter=@muddown/server...      # Build server + deps only
 npx turbo run test                                   # Run all tests
 cd packages/server && npm start                      # Start game server (port 3300, loads .env)
 cd apps/website && npm run dev                       # Start Astro dev server (port 4321)
+cd apps/mobile && npm start                          # Start Expo dev server (mobile app)
 ```
 
 Parser tests: `cd packages/parser && npm test` (56 tests via vitest).
 Server tests: `cd packages/server && npm test` (70 tests via vitest).
+Client tests: `cd packages/client && npm test` (86 tests via vitest).
+MCP tests: `cd packages/mcp && npm test` (24 tests via vitest).
 
 ## Testing
 

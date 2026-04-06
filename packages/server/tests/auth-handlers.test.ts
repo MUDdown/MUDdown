@@ -7,7 +7,7 @@ import { Readable } from "node:stream";
 import { SqliteDatabase } from "../src/db/sqlite.js";
 import type { GameDatabase, AuthSession } from "../src/db/types.js";
 import {
-  extractSessionToken, resolveSession, resolveTicket, CHARACTER_NAME_RE, _insertTicket,
+  extractSessionToken, extractBearerToken, resolveSession, resolveTicket, CHARACTER_NAME_RE, _insertTicket,
   handleAuthRoute, exchangeCodeForToken, fetchProviderUser, findOrCreateAccount,
 } from "../src/auth.js";
 import type { OAuthConfig } from "../src/auth.js";
@@ -945,6 +945,48 @@ describe("handleAuthRoute — /auth/callback", () => {
     expect(res.statusCode).toBe(503);
     expect(res.body).toContain("no longer configured");
   });
+
+  it("redirects to mobile deep link with token when redirect_uri is set", async () => {
+    // Login with redirect_uri to create pending state with mobileRedirect
+    const loginReq = {
+      method: "GET",
+      url: "/auth/login?provider=github&redirect_uri=muddown%3A%2F%2Fauth",
+      headers: { host: "localhost:3300" },
+    } as unknown as IncomingMessage;
+    const loginRes = mockRes();
+    await handleAuthRoute(loginReq, loginRes, config, db);
+    expect(loginRes.statusCode).toBe(302);
+    const location = loginRes._headers["location"];
+    const state = location.match(/state=([^&]+)/)![1];
+
+    let callCount = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { ok: true, json: async () => ({ access_token: "tok" }) };
+      }
+      return {
+        ok: true,
+        json: async () => ({ id: 888, login: "mobileuser", name: "Mobile User" }),
+      };
+    }));
+
+    const req = mockReq(`?code=testcode&state=${state}`);
+    const res = mockRes();
+    await handleAuthRoute(req, res, config, db);
+
+    expect(res.statusCode).toBe(302);
+    const redirectLocation = res._headers["location"];
+    expect(redirectLocation).toMatch(/^muddown:\/\/auth\?token=/);
+    // No cookie should be set for mobile redirects
+    expect(res._headers["set-cookie"]).toBeUndefined();
+    // The token in the redirect URL should resolve to a valid session
+    const tokenMatch = redirectLocation.match(/token=([^&]+)/);
+    expect(tokenMatch).toBeTruthy();
+    const session = db.getSession(tokenMatch![1]);
+    expect(session).toBeDefined();
+    expect(session!.accountId).toBeDefined();
+  });
 });
 
 // ─── exchangeCodeForToken — google branch ────────────────────────────────────
@@ -1456,5 +1498,309 @@ describe("handleAuthRoute — /auth/me", () => {
     await handleAuthRoute(mockReq(`muddown_session=${token}`), res, dummyConfig, db);
     expect(res.statusCode).toBe(401);
     expect(JSON.parse(res.body)).toEqual({ error: "Account not found" });
+  });
+});
+
+// ─── extractBearerToken ──────────────────────────────────────────────────────
+
+describe("extractBearerToken", () => {
+  function fakeReq(authorization?: string): IncomingMessage {
+    return { headers: { authorization } } as unknown as IncomingMessage;
+  }
+
+  it("extracts token from a valid Authorization header", () => {
+    expect(extractBearerToken(fakeReq("Bearer abc123"))).toBe("abc123");
+  });
+
+  it("is case-insensitive for the Bearer prefix", () => {
+    expect(extractBearerToken(fakeReq("bearer myToken"))).toBe("myToken");
+    expect(extractBearerToken(fakeReq("BEARER myToken"))).toBe("myToken");
+  });
+
+  it("returns undefined when no Authorization header", () => {
+    expect(extractBearerToken(fakeReq())).toBeUndefined();
+  });
+
+  it("returns undefined for non-Bearer auth schemes", () => {
+    expect(extractBearerToken(fakeReq("Basic dXNlcjpwYXNz"))).toBeUndefined();
+  });
+
+  it("returns undefined for malformed Bearer header", () => {
+    expect(extractBearerToken(fakeReq("Bearer"))).toBeUndefined();
+    expect(extractBearerToken(fakeReq("Bearer "))).toBeUndefined();
+  });
+});
+
+// ─── resolveSession with Bearer token ────────────────────────────────────────
+
+describe("resolveSession — Bearer token", () => {
+  const accountId = "acc-bearer-test-" + randomUUID();
+
+  beforeAll(() => {
+    const now = new Date().toISOString();
+    db.createAccount({ id: accountId, displayName: "BearerUser", displayNameOverridden: false, createdAt: now, updatedAt: now });
+  });
+
+  function fakeReqBearer(token: string): IncomingMessage {
+    return { headers: { authorization: `Bearer ${token}` } } as unknown as IncomingMessage;
+  }
+
+  it("resolves a session from a Bearer token", () => {
+    const token = randomUUID();
+    db.createSession({
+      token,
+      accountId,
+      activeCharacterId: null,
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+    });
+
+    const session = resolveSession(fakeReqBearer(token), db);
+    expect(session).toBeDefined();
+    expect(session!.accountId).toBe(accountId);
+    expect(session!.token).toBe(token);
+  });
+
+  it("prefers cookie over Bearer when both are present", () => {
+    const cookieToken = randomUUID();
+    const bearerToken = randomUUID();
+    const expires = new Date(Date.now() + 86400000).toISOString();
+    db.createSession({ token: cookieToken, accountId, activeCharacterId: null, expiresAt: expires });
+    db.createSession({ token: bearerToken, accountId, activeCharacterId: null, expiresAt: expires });
+
+    const req = {
+      headers: {
+        cookie: `muddown_session=${cookieToken}`,
+        authorization: `Bearer ${bearerToken}`,
+      },
+    } as unknown as IncomingMessage;
+
+    const session = resolveSession(req, db);
+    expect(session).toBeDefined();
+    expect(session!.token).toBe(cookieToken);
+  });
+
+  it("returns undefined for an invalid Bearer token", () => {
+    const req = fakeReqBearer("nonexistent-bearer-token");
+    expect(resolveSession(req, db)).toBeUndefined();
+  });
+});
+
+// ─── /auth/me with Bearer — no longer echoes token ──────────────────────────
+
+describe("handleAuthRoute — /auth/me with Bearer", () => {
+  const accountId = "acc-me-bearer-" + randomUUID();
+  let sessionToken: string;
+
+  const dummyConfig: OAuthConfig = {
+    github: { clientId: "test", clientSecret: "test", callbackUrl: "http://localhost:3300/auth/callback" },
+  };
+
+  beforeAll(() => {
+    const now = new Date().toISOString();
+    db.createAccount({ id: accountId, displayName: "BearerMe", displayNameOverridden: false, createdAt: now, updatedAt: now });
+    sessionToken = "tok-me-bearer-" + randomUUID();
+    db.createSession({ token: sessionToken, accountId, activeCharacterId: null, expiresAt: new Date(Date.now() + 86400000).toISOString() });
+  });
+
+  function mockReq(headers: Record<string, string>): IncomingMessage {
+    return {
+      method: "GET",
+      url: "/auth/me",
+      headers: { host: "localhost:3300", ...headers },
+    } as unknown as IncomingMessage;
+  }
+
+  it("does not echo token back when using Bearer auth", async () => {
+    const req = mockReq({ authorization: `Bearer ${sessionToken}` });
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.token).toBeUndefined();
+    expect(body.id).toBe(accountId);
+    expect(body.displayName).toBe("BearerMe");
+  });
+
+  it("does not include token when using cookie auth", async () => {
+    const req = mockReq({ cookie: `muddown_session=${sessionToken}` });
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.token).toBeUndefined();
+  });
+});
+
+// ─── /auth/login — mobile redirect_uri ───────────────────────────────────────
+
+describe("handleAuthRoute — /auth/login with redirect_uri", () => {
+  const githubConfig: OAuthConfig = {
+    github: { clientId: "gh-id", clientSecret: "gh-secret", callbackUrl: "http://localhost:3300/auth/callback" },
+  };
+
+  function mockReq(qs: string): IncomingMessage {
+    return {
+      method: "GET",
+      url: `/auth/login${qs}`,
+      headers: { host: "localhost:3300" },
+    } as unknown as IncomingMessage;
+  }
+
+  it("accepts redirect_uri with a custom scheme", async () => {
+    const req = mockReq("?provider=github&redirect_uri=muddown://auth");
+    const res = mockRes();
+    await handleAuthRoute(req, res, githubConfig, db);
+    expect(res.statusCode).toBe(302);
+    expect(res._headers["location"]).toMatch(/github\.com/);
+  });
+
+  it("rejects redirect_uri without a scheme", async () => {
+    const req = mockReq("?provider=github&redirect_uri=not-a-uri");
+    const res = mockRes();
+    await handleAuthRoute(req, res, githubConfig, db);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("Invalid redirect_uri");
+  });
+
+  it("rejects redirect_uri with https scheme", async () => {
+    const req = mockReq("?provider=github&redirect_uri=https://attacker.com/steal");
+    const res = mockRes();
+    await handleAuthRoute(req, res, githubConfig, db);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("only custom app schemes");
+  });
+
+  it("rejects redirect_uri with http scheme", async () => {
+    const req = mockReq("?provider=github&redirect_uri=http://evil.com");
+    const res = mockRes();
+    await handleAuthRoute(req, res, githubConfig, db);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("only custom app schemes");
+  });
+
+  it("rejects redirect_uri with javascript scheme", async () => {
+    const req = mockReq("?provider=github&redirect_uri=javascript://alert(1)");
+    const res = mockRes();
+    await handleAuthRoute(req, res, githubConfig, db);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("only custom app schemes");
+  });
+
+  it("rejects redirect_uri with data scheme", async () => {
+    const req = mockReq("?provider=github&redirect_uri=data://text/html,<script>alert(1)</script>");
+    const res = mockRes();
+    await handleAuthRoute(req, res, githubConfig, db);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("only custom app schemes");
+  });
+
+  it("rejects redirect_uri with file scheme", async () => {
+    const req = mockReq("?provider=github&redirect_uri=file:///etc/passwd");
+    const res = mockRes();
+    await handleAuthRoute(req, res, githubConfig, db);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("only custom app schemes");
+  });
+
+  it("rejects redirect_uri with blob scheme", async () => {
+    const req = mockReq("?provider=github&redirect_uri=blob://something");
+    const res = mockRes();
+    await handleAuthRoute(req, res, githubConfig, db);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("only custom app schemes");
+  });
+
+  it("rejects redirect_uri with ftp scheme", async () => {
+    const req = mockReq("?provider=github&redirect_uri=ftp://evil.com/path");
+    const res = mockRes();
+    await handleAuthRoute(req, res, githubConfig, db);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("only custom app schemes");
+  });
+
+  it("accepts redirect_uri with exp scheme (Expo Go)", async () => {
+    const req = mockReq("?provider=github&redirect_uri=exp://192.168.1.5:8081/auth");
+    const res = mockRes();
+    await handleAuthRoute(req, res, githubConfig, db);
+    expect(res.statusCode).toBe(302);
+    expect(res._headers["location"]).toMatch(/github\.com/);
+  });
+
+  it("treats empty redirect_uri as absent (proceeds normally)", async () => {
+    const req = mockReq("?provider=github&redirect_uri=");
+    const res = mockRes();
+    await handleAuthRoute(req, res, githubConfig, db);
+    expect(res.statusCode).toBe(302);
+    expect(res._headers["location"]).toMatch(/github\.com/);
+  });
+});
+
+// ─── resolveSession — expired cookie falls back to Bearer ────────────────────
+
+describe("resolveSession — expired cookie with valid Bearer", () => {
+  const accountId = "acc-fallback-" + randomUUID();
+
+  beforeAll(() => {
+    const now = new Date().toISOString();
+    db.createAccount({ id: accountId, displayName: "FallbackUser", displayNameOverridden: false, createdAt: now, updatedAt: now });
+  });
+
+  it("resolves via Bearer when cookie session is expired", () => {
+    const expiredToken = "expired-" + randomUUID();
+    const bearerToken = "bearer-" + randomUUID();
+    const expired = new Date(Date.now() - 86400000).toISOString();
+    const valid = new Date(Date.now() + 86400000).toISOString();
+    db.createSession({ token: expiredToken, accountId, activeCharacterId: null, expiresAt: expired });
+    db.createSession({ token: bearerToken, accountId, activeCharacterId: null, expiresAt: valid });
+
+    // Cookie takes precedence — but it's expired, so resolveSession should
+    // delete it and return undefined (it doesn't fall through to Bearer after
+    // finding a cookie). This test documents the current cookie-first behavior.
+    const req = {
+      headers: {
+        cookie: `muddown_session=${expiredToken}`,
+        authorization: `Bearer ${bearerToken}`,
+      },
+    } as unknown as IncomingMessage;
+
+    const session = resolveSession(req, db);
+    // Cookie was found first, expired, and deleted — no fallback to Bearer
+    expect(session).toBeUndefined();
+  });
+});
+
+// ─── /auth/me — invalid Bearer returns 401 ──────────────────────────────────
+
+describe("handleAuthRoute — /auth/me with invalid Bearer", () => {
+  const dummyConfig: OAuthConfig = {
+    github: { clientId: "test", clientSecret: "test", callbackUrl: "http://localhost:3300/auth/callback" },
+  };
+
+  it("returns 401 for an invalid Bearer token", async () => {
+    const req = {
+      method: "GET",
+      url: "/auth/me",
+      headers: { host: "localhost:3300", authorization: "Bearer nonexistent-token-xyz" },
+    } as unknown as IncomingMessage;
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toEqual({ error: "Not authenticated" });
+  });
+});
+
+// ─── extractBearerToken — internal whitespace ────────────────────────────────
+
+describe("extractBearerToken — edge cases", () => {
+  function fakeReq(authorization?: string): IncomingMessage {
+    return { headers: { authorization } } as unknown as IncomingMessage;
+  }
+
+  it("returns undefined when token contains internal whitespace", () => {
+    expect(extractBearerToken(fakeReq("Bearer abc def"))).toBeUndefined();
+  });
+
+  it("returns undefined for empty string authorization", () => {
+    expect(extractBearerToken(fakeReq(""))).toBeUndefined();
   });
 });
