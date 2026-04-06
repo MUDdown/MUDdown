@@ -2,13 +2,13 @@ import React, { useEffect, useState } from "react";
 import { View, Text, Pressable, ActivityIndicator, Alert, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as WebBrowser from "expo-web-browser";
+import * as Linking from "expo-linking";
 import { buildWsUrl } from "@muddown/client";
 
 import type { LoginScreenProps } from "../types.js";
-import type { GameScreenParams } from "../types.js";
 import { colors, base } from "../theme.js";
 import { SERVER_URL } from "../constants.js";
-import { authFetch, setToken, getToken } from "../auth.js";
+import { authFetch, setToken, getToken, clearToken } from "../auth.js";
 
 export function LoginScreen({ navigation }: LoginScreenProps) {
   const [checking, setChecking] = useState(true);
@@ -32,11 +32,6 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
       if (res.ok) {
         const me = await res.json();
 
-        // Capture token if the server returns one
-        if (me?.token) {
-          await setToken(me.token);
-        }
-
         if (me?.activeCharacter) {
           await goToGameAuthenticated();
         } else {
@@ -46,7 +41,7 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
       }
       // 4xx — not logged in, show login UI
     } catch (err) {
-      console.error("[LoginScreen] checkAuth network error:", err);
+      console.error("[LoginScreen] checkAuth failed:", err);
       // Genuine network failure — show login options
     }
     setChecking(false);
@@ -55,6 +50,14 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
   async function goToGameAuthenticated(): Promise<void> {
     try {
       const res = await authFetch(`${SERVER_URL}/auth/ws-ticket`);
+
+      if (res.status === 401 || res.status === 403) {
+        try { await clearToken(); } catch (e) { console.error("[LoginScreen] clearToken failed:", e); }
+        Alert.alert("Session Expired", "Your session has expired. Please log in again.");
+        setChecking(false);
+        return;
+      }
+
       if (res.ok) {
         const { ticket } = await res.json();
         navigation.replace("Game", {
@@ -64,18 +67,27 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
         });
         return;
       }
+
+      // Non-auth server error — offer retry instead of silently downgrading
+      Alert.alert(
+        "Connection Issue",
+        "Could not retrieve your game session.",
+        [
+          { text: "Retry", onPress: () => goToGameAuthenticated() },
+          { text: "Cancel", onPress: () => setChecking(false), style: "cancel" },
+        ],
+      );
     } catch (err) {
       console.error(`[LoginScreen] goToGameAuthenticated: failed to fetch ${SERVER_URL}/auth/ws-ticket`, err);
       Alert.alert(
         "Connection Issue",
-        "Could not retrieve your game session. Continuing as guest.",
+        "Could not retrieve your game session.",
+        [
+          { text: "Retry", onPress: () => goToGameAuthenticated() },
+          { text: "Cancel", onPress: () => setChecking(false), style: "cancel" },
+        ],
       );
-      // Fall through — navigate as guest if ticket fetch fails
     }
-    navigation.replace("Game", {
-      wsUrl: buildWsUrl(SERVER_URL),
-      mode: "guest",
-    });
   }
 
   function handleGuest() {
@@ -87,12 +99,30 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
 
   async function handleLogin() {
     try {
-      const result = await WebBrowser.openBrowserAsync(`${SERVER_URL}/login`);
-      // After the browser closes, check whether we now have an auth session
-      if (result.type !== "cancel") {
-        setChecking(true);
-        await checkAuth();
+      // Build the redirect URI that the server will redirect back to after OAuth.
+      // Expo's Linking.createURL produces the correct scheme-based URL
+      // (e.g. muddown://auth in production, exp://... in Expo Go).
+      const redirectUri = Linking.createURL("auth");
+      const loginUrl = `${SERVER_URL}/auth/login?redirect_uri=${encodeURIComponent(redirectUri)}`;
+
+      const result = await WebBrowser.openAuthSessionAsync(loginUrl, redirectUri);
+
+      if (result.type === "success" && result.url) {
+        // Extract the session token from the redirect URL
+        const parsed = Linking.parse(result.url);
+        const token = parsed.queryParams?.token as string | undefined;
+        if (token) {
+          await setToken(token);
+          setChecking(true);
+          await checkAuth();
+          return;
+        }
+        // OAuth completed but no token was returned — server-side issue
+        console.error("[LoginScreen] handleLogin: OAuth redirect succeeded but no token in URL");
+        Alert.alert("Login Failed", "Authentication succeeded but no session was returned. Please try again.");
+        return;
       }
+      // User cancelled — stay on login screen
     } catch (err) {
       console.error("[LoginScreen] WebBrowser error:", err);
       Alert.alert("Error", "Could not open the login page.");

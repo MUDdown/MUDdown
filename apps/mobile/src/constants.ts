@@ -2,8 +2,8 @@
  * Server connection defaults.
  *
  * In development, the game server runs on the same machine. iOS Simulator
- * can reach `localhost`, but Android Emulator uses `10.0.2.2`. Override
- * SERVER_URL via the `serverUrl` extra in app.config.ts for production.
+ * can reach `localhost`, but Android Emulator uses `10.0.2.2`. In production,
+ * the URL is read from `extra.serverUrl` in app.json (or app.config.ts).
  */
 import { Platform } from "react-native";
 import Constants from "expo-constants";
@@ -17,7 +17,7 @@ export const SERVER_URL: string = __DEV__
       const url = Constants.expoConfig?.extra?.serverUrl as string | undefined;
       if (!url) {
         throw new Error(
-          "Production build requires 'serverUrl' in app.config.ts extras.",
+          "Production build requires 'serverUrl' in app.json extras.",
         );
       }
       return url;

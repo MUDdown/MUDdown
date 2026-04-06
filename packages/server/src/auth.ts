@@ -53,7 +53,7 @@ function secureCookieSuffix(config: OAuthConfig): string {
 
 // ─── OAuth State (CSRF protection) ──────────────────────────────────────────
 
-const pendingOAuth = new Map<string, { provider: OAuthProvider; createdAt: number }>();
+const pendingOAuth = new Map<string, { provider: OAuthProvider; createdAt: number; mobileRedirect?: string }>();
 
 setInterval(() => {
   const cutoff = Date.now() - 10 * 60 * 1000;
@@ -96,7 +96,7 @@ export function setCorsHeaders(req: IncomingMessage, res: ServerResponse): void 
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   } else if (origin) {
     console.warn(`CORS: rejected origin "${origin}" (expected "${WEBSITE_ORIGIN}")`);
   }
@@ -209,7 +209,22 @@ function handleLogin(url: URL, res: ServerResponse, config: OAuthConfig): void {
   }
 
   const state = randomUUID();
-  pendingOAuth.set(state, { provider, createdAt: Date.now() });
+  // If the caller passes redirect_uri with a custom scheme (e.g. muddown://auth),
+  // remember it so handleCallback can redirect back to the mobile app.
+  // Only explicitly allowed app schemes are accepted — everything else is rejected
+  // to prevent open-redirect token leaks via http(s), javascript, file, blob, etc.
+  const ALLOWED_APP_SCHEMES = /^(?:muddown|exp):\/\//i;
+  const rawRedirect = url.searchParams.get("redirect_uri") ?? undefined;
+  const mobileRedirect = rawRedirect || undefined; // treat empty string as absent
+  if (mobileRedirect) {
+    if (!ALLOWED_APP_SCHEMES.test(mobileRedirect)) {
+      console.warn(`Rejected redirect_uri (scheme not allowed): ${mobileRedirect}`);
+      res.writeHead(400, { "Content-Type": "text/plain" });
+      res.end("Invalid redirect_uri: only custom app schemes are permitted.");
+      return;
+    }
+  }
+  pendingOAuth.set(state, { provider, createdAt: Date.now(), mobileRedirect });
 
   const authorizeUrl = buildAuthorizeUrl(provider, providerCfg, state);
   res.writeHead(302, { Location: authorizeUrl });
@@ -331,6 +346,23 @@ async function handleCallback(
     const sessionToken = randomUUID();
     const expiresAt = new Date(Date.now() + SESSION_DURATION_MS).toISOString();
     db.createSession({ token: sessionToken, accountId: account.id, activeCharacterId: null, expiresAt });
+
+    // Mobile clients pass a redirect_uri with a custom scheme (e.g. muddown://auth).
+    // Redirect back to the app with the session token as a query parameter so
+    // the app can store it and use Bearer auth for subsequent API calls.
+    if (pending.mobileRedirect) {
+      try {
+        const mobileUrl = new URL(pending.mobileRedirect);
+        mobileUrl.searchParams.set("token", sessionToken);
+        res.writeHead(302, { Location: mobileUrl.toString() });
+        res.end();
+      } catch (urlErr) {
+        console.warn(`Malformed mobile redirect_uri: ${pending.mobileRedirect}`, urlErr);
+        res.writeHead(400, { "Content-Type": "text/plain" });
+        res.end("Invalid mobile redirect URI.");
+      }
+      return;
+    }
 
     const secureSuffix = secureCookieSuffix(config);
     const websiteOrigin = process.env.WEBSITE_ORIGIN ?? "http://localhost:4321";
@@ -971,8 +1003,17 @@ export function extractSessionToken(req: IncomingMessage): string | undefined {
   return match?.[1];
 }
 
+/** Extract a Bearer token from the Authorization header (used by mobile clients). */
+export function extractBearerToken(req: IncomingMessage): string | undefined {
+  const auth = req.headers.authorization;
+  if (!auth) return undefined;
+  const match = auth.match(/^Bearer\s+(\S+)$/i);
+  return match?.[1];
+}
+
 export function resolveSession(req: IncomingMessage, db: GameDatabase): AuthSession | undefined {
-  const token = extractSessionToken(req);
+  // Try cookie first, then fall back to Bearer token (mobile clients)
+  const token = extractSessionToken(req) ?? extractBearerToken(req);
   if (!token) return undefined;
   const session = db.getSession(token);
   if (!session) return undefined;

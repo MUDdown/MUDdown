@@ -17,7 +17,7 @@ import type { CharacterClass } from "@muddown/shared";
 import type { CharacterScreenProps } from "../types.js";
 import { colors, base } from "../theme.js";
 import { SERVER_URL } from "../constants.js";
-import { authFetch } from "../auth.js";
+import { authFetch, clearToken } from "../auth.js";
 
 interface CharacterSummary {
   id: string;
@@ -45,6 +45,14 @@ export function CharacterScreen({ navigation }: CharacterScreenProps) {
     loadCharacters();
   }, []);
 
+  async function handleAuthFailure(showAlert = true) {
+    try { await clearToken(); } catch (e) { console.error("[CharacterScreen] clearToken failed:", e); }
+    if (showAlert) {
+      Alert.alert("Session Expired", "Please log in again.");
+    }
+    navigation.replace("Login");
+  }
+
   async function loadCharacters() {
     setLoading(true);
     setError("");
@@ -52,7 +60,7 @@ export function CharacterScreen({ navigation }: CharacterScreenProps) {
       const res = await authFetch(`${SERVER_URL}/auth/characters`);
 
       if (res.status === 401 || res.status === 403) {
-        navigation.replace("Login");
+        await handleAuthFailure(false);
         return;
       }
 
@@ -94,8 +102,7 @@ export function CharacterScreen({ navigation }: CharacterScreenProps) {
       });
 
       if (res.status === 401 || res.status === 403) {
-        Alert.alert("Session Expired", "Please log in again.");
-        navigation.replace("Login");
+        await handleAuthFailure();
         return;
       }
 
@@ -105,7 +112,8 @@ export function CharacterScreen({ navigation }: CharacterScreenProps) {
         const body = await res.json().catch(() => ({}));
         Alert.alert("Error", (body as { error?: string }).error ?? "Failed to select character.");
       }
-    } catch {
+    } catch (err) {
+      console.error("[CharacterScreen] selectCharacter failed:", err);
       Alert.alert("Error", "Failed to contact server.");
     } finally {
       setSubmitting(false);
@@ -133,8 +141,7 @@ export function CharacterScreen({ navigation }: CharacterScreenProps) {
       });
 
       if (res.status === 401 || res.status === 403) {
-        Alert.alert("Session Expired", "Please log in again.");
-        navigation.replace("Login");
+        await handleAuthFailure();
         return;
       }
 
@@ -151,7 +158,8 @@ export function CharacterScreen({ navigation }: CharacterScreenProps) {
         return;
       }
       await startGame();
-    } catch {
+    } catch (err) {
+      console.error("[CharacterScreen] createCharacter failed:", err);
       setError("Failed to contact server.");
     } finally {
       setSubmitting(false);
@@ -163,8 +171,7 @@ export function CharacterScreen({ navigation }: CharacterScreenProps) {
       const res = await authFetch(`${SERVER_URL}/auth/ws-ticket`);
 
       if (res.status === 401 || res.status === 403) {
-        Alert.alert("Session Expired", "Please log in again.");
-        navigation.replace("Login");
+        await handleAuthFailure();
         return;
       }
 
@@ -234,7 +241,7 @@ export function CharacterScreen({ navigation }: CharacterScreenProps) {
 
           <Text style={styles.label}>Name</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, submitting && styles.disabled]}
             value={name}
             onChangeText={setName}
             placeholder="2–24 characters"
@@ -242,6 +249,7 @@ export function CharacterScreen({ navigation }: CharacterScreenProps) {
             maxLength={24}
             autoCapitalize="words"
             autoCorrect={false}
+            editable={!submitting}
           />
 
           <Text style={styles.label}>Class</Text>
@@ -251,8 +259,10 @@ export function CharacterScreen({ navigation }: CharacterScreenProps) {
               style={[
                 styles.classOption,
                 charClass === cls && styles.classSelected,
+                submitting && styles.disabled,
               ]}
               onPress={() => setCharClass(cls)}
+              disabled={submitting}
             >
               <Text style={styles.className}>
                 {cls.charAt(0).toUpperCase() + cls.slice(1)}
@@ -355,5 +365,8 @@ const styles = StyleSheet.create({
   },
   createBtn: {
     marginTop: 16,
+  },
+  disabled: {
+    opacity: 0.5,
   },
 });

@@ -19,6 +19,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#181a20"
     },
+    "scheme": "muddown",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.muddown.app"
@@ -29,6 +30,9 @@
         "backgroundColor": "#181a20"
       },
       "package": "com.muddown.app"
+    },
+    "extra": {
+      "serverUrl": "https://muddown.com"
     }
   }
 }
