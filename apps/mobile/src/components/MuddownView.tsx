@@ -136,30 +136,46 @@ function parseBlocks(muddown: string): Block[] {
 
   const lines = stripped.split("\n");
   const blocks: Block[] = [];
+  let paraLines: string[] = [];
+
+  function flushPara() {
+    if (paraLines.length > 0) {
+      const text = paraLines.join(" ");
+      if (text.trim()) blocks.push({ kind: "paragraph", text });
+      paraLines = [];
+    }
+  }
 
   for (const raw of lines) {
     if (raw.trim() === "") {
+      flushPara();
       blocks.push({ kind: "blank" });
     } else if (raw.match(/^#{1,3} /)) {
+      flushPara();
       const level = raw.match(/^(#+)/)?.[1].length ?? 1;
       const text = raw.replace(/^#{1,3} /, "");
       blocks.push({ kind: "heading", level, text });
     } else if (raw.startsWith("- ")) {
+      flushPara();
       blocks.push({ kind: "list-item", text: raw.slice(2) });
     } else if (raw.startsWith("> ")) {
+      flushPara();
       blocks.push({ kind: "blockquote", text: raw.slice(2) });
     } else if (raw.trimStart().startsWith("|") && raw.trimEnd().endsWith("|")) {
       // Skip separator rows like |---|---|
       if (raw.match(/^\|[\s\-:|]+\|$/)) continue;
+      flushPara();
       const cells = raw
         .split("|")
         .slice(1, -1)
         .map((c) => c.trim());
       blocks.push({ kind: "table-row", cells });
     } else {
-      blocks.push({ kind: "paragraph", text: raw });
+      paraLines.push(raw);
     }
   }
+
+  flushPara();
 
   return blocks;
 }

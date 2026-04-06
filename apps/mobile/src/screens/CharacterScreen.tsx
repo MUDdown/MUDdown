@@ -5,6 +5,8 @@ import {
   Pressable,
   TextInput,
   ScrollView,
+  KeyboardAvoidingView,
+  Platform,
   ActivityIndicator,
   StyleSheet,
   Alert,
@@ -202,7 +204,11 @@ export function CharacterScreen({ navigation }: CharacterScreenProps) {
 
   return (
     <SafeAreaView style={base.screen}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         {error ? (
           <View style={styles.section}>
             <Text style={styles.errorBanner}>{error}</Text>
@@ -276,6 +282,7 @@ export function CharacterScreen({ navigation }: CharacterScreenProps) {
           </Pressable>
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

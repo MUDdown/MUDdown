@@ -225,14 +225,28 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [ ] Terminal client (renders MUDdown as styled terminal output)
 - [ ] Telnet bridge (`packages/bridge`): legacy client support (plain telnet + TELNETS/TLS)
 
-### Phase 6 — Federation & Social
+### Phase 6 — Mobile App Store Submission
+- [ ] EAS Build setup (`eas.json` for development, preview, production profiles)
+- [ ] Final app icons, splash screen, and adaptive icon artwork
+- [ ] Apple Developer Program enrollment ($99/yr)
+- [ ] Google Play Console enrollment ($25 one-time)
+- [ ] Content moderation system (chat filtering, report/block)
+- [ ] Offline / server-unreachable error states and graceful degradation
+- [ ] iOS privacy manifest and `Info.plist` usage descriptions
+- [ ] App Store metadata (description, keywords, screenshots, category)
+- [ ] Google Play metadata (listing, feature graphic, screenshots, content rating)
+- [ ] TestFlight beta distribution and internal testing
+- [ ] Google Play internal/closed testing track
+- [ ] App Store and Google Play submission
+
+### Phase 7 — Federation & Social
 - [ ] Federation protocol design (realm discovery, portal linking)
 - [ ] Cross-server character identity
 - [ ] Player profiles and persistence across federated servers
 - [ ] Collaborative worldbuilding PRs (propose/vote/merge rooms)
 - [ ] World event system (server-wide narrative arcs)
 
-### Phase 7 — Advanced Features
+### Phase 8 — Advanced Features
 - [ ] Persistent ecology simulation
 - [ ] Spatial audio engine
 - [ ] Code-as-magic scripting API
