@@ -307,3 +307,129 @@ export async function generateHint(
     return null;
   }
 }
+
+// ─── Dynamic Room Descriptions ───────────────────────────────────────────────
+
+export interface RoomDescriptionContext {
+  roomId: string;
+  roomName: string;
+  staticDescription: string;
+  lighting: string;
+  region: string;
+  exits: string[];
+  playerName: string;
+  playerClass: string | null;
+  hp: number;
+  maxHp: number;
+  inventoryItems: string[];
+  equippedItems: string[];
+  inCombat: boolean;
+}
+
+export interface GeneratedRoomDescription {
+  description: string;
+}
+
+const roomDescriptionSchema = z.object({
+  description: z.string().describe(
+    "A vivid, atmospheric room description paragraph. 2-4 sentences. " +
+    "Incorporate the player's class, condition, and context naturally into " +
+    "the narration. Keep the same setting facts as the original but vary the prose."
+  ),
+});
+
+function buildRoomDescriptionSystemPrompt(ctx: RoomDescriptionContext): string {
+  const lines: string[] = [
+    "You are the narrator for Northkeep, a text-based fantasy MUD. You write atmospheric, immersive room descriptions.",
+    "",
+    "## Rules",
+    "- Rewrite the given room description with the player's perspective in mind.",
+    "- Keep ALL factual details (location, objects, general atmosphere) from the original.",
+    "- Do NOT mention exit directions, items on the ground, or NPC names — those appear in separate sections.",
+    "- Subtly weave in the player's class, health state, or equipment when it would feel natural.",
+    "- Use 2-4 sentences. Be vivid but concise.",
+    "- Write in impersonal present tense to match the game's existing style (e.g., 'A bustling square...' not 'The player sees a bustling square...').",
+    "- Subtly reflect the player's condition through environmental details rather than naming the player directly (e.g., 'the shadows seem to press closer' when wounded).",
+    "- Do not add information that contradicts the original description.",
+    "- Vary your word choice so descriptions feel fresh on repeat visits.",
+    "",
+    "## Original Room Description",
+    ctx.staticDescription,
+    "",
+    "## Context",
+    `- Room: ${ctx.roomName} (${ctx.region}, ${ctx.lighting} lighting)`,
+    `- Player: ${ctx.playerName}${ctx.playerClass ? `, a ${ctx.playerClass}` : ""}`,
+    `- HP: ${ctx.hp}/${ctx.maxHp}`,
+  ];
+
+  if (ctx.inCombat) {
+    lines.push("- **The player is in combat!** The description should feel tense.");
+  }
+
+  if (ctx.hp < ctx.maxHp * 0.3) {
+    lines.push("- The player is badly wounded. The world might feel harsher or more foreboding.");
+  }
+
+  if (ctx.equippedItems.length > 0) {
+    lines.push(`- Equipment: ${ctx.equippedItems.join(", ")}`);
+  }
+
+  if (ctx.inventoryItems.length > 0) {
+    lines.push(`- Carrying: ${ctx.inventoryItems.join(", ")}`);
+  }
+
+  if (ctx.exits.length > 0) {
+    lines.push(`- Exits: ${ctx.exits.join(", ")}`);
+  }
+
+  return lines.join("\n");
+}
+
+const ROOM_DESC_TIMEOUT = 6_000;
+
+/**
+ * Generate a dynamic, player-aware room description using the configured LLM.
+ * Returns null on any failure so the caller uses the static room description.
+ */
+export async function generateRoomDescription(
+  config: LlmConfig,
+  ctx: RoomDescriptionContext,
+): Promise<GeneratedRoomDescription | null> {
+  if (!isLlmConfigured(config)) return null;
+
+  const system = buildRoomDescriptionSystemPrompt(ctx);
+
+  try {
+    const provider = createProvider(config);
+    const { object } = await generateObject({
+      model: provider(config.model),
+      schema: roomDescriptionSchema,
+      system,
+      messages: [
+        { role: "user", content: `Describe ${ctx.roomName} as ${ctx.playerName} enters.` },
+      ],
+      abortSignal: AbortSignal.timeout(ROOM_DESC_TIMEOUT),
+    });
+
+    if (!object.description || object.description.length < 20) {
+      console.warn(`Room description generation: low-quality result for "${ctx.roomId}" — using static`);
+      return null;
+    }
+
+    return { description: object.description };
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      console.warn(`Room description timeout for "${ctx.roomId}" after ${ROOM_DESC_TIMEOUT}ms`);
+    } else if (err instanceof Error && err.name === "AI_NoObjectGeneratedError") {
+      const cause = (err as Error & { cause?: unknown }).cause;
+      console.error(
+        `Room description schema validation failed for "${ctx.roomId}":`,
+        err.message,
+        cause instanceof Error ? cause.message : cause,
+      );
+    } else {
+      console.error(`Room description error for "${ctx.roomId}":`, err instanceof Error ? err.message : err);
+    }
+    return null;
+  }
+}

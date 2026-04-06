@@ -65,6 +65,9 @@ import Base from "../layouts/Base.astro";
           <li>
             <strong>AI game assistant</strong> — The <code>hint</code> command gives context-aware suggestions based on your location, inventory, and surroundings. Uses AI when available, with a static fallback.
           </li>
+          <li>
+            <strong>Dynamic room descriptions</strong> — Room narratives adapt to your character's state: class, health, equipment, active combat, and surroundings. The LLM rewrites the static description in real time, with graceful fallback to the original text.
+          </li>
         </ul>
       </div>
 
@@ -125,6 +128,9 @@ import Base from "../layouts/Base.astro";
           <li>
             <strong>LLM NPC abstraction</strong> — Provider-agnostic dialogue generation via the Vercel AI SDK. Anthropic supported out of the box; swap in other providers (OpenAI, Ollama) by changing a single env var.
           </li>
+          <li>
+            <strong>LLM room description engine</strong> — Generates player-aware room narratives using structured context (location, lighting, exits, NPCs, items, player state). Same provider-agnostic abstraction as NPC dialogue, with timeout and sanitization safeguards.
+          </li>
         </ul>
       </div>
 
@@ -153,7 +159,7 @@ import Base from "../layouts/Base.astro";
             <strong>Production deployment</strong> — Debian server with nginx, TLS via Let's Encrypt, systemd service, CI/CD via GitHub Actions.
           </li>
           <li>
-            <strong>Comprehensive test suite</strong> — 379 tests across parser and server packages via vitest.
+            <strong>Comprehensive test suite</strong> — 505 tests across parser, server, and MCP packages via vitest.
           </li>
         </ul>
       </div>

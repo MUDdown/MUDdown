@@ -10,7 +10,8 @@ import {
   resolveAttack, formatAttackLine, getPlayerAttackBonus, getPlayerDamage, getPlayerAc,
   resetPlayerAfterDefeat, stripHtmlComments, buildInventoryState, TokenBucket,
   getHelpEntry, helpEntries, buildHelpBlock, buildHelpTable, buildHintBlock,
-  isValidCommand, buildHintContext,
+  isValidCommand, buildHintContext, extractNarrativeDescription,
+  sanitizeRoomDescription,
 } from "./helpers.js";
 import { SqliteDatabase } from "./db/index.js";
 import type { GameDatabase } from "./db/types.js";
@@ -21,8 +22,8 @@ import {
 import { handleGamesRoute } from "./games.js";
 import { runComplianceChecks } from "./compliance.js";
 import { fireHook, registerHook, createGreetingHook } from "./hooks.js";
-import { getLlmConfig, isLlmConfigured, generateNpcDialogue, generateHint, MAX_HISTORY_MESSAGES } from "./llm.js";
-import type { ConversationMessage, GeneratedDialogue, LlmConfig, HintContext } from "./llm.js";
+import { getLlmConfig, isLlmConfigured, generateNpcDialogue, generateHint, generateRoomDescription, MAX_HISTORY_MESSAGES } from "./llm.js";
+import type { ConversationMessage, GeneratedDialogue, LlmConfig, HintContext, RoomDescriptionContext } from "./llm.js";
 
 // ─── Player Session ──────────────────────────────────────────────────────────
 
@@ -53,6 +54,7 @@ interface PlayerSession {
   rateLimiter: TokenBucket;
   /** Active LLM conversation histories per NPC (npc-id → messages). Cleared on room change or disconnect. */
   npcConversations: Map<string, ConversationMessage[]>;
+  llmRoomCallInFlight: boolean;
 }
 
 const RESPAWN_ROOM = "town-square";
@@ -350,6 +352,7 @@ wss.on("connection", (ws, req: IncomingMessage) => {
         xp: character.xp,
         rateLimiter,
         npcConversations: new Map(),
+        llmRoomCallInFlight: false,
       }
     : {
         id: randomUUID(),
@@ -370,6 +373,7 @@ wss.on("connection", (ws, req: IncomingMessage) => {
         xp: 0,
         rateLimiter,
         npcConversations: new Map(),
+        llmRoomCallInFlight: false,
       };
   sessions.set(ws, session);
 
@@ -400,7 +404,10 @@ Type commands or click links to explore. Try: \`look\`, \`go north\`, \`help\`
   });
 
   // Send initial room
-  sendRoom(ws, session.currentRoom);
+  sendRoom(ws, session.currentRoom, session).catch((err) => {
+    console.error(`sendRoom failed [room=${session.currentRoom}]:`, err instanceof Error ? err.message : err);
+    send(ws, systemMessage("Failed to load the room. Try `look` to retry."));
+  });
   sendInventoryState(ws, session);
 
   let lastThrottleNoticeAt = 0;
@@ -478,7 +485,10 @@ async function handleCommand(ws: WebSocket, msg: ClientMessage): Promise<void> {
     }
     case "look":
     case "l":
-      sendRoom(ws, session.currentRoom);
+      sendRoom(ws, session.currentRoom, session).catch((err) => {
+        console.error(`sendRoom failed [room=${session.currentRoom}]:`, err instanceof Error ? err.message : err);
+        send(ws, systemMessage("Failed to load the room. Try `look` to retry."));
+      });
       break;
     case "help":
       sendHelp(ws, arg || undefined);
@@ -574,7 +584,10 @@ function move(ws: WebSocket, session: PlayerSession, direction: string): void {
   // Notify others in new room
   broadcastToRoom(session.currentRoom, session, `*${session.name} arrives.*`);
 
-  sendRoom(ws, session.currentRoom);
+  sendRoom(ws, session.currentRoom, session).catch((err) => {
+    console.error(`sendRoom failed [room=${session.currentRoom}]:`, err instanceof Error ? err.message : err);
+    send(ws, systemMessage("Failed to load the room. Try `look` to retry."));
+  });
 
   // Fire onContact hooks for NPCs in the new room
   const roomNpcIds = world.roomNpcs.get(targetRoom) ?? [];
@@ -601,7 +614,76 @@ function move(ws: WebSocket, session: PlayerSession, direction: string): void {
   }
 }
 
-function sendRoom(ws: WebSocket, roomId: string): void {
+// ─── Dynamic Room Descriptions ───────────────────────────────────────────────
+
+/**
+ * Attempt to replace the static room description with an LLM-generated one.
+ * Returns the modified MUDdown string, or null to use the static version.
+ */
+async function tryDynamicDescription(
+  muddown: string,
+  roomId: string,
+  room: import("./world.js").Room,
+  session: PlayerSession,
+): Promise<string | null> {
+  if (session.llmRoomCallInFlight) return null;
+  session.llmRoomCallInFlight = true;
+  try {
+    const narrative = extractNarrativeDescription(muddown);
+    if (!narrative) return null;
+
+    // Build room title from MUDdown
+    const titleMatch = muddown.match(/^# (.+)$/m);
+    const roomName = titleMatch?.[1] ?? roomId;
+
+    // Gather context
+    const exits = Object.keys(world.connections.get(roomId) ?? {});
+    const inventoryNames = session.inventory
+      .map((id) => world.itemDefs.get(id)?.name)
+      .filter((n): n is string => !!n);
+    const equippedNames: string[] = [];
+    for (const slot of ["weapon", "armor", "accessory"] as const) {
+      const id = session.equipped[slot];
+      if (id) {
+        const def = world.itemDefs.get(id);
+        if (def) equippedNames.push(`${def.name} (${slot})`);
+      }
+    }
+
+    const ctx: RoomDescriptionContext = {
+      roomId,
+      roomName,
+      staticDescription: narrative.text,
+      lighting: room.attributes.lighting ?? "normal",
+      region: room.attributes.region ?? "unknown",
+      exits,
+      playerName: session.name,
+      playerClass: session.characterClass,
+      hp: session.hp,
+      maxHp: session.maxHp,
+      inventoryItems: inventoryNames,
+      equippedItems: equippedNames,
+      inCombat: session.combat !== null,
+    };
+
+    const result = await generateRoomDescription(llmConfig, ctx);
+    if (!result) return null;
+
+    // Sanitize: neutralize block-closing sequences and normalize whitespace
+    const safe = sanitizeRoomDescription(result.description);
+    if (!safe) return null;
+
+    // Replace the narrative paragraph in the MUDdown
+    return muddown.substring(0, narrative.startIdx) + "\n\n" + safe + "\n" + muddown.substring(narrative.endIdx);
+  } catch (err) {
+    console.error(`tryDynamicDescription failed for room "${roomId}":`, err instanceof Error ? err.message : err);
+    return null;
+  } finally {
+    session.llmRoomCallInFlight = false;
+  }
+}
+
+async function sendRoom(ws: WebSocket, roomId: string, session?: PlayerSession): Promise<void> {
   const room = world.rooms.get(roomId);
   if (!room) {
     send(ws, systemMessage("You are nowhere. This shouldn't happen."));
@@ -699,14 +781,16 @@ function sendRoom(ws: WebSocket, roomId: string): void {
     }
   }
 
-  send(ws, {
-    v: 1,
-    id: randomUUID(),
-    type: "room",
-    timestamp: new Date().toISOString(),
-    muddown,
-    meta: { room_id: roomId, region: room.attributes.region },
-  });
+  // Send static room immediately — player never waits
+  send(ws, { v: 1, id: randomUUID(), type: "room", timestamp: new Date().toISOString(), muddown, meta: { room_id: roomId, region: room.attributes.region } });
+
+  // Attempt LLM enrichment and send an updated room if successful
+  if (session && isLlmConfigured(llmConfig)) {
+    const descReplaced = await tryDynamicDescription(muddown, roomId, room, session);
+    if (descReplaced) {
+      send(ws, { v: 1, id: randomUUID(), type: "room", timestamp: new Date().toISOString(), muddown: descReplaced, meta: { room_id: roomId, region: room.attributes.region } });
+    }
+  }
 }
 
 function sendHelp(ws: WebSocket, command?: string): void {
@@ -1267,13 +1351,19 @@ function handleFlee(ws: WebSocket, session: PlayerSession): void {
       session.npcConversations.clear();
       broadcastToRoom(session.currentRoom, session, `*${session.name} arrives in a panic.*`);
       send(ws, systemMessage("You flee from combat!"));
-      sendRoom(ws, session.currentRoom);
+      sendRoom(ws, session.currentRoom, session).catch((err) => {
+        console.error(`sendRoom failed [room=${session.currentRoom}]:`, err instanceof Error ? err.message : err);
+        send(ws, systemMessage("Failed to load the room. Try `look` to retry."));
+      });
       return;
     }
   }
   // Fallback: stay in room — no exits to flee through
   send(ws, systemMessage("You scramble to escape but find no way out!"));
-  sendRoom(ws, session.currentRoom);
+  sendRoom(ws, session.currentRoom, session).catch((err) => {
+    console.error(`sendRoom failed [room=${session.currentRoom}]:`, err instanceof Error ? err.message : err);
+    send(ws, systemMessage("Failed to load the room. Try `look` to retry."));
+  });
 }
 
 function handlePlayerDefeat(ws: WebSocket, session: PlayerSession): void {
@@ -1289,7 +1379,10 @@ function handlePlayerDefeat(ws: WebSocket, session: PlayerSession): void {
     "You were knocked unconscious... You awaken back in **Town Square**, fully healed.",
   ));
   broadcastToRoom(RESPAWN_ROOM, session, `*${session.name} stumbles in, looking dazed.*`);
-  sendRoom(ws, session.currentRoom);
+  sendRoom(ws, session.currentRoom, session).catch((err) => {
+    console.error(`sendRoom failed [room=${session.currentRoom}]:`, err instanceof Error ? err.message : err);
+    send(ws, systemMessage("Failed to load the room. Try `look` to retry."));
+  });
   sendInventoryState(ws, session);
 }
 
@@ -1778,3 +1871,7 @@ async function shutdown(): Promise<void> {
 
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection:", reason);
+});

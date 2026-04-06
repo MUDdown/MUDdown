@@ -16,6 +16,7 @@ import {
   isLlmConfigured,
   generateNpcDialogue,
   generateHint,
+  generateRoomDescription,
 } from "../src/llm.js";
 import type {
   ConversationMessage,
@@ -23,6 +24,8 @@ import type {
   GeneratedDialogue,
   HintContext,
   GeneratedHint,
+  RoomDescriptionContext,
+  GeneratedRoomDescription,
 } from "../src/llm.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -544,5 +547,209 @@ describe("generateHint", () => {
     await generateHint(anthropicConfig, makeHintCtx({ inCombat: false }));
     const call = mockedGenerateObject.mock.calls[0][0] as any;
     expect(call.system).not.toContain("in combat");
+  });
+});
+
+// ─── generateRoomDescription ─────────────────────────────────────────────────
+
+describe("generateRoomDescription", () => {
+  const anthropicConfig = { provider: "anthropic" as const, model: "claude-haiku-4-5-20251001" };
+  const noneConfig = { provider: "none" as const, model: "" };
+  const mockedGenerateObject = vi.mocked(generateObject);
+
+  function makeRoomCtx(overrides: Partial<RoomDescriptionContext> = {}): RoomDescriptionContext {
+    return {
+      roomId: "town-square",
+      roomName: "Town Square",
+      staticDescription: "A bustling cobblestone square at the heart of Northkeep.",
+      lighting: "bright",
+      region: "northkeep",
+      exits: ["north", "south", "east", "west"],
+      playerName: "Tester",
+      playerClass: "warrior",
+      hp: 20,
+      maxHp: 20,
+      inventoryItems: [],
+      equippedItems: [],
+      inCombat: false,
+      ...overrides,
+    };
+  }
+
+  const GOOD_DESC: GeneratedRoomDescription = {
+    description: "Tester steps into the bustling cobblestone square. The warrior's eyes sweep across the colorful merchant stalls as the scent of fresh bread fills the air.",
+  };
+
+  beforeEach(() => {
+    mockedGenerateObject.mockReset();
+  });
+
+  it("returns null when provider is 'none'", async () => {
+    const result = await generateRoomDescription(noneConfig, makeRoomCtx());
+    expect(result).toBeNull();
+    expect(mockedGenerateObject).not.toHaveBeenCalled();
+  });
+
+  it("returns generated description on success", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_DESC,
+    } as any);
+
+    const result = await generateRoomDescription(anthropicConfig, makeRoomCtx());
+    expect(result).toEqual(GOOD_DESC);
+    expect(mockedGenerateObject).toHaveBeenCalledOnce();
+  });
+
+  it("includes static description and player context in system prompt", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_DESC,
+    } as any);
+
+    await generateRoomDescription(anthropicConfig, makeRoomCtx({
+      playerName: "Ada",
+      playerClass: "mage",
+    }));
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).toContain("A bustling cobblestone square");
+    expect(call.system).toContain("Ada");
+    expect(call.system).toContain("mage");
+  });
+
+  it("includes combat state in system prompt", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_DESC,
+    } as any);
+
+    await generateRoomDescription(anthropicConfig, makeRoomCtx({ inCombat: true }));
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).toContain("combat");
+  });
+
+  it("includes low-health warning in system prompt when HP is below 30%", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_DESC,
+    } as any);
+
+    await generateRoomDescription(anthropicConfig, makeRoomCtx({ hp: 4, maxHp: 20 }));
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).toContain("badly wounded");
+  });
+
+  it("includes equipped items in system prompt", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_DESC,
+    } as any);
+
+    await generateRoomDescription(anthropicConfig, makeRoomCtx({
+      equippedItems: ["Iron Sword (weapon)", "Leather Armor (armor)"],
+    }));
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).toContain("Iron Sword (weapon)");
+    expect(call.system).toContain("Leather Armor (armor)");
+  });
+
+  it("includes inventory items in system prompt", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_DESC,
+    } as any);
+
+    await generateRoomDescription(anthropicConfig, makeRoomCtx({
+      inventoryItems: ["Health Potion", "Torch"],
+    }));
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).toContain("Health Potion");
+    expect(call.system).toContain("Torch");
+  });
+
+  it("returns null on API error", async () => {
+    mockedGenerateObject.mockRejectedValueOnce(new Error("API rate limit"));
+
+    const result = await generateRoomDescription(anthropicConfig, makeRoomCtx());
+    expect(result).toBeNull();
+  });
+
+  it("returns null on timeout", async () => {
+    const timeoutError = new DOMException("signal timed out", "TimeoutError");
+    mockedGenerateObject.mockRejectedValueOnce(timeoutError);
+
+    const result = await generateRoomDescription(anthropicConfig, makeRoomCtx());
+    expect(result).toBeNull();
+  });
+
+  it("returns null when description is too short", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: { description: "Short." },
+    } as any);
+
+    const result = await generateRoomDescription(anthropicConfig, makeRoomCtx());
+    expect(result).toBeNull();
+  });
+
+  it("returns null when description is exactly 19 chars (boundary below minimum)", async () => {
+    const desc = "A".repeat(19); // 19 chars, just under the 20-char threshold
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: { description: desc },
+    } as any);
+
+    const result = await generateRoomDescription(anthropicConfig, makeRoomCtx());
+    expect(result).toBeNull();
+  });
+
+  it("returns valid result when description is exactly 20 chars (boundary at minimum)", async () => {
+    const desc = "A".repeat(20); // 20 chars, exactly at the threshold
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: { description: desc },
+    } as any);
+
+    const result = await generateRoomDescription(anthropicConfig, makeRoomCtx());
+    expect(result).not.toBeNull();
+    expect(result!.description).toBe(desc);
+  });
+
+  it("returns null when description is empty", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: { description: "" },
+    } as any);
+
+    const result = await generateRoomDescription(anthropicConfig, makeRoomCtx());
+    expect(result).toBeNull();
+  });
+
+  it("omits class from system prompt when playerClass is null", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_DESC,
+    } as any);
+
+    await generateRoomDescription(anthropicConfig, makeRoomCtx({ playerClass: null }));
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).not.toContain("null");
+    expect(call.system).not.toContain("(null)");
+  });
+
+  it("includes room name in the user message", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_DESC,
+    } as any);
+
+    await generateRoomDescription(anthropicConfig, makeRoomCtx({ roomName: "Iron Gate" }));
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.messages[0].content).toContain("Iron Gate");
+  });
+
+  it("returns null on AI_NoObjectGeneratedError (schema validation failure)", async () => {
+    const schemaErr = Object.assign(new Error("No object generated: response did not match schema."), {
+      name: "AI_NoObjectGeneratedError",
+      cause: new Error("unexpected token"),
+    });
+    mockedGenerateObject.mockRejectedValueOnce(schemaErr);
+    const result = await generateRoomDescription(anthropicConfig, makeRoomCtx());
+    expect(result).toBeNull();
   });
 });
