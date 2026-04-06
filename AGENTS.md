@@ -178,6 +178,7 @@ The website features page (`apps/website/src/pages/features.astro`) showcases im
 - **New feature**: Add a `<li>` to the appropriate category with a `<strong>` label and brief description.
 - **New category**: Add a new `.features-page-category` block with a heading and icon.
 - **Removed or replaced feature**: Remove or update the corresponding entry so the page stays accurate.
+- **Test count**: The "Comprehensive test suite" entry in the Infrastructure section states the total test count across all packages. After adding or removing tests, run `npx turbo run test` and update the number to match the sum of all passing tests (parser + server + MCP). Do not leave a stale count.
 - **When in doubt**: If the change is visible to players or operators (new command, new UI element, new integration), it belongs on the features page. Internal refactors and test-only changes do not.
 
 ### Maintaining the Licenses Page

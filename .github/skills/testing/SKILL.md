@@ -168,6 +168,7 @@ beforeAll(() => {
 4. **JSON fixtures use pretty-print** — `JSON.stringify(obj, null, 2)` in fixture helpers.
 5. **Import with `.js` extensions** — TypeScript resolves `.ts` → `.js`.
 6. **All tests must pass before committing** — run `npx turbo run test`.
+7. **Update the features page test count** — The "Comprehensive test suite" entry in `apps/website/src/pages/features.astro` states the total test count. After adding or removing tests, update the number to match the sum of all passing tests across packages.
 
 ## Adding Tests for New Features
 
