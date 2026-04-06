@@ -462,6 +462,14 @@ export const helpEntries: Record<string, HelpEntry> = {
     detail: "Provides a helpful suggestion based on your current situation — where you are, what you're carrying, and what's around you. Uses AI when available, otherwise shows general tips.",
     examples: ["hint"],
   },
+  lore: {
+    command: "lore",
+    aliases: ["ask"],
+    usage: "lore <question>",
+    description: "Ask about game world lore",
+    detail: "Ask any question about the game world — places, NPCs, items, history, or game commands. The lorekeeper searches the world knowledge base and answers using AI when available, or shows relevant excerpts directly.",
+    examples: ["lore who is the priestess?", "lore what are the Eltharan ruins?", "lore where can I find a weapon?", "ask tell me about the smugglers"],
+  },
 };
 
 /** Look up a help entry by command name or alias. */
@@ -532,6 +540,15 @@ export function buildHintBlock(hint: string, suggestedCommands: string[]): strin
     ? `\n\n**Try:**\n${suggestedCommands.map(c => `- \`${sanitizeBlockContent(c)}\``).join("\n")}`
     : "";
   return `:::system{type="hint"}\n${safeHint}${cmdSection}\n:::`;
+}
+
+/** Build the MUDdown content string for a lore answer block. */
+export function buildLoreBlock(answer: string, sources: string[]): string {
+  const safeAnswer = sanitizeBlockContent(answer);
+  const sourceSection = sources.length > 0
+    ? `\n\n*Sources: ${sources.map(s => sanitizeBlockContent(s)).join(", ")}*`
+    : "";
+  return `:::system{type="lore"}\n${safeAnswer}${sourceSection}\n:::`;
 }
 
 // ─── Hint Context Builder ────────────────────────────────────────────────────

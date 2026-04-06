@@ -16,7 +16,7 @@ const server = new McpServer(
     instructions:
       "MUDdown game server MCP interface. Use the specific action tools " +
       "(look, go, examine, get, drop, inventory, equip, unequip, use, talk, " +
-      "attack, say, combine) to play the game. Use available_actions to see " +
+      "attack, say, combine, lore) to play the game. Use available_actions to see " +
       "what you can do right now. Use read_resource to inspect current room, " +
       "inventory, stats, and the world map. Use game_command as a fallback " +
       "for commands without a dedicated tool. Always read the current room " +
@@ -144,7 +144,7 @@ registerTool(
   "game_command",
   "Execute a raw game command string. Prefer the specific tools (look, go, " +
     "examine, get, drop, inventory, equip, unequip, use, talk, attack, say, " +
-    "combine) when possible. Use available_actions to see what you can do " +
+    "combine, lore) when possible. Use available_actions to see what you can do " +
     "right now. Falls back to this for commands without a dedicated tool.",
   { command: z.string() },
   handleGameCommand,
@@ -385,6 +385,25 @@ registerTool(
     }
     try {
       const response = await bridge.sendCommand(`combine ${item1.trim()} with ${item2.trim()}`);
+      return { content: [{ type: "text", text: response }] };
+    } catch (err) {
+      return { content: [{ type: "text", text: errorText(err) }], isError: true };
+    }
+  },
+);
+
+registerTool(
+  "lore",
+  "Ask a question about the game world, its lore, NPCs, locations, or items. " +
+    "Uses vector search and (if available) LLM synthesis to answer from game data.",
+  { question: z.string().describe("The question to ask about the game world") },
+  async (args) => {
+    const question = args.question;
+    if (typeof question !== "string" || !question.trim()) {
+      return { content: [{ type: "text", text: "Missing 'question' argument." }], isError: true };
+    }
+    try {
+      const response = await bridge.sendCommand(`lore ${question.trim()}`);
       return { content: [{ type: "text", text: response }] };
     } catch (err) {
       return { content: [{ type: "text", text: errorText(err) }], isError: true };

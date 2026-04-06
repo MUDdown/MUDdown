@@ -68,6 +68,9 @@ import Base from "../layouts/Base.astro";
           <li>
             <strong>Dynamic room descriptions</strong> — Room narratives adapt to your character's state: class, health, equipment, active combat, and surroundings. The LLM rewrites the static description in real time, with graceful fallback to the original text.
           </li>
+          <li>
+            <strong>Lore search</strong> — The <code>lore</code> command answers questions about the game world using vector search over all rooms, NPCs, items, and recipes. When an LLM is available, results are synthesized into a narrative answer; otherwise you get relevant excerpts.
+          </li>
         </ul>
       </div>
 
@@ -120,7 +123,7 @@ import Base from "../layouts/Base.astro";
             <strong>MCP server</strong> — Game state exposed as Model Context Protocol resources (room, inventory, stats, map, help). AI agents can read and interact with the world.
           </li>
           <li>
-            <strong>Tool-calling interface</strong> — 14 granular MCP tools (<code>look</code>, <code>go</code>, <code>examine</code>, <code>get</code>, <code>drop</code>, <code>inventory</code>, <code>equip</code>, <code>unequip</code>, <code>use</code>, <code>talk</code>, <code>attack</code>, <code>say</code>, <code>combine</code>, <code>available_actions</code>) plus a raw <code>game_command</code> fallback. AI agents play with semantic actions, not string parsing.
+            <strong>Tool-calling interface</strong> — 15 granular MCP tools (<code>look</code>, <code>go</code>, <code>examine</code>, <code>get</code>, <code>drop</code>, <code>inventory</code>, <code>equip</code>, <code>unequip</code>, <code>use</code>, <code>talk</code>, <code>attack</code>, <code>say</code>, <code>combine</code>, <code>lore</code>, <code>available_actions</code>) plus a raw <code>game_command</code> fallback. AI agents play with semantic actions, not string parsing.
           </li>
           <li>
             <strong>Structured schemas</strong> — All game constructs are typed data that LLMs can parse, reason about, and act on.
@@ -130,6 +133,9 @@ import Base from "../layouts/Base.astro";
           </li>
           <li>
             <strong>LLM room description engine</strong> — Generates player-aware room narratives using structured context (static room description, exits, and player state such as inventory, equipment, combat, and HP). Same provider-agnostic abstraction as NPC dialogue, with timeout and sanitization safeguards.
+          </li>
+          <li>
+            <strong>Vector-based lore search (RAG)</strong> — TF-IDF vector store indexes all game content at startup. The <code>lore</code> command retrieves relevant documents by cosine similarity and feeds them to the LLM as context for grounded, factual answers.
           </li>
         </ul>
       </div>
@@ -159,7 +165,7 @@ import Base from "../layouts/Base.astro";
             <strong>Production deployment</strong> — Debian server with nginx, TLS via Let's Encrypt, systemd service, CI/CD via GitHub Actions.
           </li>
           <li>
-            <strong>Comprehensive test suite</strong> — 523 tests across parser, server, and MCP packages via vitest.
+            <strong>Comprehensive test suite</strong> — 569 tests across parser, server, and MCP packages via vitest.
           </li>
         </ul>
       </div>

@@ -7,7 +7,7 @@ describe("helpEntries", () => {
     const expected = [
       "look", "go", "examine", "talk", "get", "drop", "inventory",
       "equip", "unequip", "use", "combine", "attack", "flee",
-      "say", "who", "help", "hint",
+      "say", "who", "help", "hint", "lore",
     ];
     for (const cmd of expected) {
       expect(helpEntries[cmd], `missing entry for "${cmd}"`).toBeDefined();
