@@ -5,6 +5,9 @@ import type { ServerMessage, ClientMessage } from "@muddown/shared";
 /** Timeout for waiting on a command response (ms). */
 const COMMAND_TIMEOUT = 10_000;
 
+/** Shared regex for matching exit links like [North](go:north). */
+const EXIT_LINK_REGEX = /\[([^\]]+)\]\(go:(\w+)\)/g;
+
 /**
  * Tracks game state received from the MUDdown server and provides a
  * request/response interface on top of the fire-and-forget WebSocket
@@ -18,7 +21,10 @@ export class GameBridge {
 
   // ── Cached game state ──────────────────────────────────────────────────
   currentRoom: string | null = null;
+  currentRoomId: string | null = null;
+  currentRegion: string | null = null;
   inventory: string | null = null;
+  inventoryState: InventoryStateMeta | null = null;
   helpText: string | null = null;
   playerStats: PlayerStats = { hp: 20, maxHp: 20, xp: 0, class: null };
   worldMap: WorldMapEntry[] = [];
@@ -150,6 +156,8 @@ export class GameBridge {
     switch (msg.type) {
       case "room":
         this.currentRoom = msg.muddown;
+        this.currentRoomId = typeof msg.meta?.room_id === "string" ? msg.meta.room_id : this.currentRoomId;
+        this.currentRegion = typeof msg.meta?.region === "string" ? msg.meta.region : this.currentRegion;
         this.updateWorldMap(msg);
         break;
       case "system":
@@ -187,7 +195,28 @@ export class GameBridge {
       }
     }
 
-    // TODO: parse msg.meta.inventoryState to update this.playerStats
+    this.updateInventoryStateFromMeta(msg);
+  }
+
+  /** Extract and cache inventoryState from message meta if present. */
+  private updateInventoryStateFromMeta(msg: ServerMessage): void {
+    const meta = msg.meta;
+    if (!meta || typeof meta !== "object") return;
+
+    const state = (meta as Record<string, unknown>).inventoryState;
+    if (!state || typeof state !== "object" || Array.isArray(state)) return;
+
+    const s = state as Record<string, unknown>;
+    if (s.items !== undefined && !Array.isArray(s.items)) {
+      console.error("[bridge] updateInventoryStateFromMeta: meta.inventoryState.items is not an array, ignoring");
+      return;
+    }
+    if (s.equipped !== undefined && (s.equipped === null || typeof s.equipped !== "object" || Array.isArray(s.equipped))) {
+      console.error("[bridge] updateInventoryStateFromMeta: meta.inventoryState.equipped is not an object, ignoring");
+      return;
+    }
+
+    this.inventoryState = state as InventoryStateMeta;
   }
 
   private updateWorldMap(msg: ServerMessage): void {
@@ -197,9 +226,9 @@ export class GameBridge {
 
     // Extract exits from the MUDdown content
     const exits: Record<string, string> = {};
-    const exitRegex = /\[(\w+)\]\(go:(\w+)\)/g;
+    EXIT_LINK_REGEX.lastIndex = 0;
     let match: RegExpExecArray | null;
-    while ((match = exitRegex.exec(msg.muddown)) !== null) {
+    while ((match = EXIT_LINK_REGEX.exec(msg.muddown)) !== null) {
       exits[match[2]] = match[2]; // direction → direction
     }
 
@@ -219,7 +248,52 @@ export class GameBridge {
   }
 }
 
+// ── Parsing helpers (exported for testing) ───────────────────────────────────
+
+/** Extract NPC references from room MUDdown content. */
+export function parseNpcsFromRoom(muddown: string): RoomEntity[] {
+  const results: RoomEntity[] = [];
+  const regex = /\[([^\]]+)\]\(npc:([^)]+)\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(muddown)) !== null) {
+    results.push({ name: match[1], id: match[2] });
+  }
+  return results;
+}
+
+/** Extract item references from room MUDdown content. */
+export function parseItemsFromRoom(muddown: string): RoomEntity[] {
+  const results: RoomEntity[] = [];
+  const regex = /\[([^\]]+)\]\(item:([^)]+)\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(muddown)) !== null) {
+    results.push({ name: match[1], id: match[2] });
+  }
+  return results;
+}
+
+/** Extract available exits from room MUDdown content. */
+export function parseExitsFromRoom(muddown: string): string[] {
+  const exits: string[] = [];
+  EXIT_LINK_REGEX.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = EXIT_LINK_REGEX.exec(muddown)) !== null) {
+    exits.push(match[2]);
+  }
+  return exits;
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
+
+export interface RoomEntity {
+  name: string;
+  id: string;
+}
+
+export interface InventoryStateMeta {
+  items?: { id: string; name: string; equippable?: boolean; usable?: boolean }[];
+  equipped?: Record<string, { id: string; name: string } | null>;
+}
 
 export interface PlayerStats {
   hp: number;

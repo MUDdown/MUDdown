@@ -213,7 +213,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [x] LLM-powered NPC conversations (RAG over NPC backstories)
 - [x] Improved in-game help system (detailed per-command usage, examples, LLM-aware `talk` tips)
 - [x] AI game assistant: context-aware help, command suggestions
-- [ ] Tool-calling integration: AI agents can play the game
+- [x] Tool-calling integration: AI agents can play the game
 - [ ] Dynamic room descriptions via LLM (based on player state)
 - [ ] Vector store for game lore/help (RAG for player questions)
 

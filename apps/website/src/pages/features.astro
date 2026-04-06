@@ -117,7 +117,7 @@ import Base from "../layouts/Base.astro";
             <strong>MCP server</strong> — Game state exposed as Model Context Protocol resources (room, inventory, stats, map, help). AI agents can read and interact with the world.
           </li>
           <li>
-            <strong>Tool-calling interface</strong> — AI agents issue game commands through the MCP <code>game_command</code> tool, receiving full MUDdown responses.
+            <strong>Tool-calling interface</strong> — 14 granular MCP tools (<code>look</code>, <code>go</code>, <code>examine</code>, <code>get</code>, <code>drop</code>, <code>inventory</code>, <code>equip</code>, <code>unequip</code>, <code>use</code>, <code>talk</code>, <code>attack</code>, <code>say</code>, <code>combine</code>, <code>available_actions</code>) plus a raw <code>game_command</code> fallback. AI agents play with semantic actions, not string parsing.
           </li>
           <li>
             <strong>Structured schemas</strong> — All game constructs are typed data that LLMs can parse, reason about, and act on.
