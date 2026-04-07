@@ -165,6 +165,7 @@ Detailed how-to guides live in `.github/skills/<name>/SKILL.md` (canonical) with
 | `testing` | Testing conventions (vitest, fixtures, world integrity) |
 | `privacy` | Privacy compliance auditing (data collection, cookies, localStorage, policy alignment) |
 | `oauth-provider` | Add a new OAuth/OIDC identity provider (shared types, auth switches, server config, login button, env vars, tests) |
+| `mobile-testing` | Test the Expo React Native app on physical devices via Expo Go or iOS Simulator (LAN config, SDK alignment, entry point, simulators, OAuth) |
 
 ### Maintaining Skills
 

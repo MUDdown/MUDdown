@@ -11,3 +11,4 @@ coverage/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+.expo/

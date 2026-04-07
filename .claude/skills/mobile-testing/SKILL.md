@@ -1,0 +1,1 @@
+../../../.github/skills/mobile-testing/SKILL.md
