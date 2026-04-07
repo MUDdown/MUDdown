@@ -205,7 +205,7 @@ export function CharacterScreen({ navigation }: CharacterScreenProps) {
   return (
     <SafeAreaView style={base.screen}>
       <KeyboardAvoidingView
-        style={{ flex: 1 }}
+        style={styles.flex1}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -288,6 +288,9 @@ export function CharacterScreen({ navigation }: CharacterScreenProps) {
 }
 
 const styles = StyleSheet.create({
+  flex1: {
+    flex: 1,
+  },
   center: {
     flex: 1,
     justifyContent: "center",
