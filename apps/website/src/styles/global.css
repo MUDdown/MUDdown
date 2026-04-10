@@ -90,6 +90,7 @@ header .container {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  max-width: 1200px;
 }
 header h1 {
   font-size: 1.4rem;
@@ -111,7 +112,7 @@ header nav {
   padding-bottom: 2px;
 }
 header nav a {
-  margin-left: 1.5rem;
+  margin-left: 1rem;
   white-space: nowrap;
   color: var(--text-dim);
   font-size: 0.9rem;
