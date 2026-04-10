@@ -196,6 +196,40 @@ The website licenses page (`apps/website/src/pages/licenses.astro`) lists every 
 - **Audit command**: Run `npm ls --depth=0 --json | jq '((.dependencies // {}) + (.devDependencies // {})) | to_entries[] | {name: .key, version: .value.version}'` at the repo root to list current top-level dependencies. This is a workspaces monorepo, so also check each workspace's `package.json` (under `apps/*` and `packages/*`) for its `dependencies` and `devDependencies`. Look up each package's license in `node_modules/<pkg>/package.json`.
 - **What to include**: All direct `dependencies` and `devDependencies` from the root and workspaces that ship runtime code or are essential build tools (Astro, TypeScript, Turborepo, vitest, etc.). Omit `@types/*` packages (all MIT) and internal `@muddown/*` workspace references. Omit transitive dependencies unless they have a non-MIT/Apache-2.0 license that requires attribution.
 
+### Maintaining the Wiki
+
+The project wiki lives in a separate Git repository (`MUDdown/MUDdown.wiki`), typically cloned to `../MUDdown.wiki` relative to the main repo. It contains player-facing and developer-facing documentation as Markdown pages plus a `_Sidebar.md` navigation file. When a feature ships or existing behavior changes, evaluate whether any wiki pages need to be created or updated.
+
+**Wiki structure:**
+
+| Section | Pages | Covers |
+|---------|-------|--------|
+| Players | Getting-Started, Command-Reference, World-Guide, Item-Catalog, NPC-Directory, Combat-Guide, FAQ | How to play, commands, world content, items, NPCs, combat |
+| Developers | Architecture-Overview, Adding-Content, Wire-Protocol, MUDdown-Format, LLM-Integration, Deployment-Guide, Contributing, OAuth-Setup | Codebase internals, content authoring, protocols, integrations, ops |
+
+**When to update:**
+
+- **New command or player-visible feature**: Update the relevant player page (e.g., new command → Command-Reference, new area → World-Guide, new item → Item-Catalog, new NPC → NPC-Directory).
+- **New world content** (rooms, items, NPCs, recipes): Update World-Guide, Item-Catalog, or NPC-Directory to reflect the additions.
+- **Wire protocol or format change**: Update Wire-Protocol and/or MUDdown-Format.
+- **New integration or infrastructure** (e.g., new OAuth provider, new LLM feature, deployment change): Update the corresponding developer page.
+- **New content type or major system**: Consider creating a new wiki page. Add it to `_Sidebar.md` under the appropriate section and link it from `Home.md`.
+- **Removed or renamed feature**: Remove or update the corresponding wiki content so pages stay accurate.
+- **Architecture change**: Update Architecture-Overview if the package structure, dependency graph, or high-level design changes.
+
+**How to update:**
+
+1. Edit the relevant `.md` file(s) in the wiki repo directory.
+2. If adding a new page, also add it to `_Sidebar.md` and `Home.md`.
+3. Commit with a descriptive message and push: `cd ../MUDdown.wiki && git add -A && git commit -m "docs: update <page> for <change>" && git push`.
+4. The wiki repo uses `master` as its default branch (GitHub convention for wiki repos).
+
+**When NOT to update the wiki:**
+
+- Internal refactors with no user-visible or developer-visible behavior change.
+- Test-only changes (unless they establish new testing patterns worth documenting in Contributing or Adding-Content).
+- Bug fixes that don't change documented behavior.
+
 ## What NOT to Do
 
 - Don't add `copilot-instructions.md` — this file (`AGENTS.md`) replaces it
