@@ -612,6 +612,13 @@ export function sanitizeRoomDescription(text: string): string {
 }
 
 /**
+ * Wrap a sanitized LLM impression in a blockquote for narrative delivery.
+ */
+export function buildNarrativeImpression(description: string): string {
+  return description.split(/\r?\n/).map((line) => `> ${line}`).join("\n");
+}
+
+/**
  * Extract the narrative description paragraph from room MUDdown.
  * This is the text between the `# Title` line and the first `## ` section header.
  * Returns { text, startIdx, endIdx } or null if not found.

@@ -332,33 +332,34 @@ export interface GeneratedRoomDescription {
 
 const roomDescriptionSchema = z.object({
   description: z.string().describe(
-    "A vivid, atmospheric room description paragraph. 2-4 sentences. " +
-    "Incorporate the player's class, condition, and context naturally into " +
-    "the narration. Keep the same setting facts as the original but vary the prose."
+    "A brief second-person atmospheric impression. 1-2 sentences. " +
+    "Use 'you' perspective. Never use the player's name. " +
+    "Add sensory or emotional color based on the player's state."
   ),
 });
 
 function buildRoomDescriptionSystemPrompt(ctx: RoomDescriptionContext): string {
   const lines: string[] = [
-    "You are the narrator for Northkeep, a text-based fantasy MUD. You write atmospheric, immersive room descriptions.",
+    "You are the narrator for Northkeep, a text-based fantasy MUD. You write short, atmospheric impressions in second person.",
     "",
     "## Rules",
-    "- Rewrite the given room description with the player's perspective in mind.",
+    "- Write a brief sensory impression of the room from the player's perspective using second person ('you').",
+    "- NEVER use the player's name. Only use 'you' or 'your'.",
     "- Keep ALL factual details (location, objects, general atmosphere) from the original.",
     "- Do NOT mention exit directions, items on the ground, or NPC names — those appear in separate sections.",
+    "- Do NOT repeat the room title or re-describe what's already in the static description.",
     "- Subtly weave in the player's class, health state, or equipment when it would feel natural.",
-    "- Use 2-4 sentences. Be vivid but concise.",
-    "- Write in impersonal present tense to match the game's existing style (e.g., 'A bustling square...' not 'The player sees a bustling square...').",
-    "- Subtly reflect the player's condition through environmental details rather than naming the player directly (e.g., 'the shadows seem to press closer' when wounded).",
+    "- Use 1-2 sentences. Be vivid but concise — this is a brief atmospheric addition, not a full description.",
+    "- Subtly reflect the player's condition through environmental details (e.g., 'the shadows seem to press closer' when wounded).",
     "- Do not add information that contradicts the original description.",
-    "- Vary your word choice so descriptions feel fresh on repeat visits.",
+    "- Vary your word choice so impressions feel fresh on repeat visits.",
     "",
     "## Original Room Description",
     ctx.staticDescription,
     "",
     "## Context",
     `- Room: ${ctx.roomName} (${ctx.region}, ${ctx.lighting} lighting)`,
-    `- Player: ${ctx.playerName}${ctx.playerClass ? `, a ${ctx.playerClass}` : ""}`,
+    `- Player class: ${ctx.playerClass ?? "unknown"}`,
     `- HP: ${ctx.hp}/${ctx.maxHp}`,
   ];
 
@@ -376,10 +377,6 @@ function buildRoomDescriptionSystemPrompt(ctx: RoomDescriptionContext): string {
 
   if (ctx.inventoryItems.length > 0) {
     lines.push(`- Carrying: ${ctx.inventoryItems.join(", ")}`);
-  }
-
-  if (ctx.exits.length > 0) {
-    lines.push(`- Exits: ${ctx.exits.join(", ")}`);
   }
 
   return lines.join("\n");
@@ -406,7 +403,7 @@ export async function generateRoomDescription(
       schema: roomDescriptionSchema,
       system,
       messages: [
-        { role: "user", content: `Describe ${ctx.roomName} as ${ctx.playerName} enters.` },
+        { role: "user", content: `Write a brief second-person atmospheric impression as the player enters ${ctx.roomName}.` },
       ],
       abortSignal: AbortSignal.timeout(ROOM_DESC_TIMEOUT),
     });
