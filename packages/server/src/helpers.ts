@@ -615,7 +615,7 @@ export function sanitizeRoomDescription(text: string): string {
  * Wrap a sanitized LLM impression in a blockquote for narrative delivery.
  */
 export function buildNarrativeImpression(description: string): string {
-  return description.split("\n").map((line) => `> ${line}`).join("\n");
+  return description.split(/\r?\n/).map((line) => `> ${line}`).join("\n");
 }
 
 /**

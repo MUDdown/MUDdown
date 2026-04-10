@@ -379,10 +379,6 @@ function buildRoomDescriptionSystemPrompt(ctx: RoomDescriptionContext): string {
     lines.push(`- Carrying: ${ctx.inventoryItems.join(", ")}`);
   }
 
-  if (ctx.exits.length > 0) {
-    lines.push(`- Exits: ${ctx.exits.join(", ")}`);
-  }
-
   return lines.join("\n");
 }
 

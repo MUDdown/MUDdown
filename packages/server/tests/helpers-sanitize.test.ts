@@ -89,4 +89,8 @@ describe("buildNarrativeImpression", () => {
   it("handles multi-line input", () => {
     expect(buildNarrativeImpression("Line one\nLine two")).toBe("> Line one\n> Line two");
   });
+
+  it("normalizes CRLF line endings", () => {
+    expect(buildNarrativeImpression("Line one\r\nLine two")).toBe("> Line one\n> Line two");
+  });
 });

@@ -803,9 +803,9 @@ async function sendRoom(ws: WebSocket, roomId: string, session?: PlayerSession):
   // Attempt LLM enrichment and send as a separate narrative blockquote
   if (session && isLlmConfigured(llmConfig)) {
     const impression = await tryDynamicDescription(muddown, roomId, room, session);
-    if (impression) {
+    if (impression && session.currentRoom === roomId) {
       const narrativeMd = buildNarrativeImpression(impression);
-      send(ws, { v: 1, id: randomUUID(), type: "narrative", timestamp: new Date().toISOString(), muddown: narrativeMd });
+      send(ws, { v: 1, id: randomUUID(), type: "narrative", timestamp: new Date().toISOString(), muddown: narrativeMd, meta: { room_id: roomId, region: room.attributes.region } });
     }
   }
 }
