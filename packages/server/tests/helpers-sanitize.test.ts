@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeRoomDescription } from "../src/helpers.js";
+import { sanitizeRoomDescription, buildNarrativeImpression } from "../src/helpers.js";
 
 describe("sanitizeRoomDescription", () => {
   it("collapses newlines to spaces", () => {
@@ -70,5 +70,23 @@ describe("sanitizeRoomDescription", () => {
   it("does not alter heading markers that are not at the start", () => {
     const result = sanitizeRoomDescription("text with ## in the middle");
     expect(result).toBe("text with ## in the middle");
+  });
+});
+
+describe("buildNarrativeImpression", () => {
+  it("wraps text in a blockquote", () => {
+    expect(buildNarrativeImpression("The air smells of pine.")).toBe("> The air smells of pine.");
+  });
+
+  it("preserves inner markdown", () => {
+    expect(buildNarrativeImpression("A **bold** statement.")).toBe("> A **bold** statement.");
+  });
+
+  it("handles empty string", () => {
+    expect(buildNarrativeImpression("")).toBe("> ");
+  });
+
+  it("handles multi-line input", () => {
+    expect(buildNarrativeImpression("Line one\nLine two")).toBe("> Line one\n> Line two");
   });
 });

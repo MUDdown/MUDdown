@@ -581,7 +581,7 @@ describe("generateRoomDescription", () => {
   }
 
   const GOOD_DESC: GeneratedRoomDescription = {
-    description: "Tester steps into the bustling cobblestone square. The warrior's eyes sweep across the colorful merchant stalls as the scent of fresh bread fills the air.",
+    description: "You step into the bustling cobblestone square. The scent of fresh bread fills the air as colorful merchant stalls stretch before you.",
   };
 
   beforeEach(() => {
@@ -616,8 +616,8 @@ describe("generateRoomDescription", () => {
 
     const call = mockedGenerateObject.mock.calls[0][0] as any;
     expect(call.system).toContain("A bustling cobblestone square");
-    expect(call.system).toContain("Ada");
     expect(call.system).toContain("mage");
+    expect(call.system).not.toContain("Ada");
   });
 
   it("includes combat state in system prompt", async () => {
@@ -629,6 +629,20 @@ describe("generateRoomDescription", () => {
 
     const call = mockedGenerateObject.mock.calls[0][0] as any;
     expect(call.system).toContain("combat");
+  });
+
+  it("system prompt requires second-person and forbids player name", async () => {
+    mockedGenerateObject.mockResolvedValueOnce({
+      object: GOOD_DESC,
+    } as any);
+
+    await generateRoomDescription(anthropicConfig, makeRoomCtx({ playerName: "Gandalf" }));
+
+    const call = mockedGenerateObject.mock.calls[0][0] as any;
+    expect(call.system).toContain("second person");
+    expect(call.system).toContain("NEVER use the player's name");
+    expect(call.system).not.toContain("Gandalf");
+    expect(call.system).not.toContain("impersonal present tense");
   });
 
   it("includes low-health warning in system prompt when HP is below 30%", async () => {
@@ -736,7 +750,7 @@ describe("generateRoomDescription", () => {
     expect(call.system).not.toContain("(null)");
   });
 
-  it("includes room name in the user message", async () => {
+  it("user message includes room name and formatting requirements", async () => {
     mockedGenerateObject.mockResolvedValueOnce({
       object: GOOD_DESC,
     } as any);
@@ -745,6 +759,9 @@ describe("generateRoomDescription", () => {
 
     const call = mockedGenerateObject.mock.calls[0][0] as any;
     expect(call.messages[0].content).toContain("Iron Gate");
+    expect(call.messages[0].content).not.toContain("Tester");
+    expect(call.messages[0].content).toContain("second-person");
+    expect(call.messages[0].content).toContain("atmospheric impression");
   });
 
   it("returns null on AI_NoObjectGeneratedError (schema validation failure)", async () => {

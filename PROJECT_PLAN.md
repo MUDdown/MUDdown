@@ -222,6 +222,24 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [x] Extract web client into standalone `packages/client`
 - [x] React Native wrapper for iOS/Android
 - [ ] Tauri desktop app (lightweight native shell)
+  - [ ] Scaffold `apps/desktop` with Tauri v2 (`npm create tauri-app`)
+  - [ ] Add to Turborepo workspace config and wire `shared`/`client` dependencies
+  - [ ] Webview frontend consuming `@muddown/client` (renderer, connection, inventory)
+  - [ ] Character selection and creation screen
+  - [ ] Dark terminal aesthetic matching web client theme
+  - [ ] Native menu bar (File, View, Help) via Tauri menu API
+  - [ ] System tray icon with connection status indicator
+  - [ ] Native OS notifications (mentions, combat events, NPC contact)
+  - [ ] Window title reflecting current room name
+  - [ ] Keyboard shortcuts (Ctrl+L clear, Ctrl+K focus input)
+  - [ ] Persistent window size/position via Tauri `window-state` plugin
+  - [ ] GitHub Actions build matrix (macOS `.dmg`, Windows `.msi`, Linux `.AppImage`/`.deb`)
+  - [ ] Tauri auto-updater with signed GitHub Releases
+    - [ ] Enable signature verification in `tauri.conf.json` `updater` section — only accept signed releases; store the project's Ed25519 public key in `updater.pubkey` and document rotation procedure in `apps/desktop/UPDATER_KEYS.md`
+    - [ ] Validate update signatures against the public key in the auto-update handler (`tauri::updater` / JS `@tauri-apps/plugin-updater`) before applying any update
+    - [ ] Add integration test: upload a properly signed release and a forged (re-signed or tampered) release; verify the updater accepts the valid signature and rejects the invalid one
+  - [ ] Apple notarization for macOS distribution
+  - [ ] Windows Authenticode signing via SignPath (free open-source tier)
 - [ ] Terminal client (renders MUDdown as styled terminal output)
 - [ ] Telnet bridge (`packages/bridge`): legacy client support (plain telnet + TELNETS/TLS)
 

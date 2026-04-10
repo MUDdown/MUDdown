@@ -11,7 +11,7 @@ import {
   resetPlayerAfterDefeat, stripHtmlComments, buildInventoryState, TokenBucket,
   getHelpEntry, helpEntries, buildHelpBlock, buildHelpTable, buildHintBlock, buildLoreBlock,
   isValidCommand, buildHintContext, extractNarrativeDescription,
-  sanitizeRoomDescription,
+  sanitizeRoomDescription, buildNarrativeImpression,
 } from "./helpers.js";
 import { SqliteDatabase } from "./db/index.js";
 import type { GameDatabase } from "./db/types.js";
@@ -634,8 +634,8 @@ function move(ws: WebSocket, session: PlayerSession, direction: string): void {
 // ─── Dynamic Room Descriptions ───────────────────────────────────────────────
 
 /**
- * Attempt to replace the static room description with an LLM-generated one.
- * Returns the modified MUDdown string, or null to use the static version.
+ * Attempt to generate an LLM atmospheric impression for the room.
+ * Returns a sanitized description string, or null to skip.
  */
 async function tryDynamicDescription(
   muddown: string,
@@ -690,8 +690,7 @@ async function tryDynamicDescription(
     const safe = sanitizeRoomDescription(result.description);
     if (!safe) return null;
 
-    // Replace the narrative paragraph in the MUDdown
-    return muddown.substring(0, narrative.startIdx) + "\n\n" + safe + "\n" + muddown.substring(narrative.endIdx);
+    return safe;
   } catch (err) {
     console.error(`tryDynamicDescription failed for room "${roomId}":`, err instanceof Error ? err.message : err);
     return null;
@@ -801,11 +800,12 @@ async function sendRoom(ws: WebSocket, roomId: string, session?: PlayerSession):
   // Send static room immediately — player never waits
   send(ws, { v: 1, id: randomUUID(), type: "room", timestamp: new Date().toISOString(), muddown, meta: { room_id: roomId, region: room.attributes.region } });
 
-  // Attempt LLM enrichment and send an updated room if successful
+  // Attempt LLM enrichment and send as a separate narrative blockquote
   if (session && isLlmConfigured(llmConfig)) {
-    const descReplaced = await tryDynamicDescription(muddown, roomId, room, session);
-    if (descReplaced) {
-      send(ws, { v: 1, id: randomUUID(), type: "room", timestamp: new Date().toISOString(), muddown: descReplaced, meta: { room_id: roomId, region: room.attributes.region } });
+    const impression = await tryDynamicDescription(muddown, roomId, room, session);
+    if (impression) {
+      const narrativeMd = buildNarrativeImpression(impression);
+      send(ws, { v: 1, id: randomUUID(), type: "narrative", timestamp: new Date().toISOString(), muddown: narrativeMd });
     }
   }
 }
