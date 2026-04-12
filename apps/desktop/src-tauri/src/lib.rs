@@ -93,8 +93,12 @@ pub fn run() {
                     match event.id().0.as_str() {
                         "tray_show" => {
                             if let Some(w) = handle_tray.get_webview_window("main") {
-                                let _ = w.show();
-                                let _ = w.set_focus();
+                                if let Err(e) = w.show() {
+                                    eprintln!("tray_show: failed to show window: {e}");
+                                }
+                                if let Err(e) = w.set_focus() {
+                                    eprintln!("tray_show: failed to set focus: {e}");
+                                }
                             }
                         }
                         "tray_quit" => {
@@ -108,5 +112,5 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running MUDdown desktop");
+        .unwrap_or_else(|e| panic!("error while running MUDdown desktop: {}", e));
 }

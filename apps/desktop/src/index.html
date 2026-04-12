@@ -23,7 +23,6 @@
             type="text"
             value="http://localhost:3300"
             placeholder="http://localhost:3300"
-            aria-label="Server URL"
           />
         </div>
         <button id="guest-play-btn" class="panel-btn">Play as Guest</button>
@@ -46,7 +45,6 @@
             placeholder="2–24 characters"
             pattern="[a-zA-Z][a-zA-Z0-9 '\-]{0,22}[a-zA-Z0-9]"
             required
-            aria-label="Character name"
           />
 
           <fieldset>
@@ -85,7 +83,7 @@
         <!-- Hint panel (left sidebar) -->
         <aside id="hint-panel" class="hint-panel hint-off" role="complementary" aria-label="Hint assistant">
           <div class="hint-header">
-            <h2>💡 Hint</h2>
+            <h2><span aria-hidden="true">💡</span> Hint</h2>
             <button id="hint-close-btn" class="inv-icon-btn" aria-label="Close hint panel">&times;</button>
           </div>
           <div class="hint-body">

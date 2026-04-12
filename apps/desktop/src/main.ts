@@ -639,7 +639,7 @@ document.getElementById("hint-close-btn")!.addEventListener("click", () => {
   input.focus();
 });
 
-document.getElementById("hint-refresh-btn")?.addEventListener("click", () => {
+document.getElementById("hint-refresh-btn")!.addEventListener("click", () => {
   sendCommand("hint");
 });
 

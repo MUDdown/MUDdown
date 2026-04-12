@@ -1,6 +1,6 @@
 # Updater Key Management
 
-The MUDdown desktop app uses Tauri's built-in auto-updater with **Ed25519 signature verification** to ensure update integrity.
+The MUDdown desktop app uses Tauri's built-in [auto-updater](https://v2.tauri.app/plugin/updater/) with **Ed25519 signature verification** to ensure update integrity. See the [Tauri signing docs](https://v2.tauri.app/plugin/updater/#signing-updates) for background on key generation and the update flow.
 
 ## Key Pair
 
@@ -32,15 +32,17 @@ This produces:
 | Secret | Description |
 |--------|-------------|
 | `TAURI_SIGNING_PRIVATE_KEY` | Ed25519 private key for signing updates |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password for the private key (if set) |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Optional — only required if the private key is password-protected |
 
 ## Verification
 
-The updater plugin validates every downloaded update against the public key before applying it. If the signature does not match — whether due to tampering, a forged release, or a key mismatch — the update is **rejected** and the app remains on its current version.
+The [updater plugin](https://v2.tauri.app/plugin/updater/) validates every downloaded update against the public key before applying it. If the signature does not match — whether due to tampering, a forged release, or a key mismatch — the update is **rejected** and the app remains on its current version.
 
 ## Testing
 
-The CI workflow includes an integration test that:
+> **Status:** The integration test described below is planned but not yet implemented. See the Phase 5 roadmap in `PROJECT_PLAN.md` for tracking.
+
+The CI workflow (`.github/workflows/desktop-build.yml`) will include an integration test that:
 1. Builds a properly signed release artifact.
 2. Verifies the updater accepts the valid signature.
 3. Tampers with the artifact and verifies the updater **rejects** the invalid signature.

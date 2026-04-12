@@ -88,6 +88,10 @@ code {
   margin-right: 0.5rem;
 }
 .panel-btn:hover { background: var(--bg-hover); border-color: var(--green); }
+.panel-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .panel-btn-secondary { border-color: var(--border-elevated); }
 .panel-btn-sm { padding: 0.35rem 0.85rem; font-size: 0.85rem; }
 .panel-divider { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
@@ -395,6 +399,10 @@ code {
   font-size: 0.85rem;
 }
 .inv-item-btn:hover { color: var(--text-bright); text-decoration: underline; }
+.inv-item-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 
 .inv-status {
   padding: 0.35rem 0.75rem;
@@ -478,6 +486,10 @@ code {
   color: var(--text-bright);
   border-color: var(--accent-dim);
 }
+.hint-cmd-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 
 .hint-refresh-btn {
   background: none;
@@ -495,6 +507,10 @@ code {
   color: var(--text-bright);
   border-color: var(--border-elevated);
   background: var(--bg-hover);
+}
+.hint-refresh-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 /* ── Connection status indicator ────────────── */

@@ -7,12 +7,14 @@ on:
       - "apps/desktop/**"
       - "packages/client/**"
       - "packages/shared/**"
+      - ".github/workflows/desktop-build.yml"
   pull_request:
     branches: [main]
     paths:
       - "apps/desktop/**"
       - "packages/client/**"
       - "packages/shared/**"
+      - ".github/workflows/desktop-build.yml"
   workflow_dispatch:
 
 permissions:
@@ -52,6 +54,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+          key: ${{ matrix.target }}
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -109,3 +117,8 @@ jobs:
 
       - name: Display artifacts
         run: find artifacts -type f | head -50
+
+      # TODO: Add GitHub Release creation once tagging/versioning strategy is decided.
+      # Planned: use softprops/action-gh-release or tauri-apps/tauri-action's built-in
+      # release support to upload .dmg, .msi, .AppImage, .deb, and the updater latest.json
+      # to a signed GitHub Release matching the version in tauri.conf.json.
