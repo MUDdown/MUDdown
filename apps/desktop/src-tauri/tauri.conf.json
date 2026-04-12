@@ -37,8 +37,8 @@
   },
   "plugins": {
     "updater": {
-      "active": false,
-      "pubkey": "",
+      "active": true,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMyQkFEQTgzMjYxOUZDOTYKUldTVy9Ca21nOXE2d2pjWTZYMmd2MklKSGg4di9aYVJJdG9odkp1OUQrU0VCU1V2TFhNSWNFSjkK",
       "endpoints": [
         "https://github.com/MUDdown/MUDdown/releases/latest/download/latest.json"
       ]

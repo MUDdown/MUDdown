@@ -9,6 +9,8 @@ import {
 import type { InvState } from "@muddown/client";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { check } from "@tauri-apps/plugin-updater";
+import { ask } from "@tauri-apps/plugin-dialog";
 
 // ── DOM Elements ──────────────────────────────────────────────────
 
@@ -701,6 +703,30 @@ listen<string>("menu-action", (event) => {
   console.error("[menu-action] Failed to register menu event listener:", err);
 });
 
+// ── Auto-updater ──────────────────────────────────────────────────
+
+async function checkForUpdates(): Promise<void> {
+  try {
+    const update = await check();
+    if (update) {
+      const yes = await ask(
+        `MUDdown ${update.version} is available.\n\n${update.body ?? ""}`.trim(),
+        { title: "Update Available", kind: "info", okLabel: "Install & Restart", cancelLabel: "Later" },
+      );
+      if (yes) {
+        appendMessage(`*Downloading update v${update.version}…*`, "system");
+        await update.downloadAndInstall();
+        // Tauri restarts the app automatically after install
+      }
+    }
+  } catch (err) {
+    console.error("[checkForUpdates] Update check failed:", err);
+  }
+}
+
 // ── Initial view ──────────────────────────────────────────────────
 
 showView("auth");
+
+// Check for updates on launch (non-blocking)
+checkForUpdates();

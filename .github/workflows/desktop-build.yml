@@ -21,7 +21,17 @@ permissions:
   contents: write
 
 jobs:
+  get-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: read
+        run: echo "version=$(jq -r .version apps/desktop/src-tauri/tauri.conf.json)" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: get-version
     strategy:
       fail-fast: false
       matrix:
@@ -92,6 +102,29 @@ jobs:
         with:
           projectPath: apps/desktop
           args: --target ${{ matrix.target }}
+          # On push to main, create/update a GitHub Release and upload artifacts + latest.json
+          tagName: ${{ github.ref == 'refs/heads/main' && format('desktop-v{0}', needs.get-version.outputs.version) || '' }}
+          releaseName: ${{ github.ref == 'refs/heads/main' && format('MUDdown Desktop v{0}', needs.get-version.outputs.version) || '' }}
+          releaseBody: ${{ github.ref == 'refs/heads/main' && 'See the assets below to download the desktop app for your platform.' || '' }}
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
+
+      - name: Install minisign (signature verification test)
+        if: matrix.platform != 'windows-latest'
+        run: |
+          if [ "${{ matrix.platform }}" = "ubuntu-22.04" ]; then
+            sudo apt-get install -y minisign
+          else
+            brew install minisign
+          fi
+
+      - name: Verify update signatures
+        if: matrix.platform != 'windows-latest' && env.TAURI_SIGNING_PRIVATE_KEY != ''
+        env:
+          TAURI_PUBKEY: "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMyQkFEQTgzMjYxOUZDOTYKUldTVy9Ca21nOXE2d2pjWTZYMmd2MklKSGg4di9aYVJJdG9odkp1OUQrU0VCU1V2TFhNSWNFSjkK"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: bash apps/desktop/tests/verify-signature.sh ${{ matrix.target }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -103,22 +136,3 @@ jobs:
             apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
             apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
           if-no-files-found: warn
-
-  release:
-    needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Display artifacts
-        run: find artifacts -type f | head -50
-
-      # TODO: Add GitHub Release creation once tagging/versioning strategy is decided.
-      # Planned: use softprops/action-gh-release or tauri-apps/tauri-action's built-in
-      # release support to upload .dmg, .msi, .AppImage, .deb, and the updater latest.json
-      # to a signed GitHub Release matching the version in tauri.conf.json.

@@ -264,12 +264,12 @@ Full procedure in `apps/desktop/UPDATER_KEYS.md`:
 
 ### Integration Test Plan
 
-> **Status:** Planned, not yet implemented. Tracked in `PROJECT_PLAN.md` Phase 5.
+The CI workflow includes a signature verification test (`apps/desktop/tests/verify-signature.sh`) that:
+1. Locates all `.sig` files produced by `tauri build`.
+2. Verifies each signature against the project's public key using `minisign`.
+3. Tampers with each artifact and verifies the updater **rejects** the invalid signature.
 
-The CI workflow should include a test that:
-1. Builds a properly signed release artifact.
-2. Verifies the updater accepts the valid signature.
-3. Tampers with the artifact (re-signs or modifies) and verifies the updater **rejects** it.
+The test runs on macOS and Linux CI targets after the build step. It is skipped when `TAURI_SIGNING_PRIVATE_KEY` is not configured (e.g., on forks).
 
 ## Icons
 
@@ -295,6 +295,7 @@ Before considering desktop app work complete:
 - [ ] CSP allows WebSocket to game server and OAuth endpoints
 - [ ] CI workflow builds all 4 targets without errors
 - [ ] `tauri.conf.json` updater has `pubkey` populated (when active)
+- [ ] CI signature verification test passes (valid accepted, tampered rejected)
 - [ ] `UPDATER_KEYS.md` documents key rotation
 
 ## Traceability
