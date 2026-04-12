@@ -95,8 +95,7 @@ pub fn run() {
                 .build()?;
 
             let handle_tray = handle.clone();
-            TrayIconBuilder::new()
-                .id("main-tray")
+            TrayIconBuilder::with_id("main-tray")
                 .icon(tray_icon)
                 .tooltip("MUDdown — Disconnected")
                 .menu(&tray_menu)
