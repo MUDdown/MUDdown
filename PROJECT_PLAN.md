@@ -239,8 +239,8 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
     - [ ] Enable signature verification in `tauri.conf.json` `updater` section — only accept signed releases; store the project's Ed25519 public key in `updater.pubkey` and document rotation procedure in `apps/desktop/UPDATER_KEYS.md`
     - [ ] Validate update signatures against the public key in the auto-update handler (`tauri::updater` / JS `@tauri-apps/plugin-updater`) before applying any update
     - [ ] Add integration test: upload a properly signed release and a forged (re-signed or tampered) release; verify the updater accepts the valid signature and rejects the invalid one
-  - [x] Apple notarization for macOS distribution
-  - [x] Windows Authenticode signing via SignPath (free open-source tier)
+  - [ ] Apple notarization for macOS distribution
+  - [ ] Windows Authenticode signing via SignPath (free open-source tier)
 - [ ] Terminal client (renders MUDdown as styled terminal output)
 - [ ] Telnet bridge (`packages/bridge`): legacy client support (plain telnet + TELNETS/TLS)
 
