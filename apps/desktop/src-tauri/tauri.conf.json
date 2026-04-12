@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ws://localhost:3300 wss://muddown.com wss://*.muddown.com https://muddown.com https://*.muddown.com http://localhost:3300 https://localhost:3300; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:"
+      "csp": "default-src 'self'; connect-src 'self' ws: wss: http: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:"
     }
   },
   "plugins": {

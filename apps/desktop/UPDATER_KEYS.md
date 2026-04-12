@@ -6,7 +6,7 @@ The MUDdown desktop app uses Tauri's built-in [auto-updater](https://v2.tauri.ap
 
 | File | Purpose | Location |
 |------|---------|----------|
-| Public key | Embedded in `tauri.conf.json` → `plugins.updater.pubkey` | Committed to repo |
+| Public key | Embedded in `tauri.conf.json` → `plugins.updater.pubkey` | **Not yet configured** — set when keys are generated |
 | Private key | Used by CI to sign release artifacts | GitHub Actions secret `TAURI_SIGNING_PRIVATE_KEY` |
 
 ## Generating a New Key Pair

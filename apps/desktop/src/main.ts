@@ -56,6 +56,10 @@ async function sendNotification(title: string, body: string): Promise<void> {
   await invoke("send_notification", { title, body });
 }
 
+async function setTrayTooltip(tooltip: string): Promise<void> {
+  await invoke("set_tray_tooltip", { tooltip });
+}
+
 // ── View helpers ──────────────────────────────────────────────────
 
 function showView(view: "auth" | "character" | "game"): void {
@@ -283,22 +287,16 @@ function appendMessage(muddown: string, className: string): void {
 
   const blockMatch = muddown.match(/^:::(\w[\w-]*)/m);
   if (blockMatch) {
-    const blockType = blockMatch[1];
-    switch (blockType) {
-      case "room":
-        div.setAttribute("role", "main");
-        break;
-      case "system":
-        div.setAttribute("role", "alert");
-        break;
-      case "combat":
-        div.setAttribute("role", "log");
-        div.setAttribute("aria-live", "polite");
-        break;
-      case "dialogue":
-        div.setAttribute("role", "group");
-        div.setAttribute("aria-label", "NPC dialogue");
-        break;
+    const ariaLabels: Record<string, string> = {
+      room: "Room description",
+      system: "System message",
+      combat: "Combat update",
+      dialogue: "NPC dialogue",
+    };
+    const label = ariaLabels[blockMatch[1]];
+    if (label) {
+      div.setAttribute("role", "group");
+      div.setAttribute("aria-label", label);
     }
   }
 
@@ -362,6 +360,12 @@ output.addEventListener("click", (e) => {
 // ── WebSocket connection ──────────────────────────────────────────
 
 function connectToServer(ticket?: string): void {
+  // Dispose any existing connection to prevent WebSocket/timer leaks
+  if (conn) {
+    conn.dispose();
+    conn = null;
+  }
+
   appendMessage("*Connecting to server...*", "system");
 
   let wsUrl: string;
@@ -376,7 +380,10 @@ function connectToServer(ticket?: string): void {
   conn = new MUDdownConnection(
     { wsUrl },
     {
-      onOpen: () => appendMessage("*Connected!*", "system"),
+      onOpen: () => {
+        appendMessage("*Connected!*", "system");
+        setTrayTooltip("MUDdown — Connected").catch((err) => console.warn("[tray] tooltip update failed:", err));
+      },
       onMessage: (muddown, type) => appendMessage(muddown, type),
       onHint: (hint) => {
         renderHintPanel(hint.hint, hint.commands);
@@ -386,8 +393,10 @@ function connectToServer(ticket?: string): void {
       onClose: (willReconnect) => {
         if (willReconnect) {
           appendMessage("*Disconnected. Reconnecting in 3s...*", "system");
+          setTrayTooltip("MUDdown — Reconnecting…").catch((err) => console.warn("[tray] tooltip update failed:", err));
         } else {
           appendMessage("*Disconnected.*", "system");
+          setTrayTooltip("MUDdown — Disconnected").catch((err) => console.warn("[tray] tooltip update failed:", err));
         }
       },
       onError: (event) => {

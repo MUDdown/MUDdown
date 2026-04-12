@@ -235,9 +235,9 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
   - [x] Keyboard shortcuts (Ctrl+L clear, Ctrl+K focus input)
   - [x] Persistent window size/position via Tauri `window-state` plugin
   - [x] GitHub Actions build matrix (macOS `.dmg`, Windows `.msi`, Linux `.AppImage`/`.deb`)
-  - [x] Tauri auto-updater with signed GitHub Releases
-    - [x] Enable signature verification in `tauri.conf.json` `updater` section — only accept signed releases; store the project's Ed25519 public key in `updater.pubkey` and document rotation procedure in `apps/desktop/UPDATER_KEYS.md`
-    - [x] Validate update signatures against the public key in the auto-update handler (`tauri::updater` / JS `@tauri-apps/plugin-updater`) before applying any update
+  - [ ] Tauri auto-updater with signed GitHub Releases
+    - [ ] Enable signature verification in `tauri.conf.json` `updater` section — only accept signed releases; store the project's Ed25519 public key in `updater.pubkey` and document rotation procedure in `apps/desktop/UPDATER_KEYS.md`
+    - [ ] Validate update signatures against the public key in the auto-update handler (`tauri::updater` / JS `@tauri-apps/plugin-updater`) before applying any update
     - [ ] Add integration test: upload a properly signed release and a forged (re-signed or tampered) release; verify the updater accepts the valid signature and rejects the invalid one
   - [x] Apple notarization for macOS distribution
   - [x] Windows Authenticode signing via SignPath (free open-source tier)

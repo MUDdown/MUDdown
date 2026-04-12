@@ -21,6 +21,16 @@ fn send_notification(app: tauri::AppHandle, title: String, body: String) {
     let _ = app.notification().builder().title(title).body(body).show();
 }
 
+/// Update the system tray tooltip to reflect connection status.
+#[tauri::command]
+fn set_tray_tooltip(app: tauri::AppHandle, tooltip: String) {
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        if let Err(e) = tray.set_tooltip(Some(&tooltip)) {
+            eprintln!("[set_tray_tooltip] Failed: {e}");
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -31,7 +41,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![set_window_title, send_notification])
+        .invoke_handler(tauri::generate_handler![set_window_title, send_notification, set_tray_tooltip])
         .setup(|app| {
             let handle = app.handle();
 
@@ -86,6 +96,7 @@ pub fn run() {
 
             let handle_tray = handle.clone();
             TrayIconBuilder::new()
+                .id("main-tray")
                 .icon(tray_icon)
                 .tooltip("MUDdown — Disconnected")
                 .menu(&tray_menu)

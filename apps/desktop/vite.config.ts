@@ -12,10 +12,4 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
   },
-  resolve: {
-    alias: {
-      "@muddown/client": resolve(__dirname, "../../packages/client/src/index.ts"),
-      "@muddown/shared": resolve(__dirname, "../../packages/shared/src/index.ts"),
-    },
-  },
 });
