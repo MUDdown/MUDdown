@@ -25,4 +25,4 @@ jobs:
 
       - run: npx turbo run build --filter='!@muddown/desktop'
 
-      - run: npx turbo run test
+      - run: npx turbo run test --filter='!@muddown/desktop'
