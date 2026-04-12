@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MUDdown</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./main.ts"></script>
+  </head>
+  <body>
+    <div id="app">
+      <!-- Auth gate -->
+      <div id="auth-gate" class="panel" style="display: none">
+        <h2>Welcome to MUDdown</h2>
+        <p>Connect to a MUDdown server to begin your adventure.</p>
+        <div class="server-config">
+          <label for="server-url">Server URL</label>
+          <input
+            id="server-url"
+            type="text"
+            value="http://localhost:3300"
+            placeholder="http://localhost:3300"
+            aria-label="Server URL"
+          />
+        </div>
+        <button id="guest-play-btn" class="panel-btn">Play as Guest</button>
+        <button id="login-play-btn" class="panel-btn panel-btn-secondary">Login &amp; Play</button>
+      </div>
+
+      <!-- Character selection -->
+      <div id="character-panel" class="panel" style="display: none">
+        <h2>Choose a Character</h2>
+        <div id="character-list"></div>
+        <hr class="panel-divider" />
+        <h3>Create New Character</h3>
+        <form id="create-character-form">
+          <label for="char-name">Name</label>
+          <input
+            id="char-name"
+            type="text"
+            minlength="2"
+            maxlength="24"
+            placeholder="2–24 characters"
+            pattern="[a-zA-Z][a-zA-Z0-9 '\-]{0,22}[a-zA-Z0-9]"
+            required
+            aria-label="Character name"
+          />
+
+          <fieldset>
+            <legend>Class</legend>
+            <div class="class-options">
+              <label class="class-option">
+                <input type="radio" name="charClass" value="warrior" checked />
+                <span class="class-label">Warrior</span>
+                <span class="class-stats">HP 25 · AC 12 · ATK +3 · DMG 1d6+1</span>
+              </label>
+              <label class="class-option">
+                <input type="radio" name="charClass" value="mage" />
+                <span class="class-label">Mage</span>
+                <span class="class-stats">HP 15 · AC 8 · ATK +1 · DMG 1d4</span>
+              </label>
+              <label class="class-option">
+                <input type="radio" name="charClass" value="rogue" />
+                <span class="class-label">Rogue</span>
+                <span class="class-stats">HP 18 · AC 11 · ATK +2 · DMG 1d6</span>
+              </label>
+              <label class="class-option">
+                <input type="radio" name="charClass" value="cleric" />
+                <span class="class-label">Cleric</span>
+                <span class="class-stats">HP 20 · AC 10 · ATK +2 · DMG 1d4+1</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <div id="create-error" class="form-error" role="alert"></div>
+          <button type="submit" class="panel-btn">Create &amp; Play</button>
+        </form>
+      </div>
+
+      <!-- Game area -->
+      <div id="game-area" class="game-area" style="display: none">
+        <!-- Hint panel (left sidebar) -->
+        <aside id="hint-panel" class="hint-panel hint-off" role="complementary" aria-label="Hint assistant">
+          <div class="hint-header">
+            <h2>💡 Hint</h2>
+            <button id="hint-close-btn" class="inv-icon-btn" aria-label="Close hint panel">&times;</button>
+          </div>
+          <div class="hint-body">
+            <div id="hint-text" class="hint-text">
+              <p class="hint-empty">Type <code>hint</code> to get a contextual suggestion.</p>
+            </div>
+            <div id="hint-commands" class="hint-commands"></div>
+            <button id="hint-refresh-btn" class="hint-refresh-btn" title="Get a new hint">↻ New Hint</button>
+          </div>
+          <div id="hint-status" class="inv-status" aria-live="polite"></div>
+        </aside>
+
+        <!-- Terminal -->
+        <div id="game-terminal">
+          <div id="game-output" role="log" aria-live="polite"></div>
+          <div id="game-input-row">
+            <span id="game-prompt">&gt;</span>
+            <input
+              id="game-input"
+              type="text"
+              placeholder="Type a command..."
+              autocomplete="off"
+              aria-label="Game command input"
+            />
+          </div>
+        </div>
+
+        <!-- Inventory panel (right sidebar) -->
+        <aside id="inventory-panel" class="inv-panel inv-persistent" role="complementary" aria-label="Inventory and equipment">
+          <div class="inv-header">
+            <h2>Inventory</h2>
+            <button id="inv-close-btn" class="inv-icon-btn" aria-label="Close inventory panel">&times;</button>
+          </div>
+          <div class="inv-body">
+            <section class="inv-section">
+              <h3>Equipment</h3>
+              <div id="inv-equipment" class="inv-slots">
+                <div class="inv-slot" data-slot="weapon">
+                  <span class="inv-slot-label">Weapon</span>
+                  <span class="inv-slot-value" id="inv-slot-weapon"><em>empty</em></span>
+                </div>
+                <div class="inv-slot" data-slot="armor">
+                  <span class="inv-slot-label">Armor</span>
+                  <span class="inv-slot-value" id="inv-slot-armor"><em>empty</em></span>
+                </div>
+                <div class="inv-slot" data-slot="accessory">
+                  <span class="inv-slot-label">Accessory</span>
+                  <span class="inv-slot-value" id="inv-slot-accessory"><em>empty</em></span>
+                </div>
+              </div>
+            </section>
+            <section class="inv-section">
+              <h3>Items</h3>
+              <ul id="inv-items" aria-label="Inventory items">
+                <li class="inv-empty">Your inventory is empty.</li>
+              </ul>
+            </section>
+            <div id="inv-status" class="inv-status" aria-live="polite"></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </body>
+</html>

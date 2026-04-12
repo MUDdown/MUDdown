@@ -18,8 +18,9 @@ Turborepo monorepo with npm workspaces:
 | `packages/bridge` | Future telnet bridge (empty) |
 | `apps/website` | Astro site: landing page, spec docs, playable web client |
 | `apps/mobile` | Expo React Native app for iOS/Android |
+| `apps/desktop` | Tauri v2 desktop app (macOS, Windows, Linux) |
 
-Dependency graph: `server` → `shared`; `parser` → `shared`; `client` → `shared`; `mobile` → `client`, `shared`; `website` → `spec` (reads Markdown at build time).
+Dependency graph: `server` → `shared`; `parser` → `shared`; `client` → `shared`; `mobile` → `client`, `shared`; `desktop` → `client`, `shared`; `website` → `spec` (reads Markdown at build time).
 
 ## TypeScript Conventions
 

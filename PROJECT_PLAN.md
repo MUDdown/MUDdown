@@ -51,6 +51,7 @@ MUDdown/
 ├── apps/
 │   ├── website/        ✅ Astro site: landing page, spec docs, playable web client
 │   └── mobile/         ✅ Expo React Native app for iOS/Android
+│   └── desktop/        ✅ Tauri v2 desktop app (macOS, Windows, Linux)
 ├── turbo.json          ✅ Build orchestration
 ├── package.json        ✅ Workspace root
 ├── tsconfig.json       ✅ Shared TypeScript config
@@ -221,25 +222,25 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 ### Phase 5 — Multi-Platform Client
 - [x] Extract web client into standalone `packages/client`
 - [x] React Native wrapper for iOS/Android
-- [ ] Tauri desktop app (lightweight native shell)
-  - [ ] Scaffold `apps/desktop` with Tauri v2 (`npm create tauri-app`)
-  - [ ] Add to Turborepo workspace config and wire `shared`/`client` dependencies
-  - [ ] Webview frontend consuming `@muddown/client` (renderer, connection, inventory)
-  - [ ] Character selection and creation screen
-  - [ ] Dark terminal aesthetic matching web client theme
-  - [ ] Native menu bar (File, View, Help) via Tauri menu API
-  - [ ] System tray icon with connection status indicator
-  - [ ] Native OS notifications (mentions, combat events, NPC contact)
-  - [ ] Window title reflecting current room name
-  - [ ] Keyboard shortcuts (Ctrl+L clear, Ctrl+K focus input)
-  - [ ] Persistent window size/position via Tauri `window-state` plugin
-  - [ ] GitHub Actions build matrix (macOS `.dmg`, Windows `.msi`, Linux `.AppImage`/`.deb`)
-  - [ ] Tauri auto-updater with signed GitHub Releases
-    - [ ] Enable signature verification in `tauri.conf.json` `updater` section — only accept signed releases; store the project's Ed25519 public key in `updater.pubkey` and document rotation procedure in `apps/desktop/UPDATER_KEYS.md`
-    - [ ] Validate update signatures against the public key in the auto-update handler (`tauri::updater` / JS `@tauri-apps/plugin-updater`) before applying any update
+- [x] Tauri desktop app (lightweight native shell)
+  - [x] Scaffold `apps/desktop` with Tauri v2 (`npm create tauri-app`)
+  - [x] Add to Turborepo workspace config and wire `shared`/`client` dependencies
+  - [x] Webview frontend consuming `@muddown/client` (renderer, connection, inventory)
+  - [x] Character selection and creation screen
+  - [x] Dark terminal aesthetic matching web client theme
+  - [x] Native menu bar (File, View, Help) via Tauri menu API
+  - [x] System tray icon with connection status indicator
+  - [x] Native OS notifications (mentions, combat events, NPC contact)
+  - [x] Window title reflecting current room name
+  - [x] Keyboard shortcuts (Ctrl+L clear, Ctrl+K focus input)
+  - [x] Persistent window size/position via Tauri `window-state` plugin
+  - [x] GitHub Actions build matrix (macOS `.dmg`, Windows `.msi`, Linux `.AppImage`/`.deb`)
+  - [x] Tauri auto-updater with signed GitHub Releases
+    - [x] Enable signature verification in `tauri.conf.json` `updater` section — only accept signed releases; store the project's Ed25519 public key in `updater.pubkey` and document rotation procedure in `apps/desktop/UPDATER_KEYS.md`
+    - [x] Validate update signatures against the public key in the auto-update handler (`tauri::updater` / JS `@tauri-apps/plugin-updater`) before applying any update
     - [ ] Add integration test: upload a properly signed release and a forged (re-signed or tampered) release; verify the updater accepts the valid signature and rejects the invalid one
-  - [ ] Apple notarization for macOS distribution
-  - [ ] Windows Authenticode signing via SignPath (free open-source tier)
+  - [x] Apple notarization for macOS distribution
+  - [x] Windows Authenticode signing via SignPath (free open-source tier)
 - [ ] Terminal client (renders MUDdown as styled terminal output)
 - [ ] Telnet bridge (`packages/bridge`): legacy client support (plain telnet + TELNETS/TLS)
 
@@ -284,8 +285,8 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 | Server transport | ws (WebSocket) |
 | Website | Astro 4 |
 | Markdown rendering | marked |
-| Future client | React / React Native |
-| Future desktop | Tauri (Rust shell) |
+| Mobile client | React Native / Expo |
+| Desktop client | Tauri v2 (Rust shell + webview) |
 | AI | Vercel AI SDK + @ai-sdk/anthropic (NPC dialogue, hints, room descriptions, lore RAG) |
 | Database | SQLite via better-sqlite3 (player state, world state, auth sessions) |
 | Vector store | In-memory TF-IDF with cosine similarity (lore/help RAG) |
