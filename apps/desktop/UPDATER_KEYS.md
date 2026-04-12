@@ -25,8 +25,9 @@ This produces:
 2. Update `tauri.conf.json` → `plugins.updater.pubkey` with the new public key.
 3. Update the `TAURI_SIGNING_PRIVATE_KEY` secret in GitHub Actions with the contents of `~/.tauri/muddown.key`.
 4. Update the `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret if a password was set.
-5. Update the public key in `.github/workflows/desktop-build.yml` → `TAURI_PUBKEY` env var (used by the signature verification test).
-6. Create a new signed release. Previous releases signed with the old key will no longer be accepted by clients running the new version.
+5. Create a new signed release. Previous releases signed with the old key will no longer be accepted by clients running the new version.
+
+> **Note:** The CI signature verification step reads the public key dynamically from `tauri.conf.json`, so no workflow file update is needed during rotation.
 
 ## CI Secrets Required
 
@@ -43,7 +44,9 @@ This produces:
    ```
 2. Go to **Settings → Secrets and variables → Actions** in the GitHub repo.
 3. Add `TAURI_SIGNING_PRIVATE_KEY` with the full contents of the key file.
-4. Add `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` with the password you used during key generation.
+4. Add `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` with the password you used during key generation. Skip this step if you did not set a password when running `signer generate`.
+
+> **Security Note:** The private key is sensitive material. Copy it only in secure environments and never paste it into insecure channels, chat apps, or issue trackers.
 
 ## Verification
 

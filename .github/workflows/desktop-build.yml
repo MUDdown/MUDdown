@@ -120,11 +120,10 @@ jobs:
           fi
 
       - name: Verify update signatures
-        if: matrix.platform != 'windows-latest' && env.TAURI_SIGNING_PRIVATE_KEY != ''
-        env:
-          TAURI_PUBKEY: "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMyQkFEQTgzMjYxOUZDOTYKUldTVy9Ca21nOXE2d2pjWTZYMmd2MklKSGg4di9aYVJJdG9odkp1OUQrU0VCU1V2TFhNSWNFSjkK"
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: bash apps/desktop/tests/verify-signature.sh ${{ matrix.target }}
+        if: matrix.platform != 'windows-latest'
+        run: |
+          export TAURI_PUBKEY=$(jq -r '.plugins.updater.pubkey' apps/desktop/src-tauri/tauri.conf.json)
+          bash apps/desktop/tests/verify-signature.sh ${{ matrix.target }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

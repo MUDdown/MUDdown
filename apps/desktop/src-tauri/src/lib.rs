@@ -33,7 +33,21 @@ fn set_tray_tooltip(app: tauri::AppHandle, tooltip: String) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    // ── Single-instance guard (desktop only) ───────────────────
+    // Must be registered before deep-link so deep-link URLs from
+    // a second instance are forwarded to the running instance.
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {
+            // Deep-link event is already triggered by the plugin integration
+        }));
+    }
+
+    builder
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(
@@ -50,6 +64,8 @@ pub fn run() {
             let file_menu = SubmenuBuilder::new(handle, "File")
                 .item(&MenuItemBuilder::with_id("connect", "Connect").build(handle)?)
                 .item(&MenuItemBuilder::with_id("disconnect", "Disconnect").build(handle)?)
+                .separator()
+                .item(&MenuItemBuilder::with_id("logout", "Log Out").build(handle)?)
                 .separator()
                 .quit()
                 .build()?;

@@ -96,6 +96,37 @@ code {
 .panel-btn-sm { padding: 0.35rem 0.85rem; font-size: 0.85rem; }
 .panel-divider { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 
+/* Provider login buttons */
+.provider-buttons {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.provider-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: var(--radius);
+  font-size: 0.95rem;
+  font-family: var(--font-body);
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border-elevated);
+  background: var(--bg-elevated);
+  color: var(--text-bright);
+  transition: background 0.15s, border-color 0.15s;
+}
+.provider-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent-dim);
+}
+.provider-btn svg {
+  flex-shrink: 0;
+}
+
 /* Server URL config */
 .server-config {
   margin-bottom: 1rem;

@@ -15,6 +15,8 @@
     "notification:allow-is-permission-granted",
     "notification:allow-request-permission",
     "store:default",
-    "updater:default"
+    "updater:default",
+    "deep-link:default",
+    "opener:default"
   ]
 }

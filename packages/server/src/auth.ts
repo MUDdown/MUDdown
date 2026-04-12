@@ -53,12 +53,18 @@ function secureCookieSuffix(config: OAuthConfig): string {
 
 // ─── OAuth State (CSRF protection) ──────────────────────────────────────────
 
-const pendingOAuth = new Map<string, { provider: OAuthProvider; createdAt: number; mobileRedirect?: string }>();
+const pendingOAuth = new Map<string, { provider: OAuthProvider; createdAt: number; mobileRedirect?: string; loginNonce?: string }>();
+
+// Completed native-app logins: loginNonce → sessionToken (short-lived, polled by desktop/mobile)
+const completedLogins = new Map<string, { token: string; createdAt: number }>();
 
 setInterval(() => {
   const cutoff = Date.now() - 10 * 60 * 1000;
   for (const [key, val] of pendingOAuth) {
     if (val.createdAt < cutoff) pendingOAuth.delete(key);
+  }
+  for (const [key, val] of completedLogins) {
+    if (val.createdAt < cutoff) completedLogins.delete(key);
   }
 }, 5 * 60 * 1000).unref();
 
@@ -88,17 +94,24 @@ export function _insertTicket(ticket: string, characterId: string, expiresAt: nu
 
 // ─── CORS ────────────────────────────────────────────────────────────────────
 
-const WEBSITE_ORIGIN = process.env.WEBSITE_ORIGIN ?? "http://localhost:4321";
+const ALLOWED_ORIGINS: Set<string> = new Set(
+  (process.env.ALLOWED_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+);
+// Always allow the website origin and Tauri app origins
+ALLOWED_ORIGINS.add(process.env.WEBSITE_ORIGIN ?? "http://localhost:4321");
+ALLOWED_ORIGINS.add("tauri://localhost");        // macOS production
+ALLOWED_ORIGINS.add("https://tauri.localhost");  // Windows/Linux production
+ALLOWED_ORIGINS.add("http://localhost:1420");    // Tauri dev (Vite)
 
 export function setCorsHeaders(req: IncomingMessage, res: ServerResponse): void {
   const origin = req.headers.origin;
-  if (origin === WEBSITE_ORIGIN) {
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   } else if (origin) {
-    console.warn(`CORS: rejected origin "${origin}" (expected "${WEBSITE_ORIGIN}")`);
+    console.warn(`CORS: rejected origin "${origin}" (allowed: ${[...ALLOWED_ORIGINS].join(", ")})`);
   }
 }
 
@@ -177,7 +190,30 @@ export async function handleAuthRoute(
     return true;
   }
 
+  if (url.pathname === "/auth/token-poll" && req.method === "GET") {
+    handleTokenPoll(url, res);
+    return true;
+  }
+
   return false;
+}
+
+// ─── /auth/token-poll → poll for completed native-app login ─────────────────
+
+function handleTokenPoll(url: URL, res: ServerResponse): void {
+  const nonce = url.searchParams.get("nonce");
+  if (!nonce) {
+    sendJson(res, 400, { error: "Missing nonce parameter." });
+    return;
+  }
+  const entry = completedLogins.get(nonce);
+  if (!entry) {
+    sendJson(res, 202, { status: "pending" });
+    return;
+  }
+  // One-time retrieval — delete after successful poll
+  completedLogins.delete(nonce);
+  sendJson(res, 200, { token: entry.token });
 }
 
 // ─── /auth/providers → list configured providers ────────────────────────────
@@ -224,7 +260,8 @@ function handleLogin(url: URL, res: ServerResponse, config: OAuthConfig): void {
       return;
     }
   }
-  pendingOAuth.set(state, { provider, createdAt: Date.now(), mobileRedirect });
+  const loginNonce = url.searchParams.get("login_nonce") ?? undefined;
+  pendingOAuth.set(state, { provider, createdAt: Date.now(), mobileRedirect, loginNonce });
 
   const authorizeUrl = buildAuthorizeUrl(provider, providerCfg, state);
   res.writeHead(302, { Location: authorizeUrl });
@@ -347,19 +384,46 @@ async function handleCallback(
     const expiresAt = new Date(Date.now() + SESSION_DURATION_MS).toISOString();
     db.createSession({ token: sessionToken, accountId: account.id, activeCharacterId: null, expiresAt });
 
-    // Mobile clients pass a redirect_uri with a custom scheme (e.g. muddown://auth).
+    // Store completed login for polling (desktop/mobile apps poll /auth/token-poll)
+    if (pending.loginNonce) {
+      completedLogins.set(pending.loginNonce, { token: sessionToken, createdAt: Date.now() });
+    }
+
+    // Native app clients pass a redirect_uri with a custom scheme (e.g. muddown://auth).
     // Redirect back to the app with the session token as a query parameter so
     // the app can store it and use Bearer auth for subsequent API calls.
+    // We render an HTML relay page that attempts the deep link and shows feedback,
+    // because a raw 302 to a custom scheme fails in many browsers/OS configurations.
     if (pending.mobileRedirect) {
       try {
-        const mobileUrl = new URL(pending.mobileRedirect);
-        mobileUrl.searchParams.set("token", sessionToken);
-        res.writeHead(302, { Location: mobileUrl.toString() });
-        res.end();
+        const appUrl = new URL(pending.mobileRedirect);
+        appUrl.searchParams.set("token", sessionToken);
+        const deepLink = appUrl.toString();
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MUDdown — Authenticated</title>
+<style>
+  body{font-family:system-ui,sans-serif;background:#0f1923;color:#c8d6e5;display:flex;
+       align-items:center;justify-content:center;min-height:100vh;margin:0;text-align:center}
+  .card{max-width:420px;padding:2rem;border:1px solid #2a3a4a;border-radius:12px;background:#162029}
+  h1{color:#00d2ff;font-size:1.5rem;margin:0 0 1rem}
+  p{line-height:1.6;margin:0.5rem 0}
+  a{color:#00d2ff;text-decoration:underline}
+  .dim{color:#6b8299;font-size:0.85rem}
+</style></head><body>
+<div class="card">
+  <h1>Authentication Successful</h1>
+  <p>Returning you to MUDdown…</p>
+  <p class="dim">If the app doesn't open automatically,
+     <a id="link" href="${deepLink.replace(/"/g, "&quot;")}">click here</a>.</p>
+</div>
+<script>setTimeout(function(){window.location.href="${deepLink.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}";},300);</script>
+</body></html>`);
       } catch (urlErr) {
-        console.warn(`Malformed mobile redirect_uri: ${pending.mobileRedirect}`, urlErr);
+        console.warn(`Malformed app redirect_uri: ${pending.mobileRedirect}`, urlErr);
         res.writeHead(400, { "Content-Type": "text/plain" });
-        res.end("Invalid mobile redirect URI.");
+        res.end("Invalid app redirect URI.");
       }
       return;
     }

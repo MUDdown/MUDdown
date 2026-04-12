@@ -40,6 +40,7 @@ In `apps/desktop/package.json`:
     "@muddown/client": "*",
     "@muddown/shared": "*",
     "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.0.0",
     "@tauri-apps/plugin-notification": "^2.0.0",
     "@tauri-apps/plugin-store": "^2.0.0",
     "@tauri-apps/plugin-updater": "^2.0.0"
@@ -86,6 +87,7 @@ Register commands in the builder:
 
 Register plugins in `tauri::Builder::default()`:
 ```rust
+.plugin(tauri_plugin_dialog::init())
 .plugin(tauri_plugin_notification::init())
 .plugin(tauri_plugin_window_state::Builder::default().build())
 .plugin(tauri_plugin_store::Builder::default().build())
@@ -98,6 +100,7 @@ In `apps/desktop/src-tauri/Cargo.toml`:
 ```toml
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-updater = "2"
@@ -232,7 +235,6 @@ The GitHub Actions workflow lives at `.github/workflows/desktop-build.yml`.
 }
 ```
 
-- Set `active: false` until a key pair is generated and `pubkey` is populated.
 - The endpoint points to the `latest.json` manifest published with each GitHub Release.
 
 ### Runtime Validation Points
@@ -250,7 +252,7 @@ npx @tauri-apps/cli signer generate -w ~/.tauri/muddown.key
 
 Produces:
 - `~/.tauri/muddown.key` — private key (store as `TAURI_SIGNING_PRIVATE_KEY` secret)
-- Public key printed to stdout (put in `tauri.conf.json` → `plugins.updater.pubkey`)
+- `~/.tauri/muddown.key.pub` — public key (put in `tauri.conf.json` → `plugins.updater.pubkey`)
 
 ### Key Rotation Procedure
 
@@ -261,6 +263,8 @@ Full procedure in `apps/desktop/UPDATER_KEYS.md`:
 3. Update `TAURI_SIGNING_PRIVATE_KEY` GitHub Actions secret.
 4. Update `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` if password-protected.
 5. Create a new signed release. Clients running the new version will reject old-key artifacts.
+
+> **Note:** The CI signature verification step reads the public key dynamically from `tauri.conf.json`, so no workflow file update is needed during rotation.
 
 ### Integration Test Plan
 
@@ -300,4 +304,4 @@ Before considering desktop app work complete:
 
 ## Traceability
 
-This skill covers the Phase 5 Tauri desktop app checklist in `PROJECT_PLAN.md` (lines ~225–243). See that document for the full roadmap context and remaining items (integration test for signed vs forged releases).
+This skill covers the Phase 5 Tauri desktop app checklist in `PROJECT_PLAN.md` (lines ~225–243). See that document for the full roadmap context and remaining items.

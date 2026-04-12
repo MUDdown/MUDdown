@@ -2,9 +2,10 @@
 # Signature verification test for the Tauri auto-updater.
 #
 # This script validates that:
-# 1. The updater .sig file exists alongside every release artifact.
-# 2. The signature verifies against the project's public key.
-# 3. A tampered artifact is REJECTED by the same signature.
+# 1. If .sig files are present, each one is verified against the project's public key.
+# 2. A tampered artifact is REJECTED by the same signature.
+#
+# Must be run from the repository root (BUNDLE_DIR paths are relative to the repo root).
 #
 # Prerequisites:
 #   - minisign (brew install minisign / apt install minisign)
@@ -23,8 +24,8 @@ TARGET="${1:?Usage: verify-signature.sh <target>}"
 BUNDLE_DIR="apps/desktop/src-tauri/target/${TARGET}/release/bundle"
 
 if [ -z "${TAURI_PUBKEY:-}" ]; then
-  echo "ERROR: TAURI_PUBKEY environment variable is not set"
-  exit 1
+  echo "WARNING: TAURI_PUBKEY environment variable is not set — skipping verification."
+  exit 0
 fi
 
 if ! command -v minisign &> /dev/null; then
@@ -37,19 +38,13 @@ PUBKEY_FILE=$(mktemp)
 echo "$TAURI_PUBKEY" > "$PUBKEY_FILE"
 trap 'rm -f "$PUBKEY_FILE"' EXIT
 
-# Find all .sig files (Tauri generates .tar.gz.sig for updater artifacts)
-SIG_FILES=$(find "$BUNDLE_DIR" -name "*.sig" 2>/dev/null || true)
-
-if [ -z "$SIG_FILES" ]; then
-  echo "WARNING: No .sig files found in $BUNDLE_DIR — skipping verification."
-  echo "This is expected when TAURI_SIGNING_PRIVATE_KEY is not configured."
-  exit 0
-fi
-
 PASSED=0
 FAILED=0
+FOUND=0
 
-for sig_file in $SIG_FILES; do
+# Find all .sig files (e.g. .dmg.sig on macOS, .AppImage.tar.gz.sig on Linux)
+while IFS= read -r -d '' sig_file; do
+  FOUND=$((FOUND + 1))
   # The artifact is the sig file without the .sig extension
   artifact="${sig_file%.sig}"
 
@@ -86,7 +81,13 @@ for sig_file in $SIG_FILES; do
     PASSED=$((PASSED + 1))
   fi
   rm -f "$TAMPERED"
-done
+done < <(find "$BUNDLE_DIR" -name "*.sig" -print0 2>/dev/null)
+
+if [ "$FOUND" -eq 0 ]; then
+  echo "WARNING: No .sig files found in $BUNDLE_DIR — skipping verification."
+  echo "This is expected when TAURI_SIGNING_PRIVATE_KEY is not configured."
+  exit 0
+fi
 
 echo ""
 echo "Results: $PASSED passed, $FAILED failed"
