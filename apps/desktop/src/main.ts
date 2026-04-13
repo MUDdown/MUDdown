@@ -57,6 +57,7 @@ let authToken: string | null = null;
 const AUTH_STORE_PATH = "auth.json";
 const AUTH_TOKEN_KEY = "token";
 
+/** @throws If the secure store cannot be opened or written to. */
 async function saveToken(token: string): Promise<void> {
   authToken = token;
   const store = await loadStore(AUTH_STORE_PATH);
@@ -70,7 +71,8 @@ async function loadToken(): Promise<string | null> {
     const token = await store.get<string>(AUTH_TOKEN_KEY);
     authToken = token ?? null;
     return authToken;
-  } catch {
+  } catch (err) {
+    console.error("[loadToken] Could not read stored token:", err);
     return null;
   }
 }
@@ -81,8 +83,8 @@ async function clearStoredToken(): Promise<void> {
     const store = await loadStore(AUTH_STORE_PATH);
     await store.delete(AUTH_TOKEN_KEY);
     await store.save();
-  } catch {
-    // ignore — store may not exist yet
+  } catch (err) {
+    console.warn("[clearStoredToken] Could not clear stored token:", err);
   }
 }
 
@@ -132,7 +134,7 @@ async function checkAuthAndRoute(): Promise<void> {
       showView("auth");
       return;
     }
-    const me = await res.json();
+    const me = res.headers.get("content-type")?.includes("application/json") ? await res.json() : null;
     if (me?.activeCharacter) {
       startGame(me.activeCharacter.name);
     } else {
@@ -299,7 +301,8 @@ async function startGame(characterName?: string): Promise<void> {
   try {
     const res = await fetch(`${apiBase}/auth/ws-ticket`, authInit());
     if (res.ok) {
-      const { ticket } = await res.json();
+      const data = res.headers.get("content-type")?.includes("application/json") ? await res.json() : null;
+      const ticket = data?.ticket;
       if (characterName) {
         setWindowTitle(`MUDdown — ${characterName}`).catch((err) => console.error("[startGame] setWindowTitle failed:", err));
       }
@@ -392,6 +395,12 @@ loginPlayBtn.addEventListener("click", async () => {
 });
 
 let loginPollTimer: ReturnType<typeof setInterval> | null = null;
+let loginTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cancelLoginTimers(): void {
+  if (loginPollTimer) { clearInterval(loginPollTimer); loginPollTimer = null; }
+  if (loginTimeoutTimer) { clearTimeout(loginTimeoutTimer); loginTimeoutTimer = null; }
+}
 
 async function startOAuthLogin(provider: string): Promise<void> {
   const redirectUri = "muddown://auth/callback";
@@ -408,32 +417,39 @@ async function startOAuthLogin(provider: string): Promise<void> {
 
   // Poll the server for the completed login token (handles dev mode where
   // deep links don't work, and also acts as a reliable fallback in production).
-  if (loginPollTimer) clearInterval(loginPollTimer);
+  cancelLoginTimers();
   providerBtns.innerHTML = '<p class="text-dim">Waiting for authentication in browser…</p>';
 
   loginPollTimer = setInterval(async () => {
+    let res: Response;
     try {
-      const res = await fetch(`${apiBase}/auth/token-poll?nonce=${encodeURIComponent(loginNonce)}`);
+      res = await fetch(`${apiBase}/auth/token-poll?nonce=${encodeURIComponent(loginNonce)}`);
+    } catch {
+      // Network error — keep polling
+      return;
+    }
+    try {
       if (res.status === 200) {
         const data = await res.json();
         if (data.token) {
-          if (loginPollTimer) { clearInterval(loginPollTimer); loginPollTimer = null; }
+          cancelLoginTimers();
           await saveToken(data.token);
           providerBtns.style.display = "none";
           await checkAuthAndRoute();
         }
       }
       // 202 = still pending, keep polling
-    } catch {
-      // Network error — keep polling
+    } catch (err) {
+      console.error("[startOAuthLogin] Poll success handling failed:", err);
+      cancelLoginTimers();
+      providerBtns.innerHTML = '<p class="form-error">Login failed. Please try again.</p>';
     }
   }, 1500);
 
   // Stop polling after 5 minutes
-  setTimeout(() => {
+  loginTimeoutTimer = setTimeout(() => {
     if (loginPollTimer) {
-      clearInterval(loginPollTimer);
-      loginPollTimer = null;
+      cancelLoginTimers();
       providerBtns.innerHTML = '<p class="form-error">Login timed out. Please try again.</p>';
     }
   }, 5 * 60 * 1000);
@@ -459,8 +475,12 @@ onOpenUrl(async (urls: string[]) => {
       continue;
     }
 
-    await saveToken(token);
-    if (loginPollTimer) { clearInterval(loginPollTimer); loginPollTimer = null; }
+    try {
+      await saveToken(token);
+    } catch (err) {
+      console.error("[deep-link] Failed to persist token:", err);
+    }
+    cancelLoginTimers();
     providerBtns.style.display = "none";
     await checkAuthAndRoute();
     return;
@@ -880,7 +900,7 @@ listen<string>("menu-action", (event) => {
     case "logout":
       conn?.dispose();
       conn = null;
-      if (loginPollTimer) { clearInterval(loginPollTimer); loginPollTimer = null; }
+      cancelLoginTimers();
       clearStoredToken().catch((err) => console.error("[logout] Failed to clear token:", err));
       showView("auth");
       providerBtns.style.display = "";

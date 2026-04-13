@@ -9,7 +9,7 @@ import type { GameDatabase, AuthSession } from "../src/db/types.js";
 import {
   extractSessionToken, extractBearerToken, resolveSession, resolveTicket, CHARACTER_NAME_RE, _insertTicket,
   handleAuthRoute, exchangeCodeForToken, fetchProviderUser, findOrCreateAccount,
-  _insertCompletedLogin,
+  _insertCompletedLogin, setCorsHeaders, handleCorsPreflightIfNeeded,
 } from "../src/auth.js";
 import type { OAuthConfig } from "../src/auth.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -1883,5 +1883,87 @@ describe("handleAuthRoute — /auth/token-poll", () => {
     await handleAuthRoute(pollReq(nonce, "10.0.0.1"), res, dummyConfig, db);
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ token: "ip-match-token" });
+  });
+
+  it("does not consume the nonce when IP mismatches (available for correct IP later)", async () => {
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "preserved-token", "10.0.0.1");
+
+    // Wrong IP → 403 but nonce still exists
+    const bad = mockRes();
+    await handleAuthRoute(pollReq(nonce, "192.168.1.99"), bad, dummyConfig, db);
+    expect(bad.statusCode).toBe(403);
+
+    // Correct IP → should still succeed
+    const good = mockRes();
+    await handleAuthRoute(pollReq(nonce, "10.0.0.1"), good, dummyConfig, db);
+    expect(good.statusCode).toBe(200);
+    expect(JSON.parse(good.body)).toEqual({ token: "preserved-token" });
+  });
+});
+
+// ─── /auth/login — login_nonce validation ────────────────────────────────────
+
+describe("handleAuthRoute — /auth/login login_nonce validation", () => {
+  const config: OAuthConfig = {
+    github: { clientId: "gh-id", clientSecret: "gh-secret", callbackUrl: "http://localhost:3300/auth/callback" },
+  };
+
+  function loginReqWithNonce(nonce: string): IncomingMessage {
+    return {
+      method: "GET",
+      url: `/auth/login?provider=github&login_nonce=${encodeURIComponent(nonce)}`,
+      headers: { host: "localhost:3300" },
+      socket: { remoteAddress: "127.0.0.1" },
+    } as unknown as IncomingMessage;
+  }
+
+  it("returns 400 for a non-UUID login_nonce", async () => {
+    const res = mockRes();
+    await handleAuthRoute(loginReqWithNonce("not-a-uuid"), res, config, db);
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("Invalid login_nonce");
+  });
+
+  it("accepts a valid UUID login_nonce", async () => {
+    const res = mockRes();
+    await handleAuthRoute(loginReqWithNonce(randomUUID()), res, config, db);
+    expect(res.statusCode).toBe(302);
+  });
+});
+
+// ─── CORS origin tests ──────────────────────────────────────────────────────
+
+describe("setCorsHeaders / handleCorsPreflightIfNeeded", () => {
+  it("sets CORS headers for an allowed origin", () => {
+    const req = { headers: { origin: "tauri://localhost" } } as unknown as IncomingMessage;
+    const res = mockRes();
+    setCorsHeaders(req, res);
+    expect(res._headers["access-control-allow-origin"]).toBe("tauri://localhost");
+    expect(res._headers["vary"]).toBe("Origin");
+  });
+
+  it("does not set CORS headers for a disallowed origin", () => {
+    const req = { headers: { origin: "https://evil.example.com" } } as unknown as IncomingMessage;
+    const res = mockRes();
+    setCorsHeaders(req, res);
+    expect(res._headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("handleCorsPreflightIfNeeded returns true and ends 204 for OPTIONS", () => {
+    const req = { method: "OPTIONS", headers: { origin: "tauri://localhost" } } as unknown as IncomingMessage;
+    const res = mockRes();
+    const handled = handleCorsPreflightIfNeeded(req, res);
+    expect(handled).toBe(true);
+    expect(res.statusCode).toBe(204);
+    expect(res._headers["access-control-allow-origin"]).toBe("tauri://localhost");
+  });
+
+  it("handleCorsPreflightIfNeeded returns false for non-OPTIONS", () => {
+    const req = { method: "GET", headers: { origin: "tauri://localhost" } } as unknown as IncomingMessage;
+    const res = mockRes();
+    const handled = handleCorsPreflightIfNeeded(req, res);
+    expect(handled).toBe(false);
+    expect(res.statusCode).toBe(0);
   });
 });

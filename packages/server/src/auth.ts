@@ -4,6 +4,17 @@ import type { AccountRecord, CharacterRecord, OAuthProvider } from "@muddown/sha
 import { CHARACTER_CLASSES, CLASS_STATS, isCharacterClass, isOAuthProvider } from "@muddown/shared";
 import type { GameDatabase, AuthSession } from "./db/types.js";
 
+// ─── HTML Escaping ───────────────────────────────────────────────────────────
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 // ─── Exhaustiveness Guard ────────────────────────────────────────────────────
 
 function assertNever(x: never, context: string): never {
@@ -55,8 +66,24 @@ function secureCookieSuffix(config: OAuthConfig): string {
 
 const pendingOAuth = new Map<string, { provider: OAuthProvider; createdAt: number; mobileRedirect?: string; loginNonce?: string; loginOriginIp?: string }>();
 
-// Completed native-app logins: loginNonce → sessionToken (short-lived, polled by desktop/mobile)
-// originIp binds the poll to the IP that initiated the login (prevents remote token theft).
+/**
+ * Native-app login security model:
+ *
+ * 1. The native client generates a random UUID (`loginNonce`) and passes it as
+ *    a query parameter when opening the browser for OAuth. The nonce must be
+ *    kept secret by the app — anyone who knows it can poll for the token.
+ * 2. After a successful OAuth callback the server stores the session token here
+ *    keyed by `loginNonce`, along with a `createdAt` timestamp and the
+ *    `originIp` of the request that initiated the login flow.
+ * 3. The native app polls `GET /auth/token-poll?nonce=<nonce>`. The server
+ *    verifies the poller's IP matches `originIp` (binding retrieval to the
+ *    initiating machine) and returns the token exactly once (one-time retrieval).
+ * 4. Entries expire after a 10-minute TTL via the cleanup interval below.
+ *
+ * Protections: nonce secrecy (client-generated UUID), IP binding, one-time
+ * retrieval, and short TTL. The client is responsible for generating, storing,
+ * and never leaking the nonce.
+ */
 const completedLogins = new Map<string, { token: string; createdAt: number; originIp?: string }>();
 
 setInterval(() => {
@@ -107,7 +134,9 @@ const ALLOWED_ORIGINS: Set<string> = new Set(
 ALLOWED_ORIGINS.add(process.env.WEBSITE_ORIGIN ?? "http://localhost:4321");
 ALLOWED_ORIGINS.add("tauri://localhost");        // macOS production
 ALLOWED_ORIGINS.add("https://tauri.localhost");  // Windows/Linux production
-ALLOWED_ORIGINS.add("http://localhost:1420");    // Tauri dev (Vite)
+if (process.env.NODE_ENV !== "production") {
+  ALLOWED_ORIGINS.add("http://localhost:1420");  // Tauri dev (Vite)
+}
 
 export function setCorsHeaders(req: IncomingMessage, res: ServerResponse): void {
   const origin = req.headers.origin;
@@ -226,6 +255,7 @@ function handleTokenPoll(url: URL, req: IncomingMessage, res: ServerResponse): v
   }
   // One-time retrieval — delete after successful poll
   completedLogins.delete(nonce);
+  console.log(`[auth:token_retrieved] nonce=${nonce} pollerIp=${req.socket.remoteAddress ?? "unknown"} originIp=${entry.originIp ?? "none"} at=${new Date().toISOString()}`);
   sendJson(res, 200, { token: entry.token });
 }
 
@@ -274,6 +304,11 @@ function handleLogin(url: URL, req: IncomingMessage, res: ServerResponse, config
     }
   }
   const loginNonce = url.searchParams.get("login_nonce") ?? undefined;
+  if (loginNonce && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(loginNonce)) {
+    res.writeHead(400, { "Content-Type": "text/plain" });
+    res.end("Invalid login_nonce format.");
+    return;
+  }
   const loginOriginIp = loginNonce ? (req.socket.remoteAddress ?? undefined) : undefined;
   pendingOAuth.set(state, { provider, createdAt: Date.now(), mobileRedirect, loginNonce, loginOriginIp });
 
@@ -401,6 +436,7 @@ async function handleCallback(
     // Store completed login for polling (desktop/mobile apps poll /auth/token-poll)
     if (pending.loginNonce) {
       completedLogins.set(pending.loginNonce, { token: sessionToken, createdAt: Date.now(), originIp: pending.loginOriginIp });
+      console.log(`[handleCallback] Stored completed login for nonce ${pending.loginNonce}`);
     }
 
     // Native app clients pass a redirect_uri with a custom scheme (e.g. muddown://auth).
@@ -430,7 +466,7 @@ async function handleCallback(
   <h1>Authentication Successful</h1>
   <p>Returning you to MUDdown…</p>
   <p class="dim">If the app doesn't open automatically,
-     <a id="link" href="${deepLink.replace(/"/g, "&quot;")}">click here</a>.</p>
+     <a id="link" href="${escapeHtml(deepLink)}">click here</a>.</p>
 </div>
 <script>setTimeout(function(){window.location.href=${JSON.stringify(deepLink)};},300);</script>
 </body></html>`);
