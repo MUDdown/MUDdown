@@ -114,7 +114,7 @@ jobs:
         if: matrix.platform != 'windows-latest'
         run: |
           if [ "${{ matrix.platform }}" = "ubuntu-22.04" ]; then
-            sudo apt-get install -y minisign
+            cargo install minisign
           else
             brew install minisign
           fi

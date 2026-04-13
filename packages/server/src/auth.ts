@@ -80,9 +80,11 @@ const pendingOAuth = new Map<string, { provider: OAuthProvider; createdAt: numbe
  *    initiating machine) and returns the token exactly once (one-time retrieval).
  * 4. Entries expire after a 10-minute TTL via the cleanup interval below.
  *
- * Protections: nonce secrecy (client-generated UUID), IP binding, one-time
- * retrieval, and short TTL. The client is responsible for generating, storing,
- * and never leaking the nonce.
+ * Protections: nonce secrecy (client-generated UUID), IP binding (via
+ * `X-Forwarded-For` / `X-Real-IP` when behind a reverse proxy, falling back
+ * to `req.socket.remoteAddress` for direct connections), one-time retrieval,
+ * and short TTL. The client is responsible for generating, storing, and never
+ * leaking the nonce.
  */
 const completedLogins = new Map<string, { token: string; createdAt: number; originIp?: string }>();
 
@@ -159,6 +161,25 @@ export function handleCorsPreflightIfNeeded(req: IncomingMessage, res: ServerRes
     return true;
   }
   return false;
+}
+
+/**
+ * Resolve the client's IP address, preferring proxy headers over the raw socket.
+ * Trusts `X-Forwarded-For` (first entry) and `X-Real-IP` because the production
+ * nginx config (`deploy/nginx/muddown-proxy.conf`) sets both.
+ */
+function getClientIp(req: IncomingMessage): string | undefined {
+  const xff = req.headers["x-forwarded-for"];
+  if (xff) {
+    const first = (Array.isArray(xff) ? xff[0] : xff).split(",")[0].trim();
+    if (first) return first;
+  }
+  const xri = req.headers["x-real-ip"];
+  if (xri) {
+    const val = Array.isArray(xri) ? xri[0] : xri;
+    if (val) return val.trim();
+  }
+  return req.socket.remoteAddress ?? undefined;
 }
 
 // ─── Route Handler ───────────────────────────────────────────────────────────
@@ -249,13 +270,13 @@ function handleTokenPoll(url: URL, req: IncomingMessage, res: ServerResponse): v
   }
   // Verify the poller's IP matches the IP that initiated the login.
   // This prevents a remote attacker from polling for a victim's token.
-  if (entry.originIp && req.socket.remoteAddress !== entry.originIp) {
+  if (entry.originIp && getClientIp(req) !== entry.originIp) {
     sendJson(res, 403, { error: "Forbidden." });
     return;
   }
   // One-time retrieval — delete after successful poll
   completedLogins.delete(nonce);
-  console.log(`[auth:token_retrieved] nonce=${nonce} pollerIp=${req.socket.remoteAddress ?? "unknown"} originIp=${entry.originIp ?? "none"} at=${new Date().toISOString()}`);
+  console.log(`[auth:token_retrieved] nonce=${nonce} pollerIp=${getClientIp(req) ?? "unknown"} originIp=${entry.originIp ?? "none"} at=${new Date().toISOString()}`);
   sendJson(res, 200, { token: entry.token });
 }
 
@@ -309,7 +330,7 @@ function handleLogin(url: URL, req: IncomingMessage, res: ServerResponse, config
     res.end("Invalid login_nonce format.");
     return;
   }
-  const loginOriginIp = loginNonce ? (req.socket.remoteAddress ?? undefined) : undefined;
+  const loginOriginIp = loginNonce ? (getClientIp(req) ?? undefined) : undefined;
   pendingOAuth.set(state, { provider, createdAt: Date.now(), mobileRedirect, loginNonce, loginOriginIp });
 
   const authorizeUrl = buildAuthorizeUrl(provider, providerCfg, state);
@@ -449,7 +470,7 @@ async function handleCallback(
         const appUrl = new URL(pending.mobileRedirect);
         appUrl.searchParams.set("token", sessionToken);
         const deepLink = appUrl.toString();
-        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
         res.end(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MUDdown — Authenticated</title>

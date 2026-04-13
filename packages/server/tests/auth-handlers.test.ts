@@ -1900,6 +1900,26 @@ describe("handleAuthRoute — /auth/token-poll", () => {
     expect(good.statusCode).toBe(200);
     expect(JSON.parse(good.body)).toEqual({ token: "preserved-token" });
   });
+
+  it("uses X-Forwarded-For header for IP matching (proxy support)", async () => {
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "proxy-token", "203.0.113.50");
+
+    function pollReqWithProxy(nonce: string, xff: string): IncomingMessage {
+      return {
+        method: "GET",
+        url: `/auth/token-poll?nonce=${encodeURIComponent(nonce)}`,
+        headers: { host: "localhost:3300", "x-forwarded-for": xff },
+        socket: { remoteAddress: "127.0.0.1" },
+      } as unknown as IncomingMessage;
+    }
+
+    // Socket says 127.0.0.1 (proxy) but XFF says the real client IP
+    const res = mockRes();
+    await handleAuthRoute(pollReqWithProxy(nonce, "203.0.113.50"), res, dummyConfig, db);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ token: "proxy-token" });
+  });
 });
 
 // ─── /auth/login — login_nonce validation ────────────────────────────────────
