@@ -53,10 +53,11 @@ function secureCookieSuffix(config: OAuthConfig): string {
 
 // ─── OAuth State (CSRF protection) ──────────────────────────────────────────
 
-const pendingOAuth = new Map<string, { provider: OAuthProvider; createdAt: number; mobileRedirect?: string; loginNonce?: string }>();
+const pendingOAuth = new Map<string, { provider: OAuthProvider; createdAt: number; mobileRedirect?: string; loginNonce?: string; loginOriginIp?: string }>();
 
 // Completed native-app logins: loginNonce → sessionToken (short-lived, polled by desktop/mobile)
-const completedLogins = new Map<string, { token: string; createdAt: number }>();
+// originIp binds the poll to the IP that initiated the login (prevents remote token theft).
+const completedLogins = new Map<string, { token: string; createdAt: number; originIp?: string }>();
 
 setInterval(() => {
   const cutoff = Date.now() - 10 * 60 * 1000;
@@ -92,6 +93,11 @@ export function _insertTicket(ticket: string, characterId: string, expiresAt: nu
   wsTickets.set(ticket, { characterId, expiresAt });
 }
 
+/** @internal — exposed for unit tests only */
+export function _insertCompletedLogin(nonce: string, token: string, originIp?: string): void {
+  completedLogins.set(nonce, { token, createdAt: Date.now(), originIp });
+}
+
 // ─── CORS ────────────────────────────────────────────────────────────────────
 
 const ALLOWED_ORIGINS: Set<string> = new Set(
@@ -107,6 +113,7 @@ export function setCorsHeaders(req: IncomingMessage, res: ServerResponse): void 
   const origin = req.headers.origin;
   if (origin && ALLOWED_ORIGINS.has(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -151,7 +158,7 @@ export async function handleAuthRoute(
   }
 
   if (url.pathname === "/auth/login" && req.method === "GET") {
-    handleLogin(url, res, config);
+    handleLogin(url, req, res, config);
     return true;
   }
 
@@ -191,7 +198,7 @@ export async function handleAuthRoute(
   }
 
   if (url.pathname === "/auth/token-poll" && req.method === "GET") {
-    handleTokenPoll(url, res);
+    handleTokenPoll(url, req, res);
     return true;
   }
 
@@ -200,7 +207,7 @@ export async function handleAuthRoute(
 
 // ─── /auth/token-poll → poll for completed native-app login ─────────────────
 
-function handleTokenPoll(url: URL, res: ServerResponse): void {
+function handleTokenPoll(url: URL, req: IncomingMessage, res: ServerResponse): void {
   const nonce = url.searchParams.get("nonce");
   if (!nonce) {
     sendJson(res, 400, { error: "Missing nonce parameter." });
@@ -209,6 +216,12 @@ function handleTokenPoll(url: URL, res: ServerResponse): void {
   const entry = completedLogins.get(nonce);
   if (!entry) {
     sendJson(res, 202, { status: "pending" });
+    return;
+  }
+  // Verify the poller's IP matches the IP that initiated the login.
+  // This prevents a remote attacker from polling for a victim's token.
+  if (entry.originIp && req.socket.remoteAddress !== entry.originIp) {
+    sendJson(res, 403, { error: "Forbidden." });
     return;
   }
   // One-time retrieval — delete after successful poll
@@ -227,7 +240,7 @@ function handleProviders(res: ServerResponse, config: OAuthConfig): void {
 
 // ─── /auth/login → redirect to OAuth provider ───────────────────────────────
 
-function handleLogin(url: URL, res: ServerResponse, config: OAuthConfig): void {
+function handleLogin(url: URL, req: IncomingMessage, res: ServerResponse, config: OAuthConfig): void {
   const providerParam = url.searchParams.get("provider") ?? "github";
 
   if (!isOAuthProvider(providerParam)) {
@@ -261,7 +274,8 @@ function handleLogin(url: URL, res: ServerResponse, config: OAuthConfig): void {
     }
   }
   const loginNonce = url.searchParams.get("login_nonce") ?? undefined;
-  pendingOAuth.set(state, { provider, createdAt: Date.now(), mobileRedirect, loginNonce });
+  const loginOriginIp = loginNonce ? (req.socket.remoteAddress ?? undefined) : undefined;
+  pendingOAuth.set(state, { provider, createdAt: Date.now(), mobileRedirect, loginNonce, loginOriginIp });
 
   const authorizeUrl = buildAuthorizeUrl(provider, providerCfg, state);
   res.writeHead(302, { Location: authorizeUrl });
@@ -386,7 +400,7 @@ async function handleCallback(
 
     // Store completed login for polling (desktop/mobile apps poll /auth/token-poll)
     if (pending.loginNonce) {
-      completedLogins.set(pending.loginNonce, { token: sessionToken, createdAt: Date.now() });
+      completedLogins.set(pending.loginNonce, { token: sessionToken, createdAt: Date.now(), originIp: pending.loginOriginIp });
     }
 
     // Native app clients pass a redirect_uri with a custom scheme (e.g. muddown://auth).
@@ -418,7 +432,7 @@ async function handleCallback(
   <p class="dim">If the app doesn't open automatically,
      <a id="link" href="${deepLink.replace(/"/g, "&quot;")}">click here</a>.</p>
 </div>
-<script>setTimeout(function(){window.location.href="${deepLink.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}";},300);</script>
+<script>setTimeout(function(){window.location.href=${JSON.stringify(deepLink)};},300);</script>
 </body></html>`);
       } catch (urlErr) {
         console.warn(`Malformed app redirect_uri: ${pending.mobileRedirect}`, urlErr);

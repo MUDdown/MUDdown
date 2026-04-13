@@ -127,7 +127,11 @@ function showView(view: "auth" | "character" | "game"): void {
 async function checkAuthAndRoute(): Promise<void> {
   try {
     const res = await fetch(`${apiBase}/auth/me`, authInit());
-    if (!res.ok) { showView("auth"); return; }
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) await clearStoredToken();
+      showView("auth");
+      return;
+    }
     const me = await res.json();
     if (me?.activeCharacter) {
       startGame(me.activeCharacter.name);
@@ -447,7 +451,7 @@ onOpenUrl(async (urls: string[]) => {
     }
 
     // Only handle muddown://auth/callback
-    if (url.protocol !== "muddown:" || !url.pathname.startsWith("//auth/callback")) continue;
+    if (url.protocol !== "muddown:" || url.hostname !== "auth" || url.pathname !== "/callback") continue;
 
     const token = url.searchParams.get("token");
     if (!token) {
@@ -876,9 +880,10 @@ listen<string>("menu-action", (event) => {
     case "logout":
       conn?.dispose();
       conn = null;
+      if (loginPollTimer) { clearInterval(loginPollTimer); loginPollTimer = null; }
       clearStoredToken().catch((err) => console.error("[logout] Failed to clear token:", err));
       showView("auth");
-      providerBtns.style.display = "none";
+      providerBtns.style.display = "";
       setWindowTitle("MUDdown").catch((err) => console.error("[logout] setWindowTitle failed:", err));
       setTrayTooltip("MUDdown — Disconnected").catch((err) => console.warn("[logout] tooltip failed:", err));
       break;
@@ -935,7 +940,7 @@ async function checkForUpdates(): Promise<void> {
         if (total) {
           const pct = Math.round((received / total) * 100);
           if (pct >= lastPct + 25) {
-            lastPct = pct;
+            lastPct = Math.floor(pct / 25) * 25;
             appendMessage(`*Downloading update… ${pct}%*`, "system");
           }
         }

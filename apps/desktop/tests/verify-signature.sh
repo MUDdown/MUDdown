@@ -34,8 +34,10 @@ if ! command -v minisign &> /dev/null; then
 fi
 
 # Write public key to a temp file for minisign -Vm
+# TAURI_PUBKEY from tauri.conf.json is base64-encoded; minisign expects the
+# decoded text (two lines: untrusted comment + base64 public key).
 PUBKEY_FILE=$(mktemp)
-echo "$TAURI_PUBKEY" > "$PUBKEY_FILE"
+echo "$TAURI_PUBKEY" | base64 -d > "$PUBKEY_FILE"
 trap 'rm -f "$PUBKEY_FILE"' EXIT
 
 PASSED=0

@@ -9,6 +9,7 @@ import type { GameDatabase, AuthSession } from "../src/db/types.js";
 import {
   extractSessionToken, extractBearerToken, resolveSession, resolveTicket, CHARACTER_NAME_RE, _insertTicket,
   handleAuthRoute, exchangeCodeForToken, fetchProviderUser, findOrCreateAccount,
+  _insertCompletedLogin,
 } from "../src/auth.js";
 import type { OAuthConfig } from "../src/auth.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -952,6 +953,7 @@ describe("handleAuthRoute — /auth/callback", () => {
       method: "GET",
       url: "/auth/login?provider=github&redirect_uri=muddown%3A%2F%2Fauth",
       headers: { host: "localhost:3300" },
+      socket: { remoteAddress: "127.0.0.1" },
     } as unknown as IncomingMessage;
     const loginRes = mockRes();
     await handleAuthRoute(loginReq, loginRes, config, db);
@@ -975,13 +977,16 @@ describe("handleAuthRoute — /auth/callback", () => {
     const res = mockRes();
     await handleAuthRoute(req, res, config, db);
 
-    expect(res.statusCode).toBe(302);
-    const redirectLocation = res._headers["location"];
-    expect(redirectLocation).toMatch(/^muddown:\/\/auth\?token=/);
+    // Mobile redirect now returns an HTML relay page (200) instead of a raw 302,
+    // because browsers don't reliably follow 302s to custom URL schemes.
+    expect(res.statusCode).toBe(200);
+    expect(res._headers["content-type"]).toBe("text/html; charset=utf-8");
+    expect(res.body).toContain("Authentication Successful");
+    expect(res.body).toContain("muddown://auth?token=");
     // No cookie should be set for mobile redirects
     expect(res._headers["set-cookie"]).toBeUndefined();
-    // The token in the redirect URL should resolve to a valid session
-    const tokenMatch = redirectLocation.match(/token=([^&]+)/);
+    // Extract the token from the relay page deep link
+    const tokenMatch = res.body.match(/muddown:\/\/auth\?token=([^"&]+)/);
     expect(tokenMatch).toBeTruthy();
     const session = db.getSession(tokenMatch![1]);
     expect(session).toBeDefined();
@@ -1802,5 +1807,81 @@ describe("extractBearerToken — edge cases", () => {
 
   it("returns undefined for empty string authorization", () => {
     expect(extractBearerToken(fakeReq(""))).toBeUndefined();
+  });
+});
+
+// ─── /auth/token-poll ────────────────────────────────────────────────────────
+
+describe("handleAuthRoute — /auth/token-poll", () => {
+  const dummyConfig: OAuthConfig = {
+    github: { clientId: "test", clientSecret: "test", callbackUrl: "http://localhost:3300/auth/callback" },
+  };
+
+  function pollReq(nonce?: string, ip = "127.0.0.1"): IncomingMessage {
+    const qs = nonce ? `?nonce=${encodeURIComponent(nonce)}` : "";
+    return {
+      method: "GET",
+      url: `/auth/token-poll${qs}`,
+      headers: { host: "localhost:3300" },
+      socket: { remoteAddress: ip },
+    } as unknown as IncomingMessage;
+  }
+
+  it("returns 400 when nonce is missing", async () => {
+    const res = mockRes();
+    await handleAuthRoute(pollReq(), res, dummyConfig, db);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: "Missing nonce parameter." });
+  });
+
+  it("returns 202 when nonce is unknown (pending)", async () => {
+    const res = mockRes();
+    await handleAuthRoute(pollReq("nonexistent-nonce"), res, dummyConfig, db);
+    expect(res.statusCode).toBe(202);
+    expect(JSON.parse(res.body)).toEqual({ status: "pending" });
+  });
+
+  it("returns 200 with token for a completed login", async () => {
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "session-token-abc");
+
+    const res = mockRes();
+    await handleAuthRoute(pollReq(nonce), res, dummyConfig, db);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ token: "session-token-abc" });
+  });
+
+  it("deletes token after first successful poll (one-time retrieval)", async () => {
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "one-time-token");
+
+    const res1 = mockRes();
+    await handleAuthRoute(pollReq(nonce), res1, dummyConfig, db);
+    expect(res1.statusCode).toBe(200);
+
+    // Second poll should return 202 (deleted)
+    const res2 = mockRes();
+    await handleAuthRoute(pollReq(nonce), res2, dummyConfig, db);
+    expect(res2.statusCode).toBe(202);
+  });
+
+  it("returns 403 when poller IP does not match origin IP", async () => {
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "ip-bound-token", "10.0.0.1");
+
+    const res = mockRes();
+    await handleAuthRoute(pollReq(nonce, "192.168.1.99"), res, dummyConfig, db);
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)).toEqual({ error: "Forbidden." });
+  });
+
+  it("returns 200 when poller IP matches origin IP", async () => {
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "ip-match-token", "10.0.0.1");
+
+    const res = mockRes();
+    await handleAuthRoute(pollReq(nonce, "10.0.0.1"), res, dummyConfig, db);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ token: "ip-match-token" });
   });
 });
