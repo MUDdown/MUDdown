@@ -114,7 +114,8 @@ jobs:
         if: matrix.platform != 'windows-latest'
         run: |
           if [ "${{ matrix.platform }}" = "ubuntu-22.04" ]; then
-            cargo install minisign
+            curl -sSL "https://github.com/jedisct1/minisign/releases/download/0.12/minisign-0.12-linux.tar.gz" | tar xz
+            sudo install -m 755 minisign-linux/x86_64/minisign /usr/local/bin/minisign
           else
             brew install minisign
           fi
