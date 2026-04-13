@@ -457,7 +457,7 @@ async function handleCallback(
     // Store completed login for polling (desktop/mobile apps poll /auth/token-poll)
     if (pending.loginNonce) {
       completedLogins.set(pending.loginNonce, { token: sessionToken, createdAt: Date.now(), originIp: pending.loginOriginIp });
-      console.log(`[handleCallback] Stored completed login for nonce ${pending.loginNonce}`);
+      console.log(`[handleCallback] Stored completed login for nonce ${pending.loginNonce.slice(0, 8)}… at=${new Date().toISOString()}`);
     }
 
     // Native app clients pass a redirect_uri with a custom scheme (e.g. muddown://auth).
