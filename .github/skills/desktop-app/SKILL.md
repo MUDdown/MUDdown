@@ -210,12 +210,34 @@ The GitHub Actions workflow lives at `.github/workflows/desktop-build.yml`.
 |--------|----------|---------|
 | `TAURI_SIGNING_PRIVATE_KEY` | All | Ed25519 key for update signing |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | All | Optional password for the signing key |
-| `APPLE_CERTIFICATE` | macOS | Apple Developer certificate (base64) |
-| `APPLE_CERTIFICATE_PASSWORD` | macOS | Certificate password |
-| `APPLE_SIGNING_IDENTITY` | macOS | Signing identity string |
-| `APPLE_ID` | macOS | Apple ID email |
-| `APPLE_PASSWORD` | macOS | App-specific password |
-| `APPLE_TEAM_ID` | macOS | Apple team identifier |
+| `APPLE_CERTIFICATE` | macOS | Base64-encoded `.p12` Developer ID Application certificate |
+| `APPLE_CERTIFICATE_PASSWORD` | macOS | Password for the `.p12` file |
+| `APPLE_SIGNING_IDENTITY` | macOS | e.g. `Developer ID Application: Your Name (TEAMID)` |
+| `APPLE_ID` | macOS | Apple ID email for notarization submission |
+| `APPLE_PASSWORD` | macOS | App-specific password (not Apple ID password) |
+| `APPLE_TEAM_ID` | macOS | 10-character Apple Developer Team ID |
+
+## Apple Notarization (macOS)
+
+Apple notarization is required for macOS distribution outside the App Store. Without it, Gatekeeper blocks the app. When the Apple secrets above are configured, `tauri-apps/tauri-action` automatically handles code signing, notarization submission, and stapling.
+
+### Entitlements
+
+The entitlements plist at `src-tauri/Entitlements.plist` grants hardened-runtime permissions required by the WebView:
+- `com.apple.security.cs.allow-jit` — WebKit JIT
+- `com.apple.security.cs.allow-unsigned-executable-memory` — JavaScriptCore executable memory allocation (required alongside allow-jit under the hardened runtime)
+- `com.apple.security.network.client` — Outbound network (WebSocket, OAuth)
+
+### Bundle Configuration
+
+In `tauri.conf.json` → `bundle.macOS`:
+- `minimumSystemVersion`: `"10.13"` — macOS High Sierra minimum
+- `entitlements`: `"Entitlements.plist"` — path relative to `src-tauri/`
+- `dmg` — DMG window layout (app icon position, Applications folder shortcut)
+
+### CI Verification
+
+The CI pipeline verifies notarization via `xcrun stapler validate` on the `.dmg`. This step runs only on macOS runners and only when Apple secrets are configured. Full setup instructions are in `apps/desktop/UPDATER_KEYS.md`.
 
 ## Auto-Updater & Signature Verification
 

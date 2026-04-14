@@ -129,6 +129,23 @@ jobs:
           export TAURI_PUBKEY=$(jq -r '.plugins.updater.pubkey' apps/desktop/src-tauri/tauri.conf.json)
           bash apps/desktop/tests/verify-signature.sh ${{ matrix.target }}
 
+      - name: Verify notarization (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+        run: |
+          if [ -z "$APPLE_ID" ]; then
+            echo "APPLE_ID not configured — skipping notarization check"
+            exit 0
+          fi
+          DMG=$(find apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle -name "*.dmg" -print -quit)
+          if [ -n "$DMG" ]; then
+            echo "Verifying notarization staple on $DMG"
+            xcrun stapler validate "$DMG"
+          else
+            echo "No .dmg found — skipping notarization check"
+          fi
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

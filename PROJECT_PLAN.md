@@ -240,6 +240,16 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
     - [x] Validate update signatures against the public key in the auto-update handler (`tauri::updater` / JS `@tauri-apps/plugin-updater`) before applying any update
     - [x] Add integration test: upload a properly signed release and a forged (re-signed or tampered) release; verify the updater accepts the valid signature and rejects the invalid one
   - [ ] Apple notarization for macOS distribution
+    - [x] Entitlements.plist with hardened runtime permissions (JIT, network, plugin loading)
+    - [x] Tauri `bundle.macOS` config (minimum system version, entitlements, DMG layout)
+    - [x] CI notarization verification step (`xcrun stapler validate`)
+    - [x] UPDATER_KEYS.md expanded with full Apple notarization setup guide
+    - [ ] D-U-N-S number application submitted for StickMUD Entertainment LLC (pending approval)
+    - [ ] Apple Developer Program enrollment ($99/yr, requires D-U-N-S)
+    - [ ] Developer ID Application certificate generation
+    - [ ] App-specific password for notarization
+    - [ ] Configure 6 Apple CI secrets in GitHub Actions
+    - [ ] Verify minimum entitlements under hardened runtime (test removing `allow-unsigned-executable-memory`)
   - [ ] Windows Authenticode signing via SignPath (free open-source tier)
 - [ ] Terminal client (renders MUDdown as styled terminal output)
 - [ ] Telnet bridge (`packages/bridge`): legacy client support (plain telnet + TELNETS/TLS)
