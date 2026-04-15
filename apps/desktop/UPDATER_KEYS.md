@@ -120,10 +120,11 @@ When the macOS CI secrets are configured, `tauri-apps/tauri-action@v0` automatic
 4. Waits for approval (typically 1–5 minutes)
 5. Staples the notarization ticket to the `.dmg`
 
-The entitlements in `src-tauri/Entitlements.plist` grant the permissions required by the WebView:
+The entitlements in `src-tauri/Entitlements.plist` grant the hardened-runtime permissions required by the WebView:
 - `com.apple.security.cs.allow-jit` — WebKit JIT compilation
 - `com.apple.security.cs.allow-unsigned-executable-memory` — JavaScriptCore executable memory allocation (required alongside allow-jit under the hardened runtime)
-- `com.apple.security.network.client` — Outbound network (WebSocket, OAuth)
+
+> **Note:** `com.apple.security.network.client` is an App Sandbox entitlement, not a hardened-runtime entitlement. The hardened runtime does not restrict outbound network connections, so this entitlement is unnecessary for Developer ID distribution.
 
 ### Verifying Notarization Locally
 

@@ -226,7 +226,8 @@ Apple notarization is required for macOS distribution outside the App Store. Wit
 The entitlements plist at `src-tauri/Entitlements.plist` grants hardened-runtime permissions required by the WebView:
 - `com.apple.security.cs.allow-jit` — WebKit JIT
 - `com.apple.security.cs.allow-unsigned-executable-memory` — JavaScriptCore executable memory allocation (required alongside allow-jit under the hardened runtime)
-- `com.apple.security.network.client` — Outbound network (WebSocket, OAuth)
+
+> **Note:** `com.apple.security.network.client` is an App Sandbox entitlement, not a hardened-runtime entitlement. It is unnecessary for Developer ID distribution since the hardened runtime does not restrict outbound networking.
 
 ### Bundle Configuration
 

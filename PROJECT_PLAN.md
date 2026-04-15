@@ -240,7 +240,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
     - [x] Validate update signatures against the public key in the auto-update handler (`tauri::updater` / JS `@tauri-apps/plugin-updater`) before applying any update
     - [x] Add integration test: upload a properly signed release and a forged (re-signed or tampered) release; verify the updater accepts the valid signature and rejects the invalid one
   - [ ] Apple notarization for macOS distribution
-    - [x] Entitlements.plist with hardened runtime permissions (JIT, unsigned executable memory, network)
+    - [x] Entitlements.plist with hardened runtime permissions (JIT, unsigned executable memory)
     - [x] Tauri `bundle.macOS` config (minimum system version, entitlements, DMG layout)
     - [x] CI notarization verification step (`xcrun stapler validate`)
     - [x] UPDATER_KEYS.md expanded with full Apple notarization setup guide
