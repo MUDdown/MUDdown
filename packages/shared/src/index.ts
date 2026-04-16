@@ -1,3 +1,8 @@
+// ─── WebSocket Close Codes ───────────────────────────────────────────────────
+
+/** Close code sent by the server when a player explicitly quits. */
+export const WS_CLOSE_QUIT = 4001;
+
 // ─── Container Block Types ───────────────────────────────────────────────────
 
 export type BlockType =
@@ -63,7 +68,7 @@ export interface DialogueAttributes extends BlockAttributes {
 // ─── Parsed Block ────────────────────────────────────────────────────────────
 
 export interface MUDdownBlock {
-  type: BlockType | string; // string allows x- extensions
+  type: BlockType | (string & {}); // string & {} allows x- extensions while preserving autocomplete
   attributes: BlockAttributes;
   content: string; // raw Markdown inside the block
   sections: Record<string, string>; // H2 sections parsed out
@@ -72,23 +77,25 @@ export interface MUDdownBlock {
 
 // ─── Wire Protocol ───────────────────────────────────────────────────────────
 
+/** Wire-level inventory state sent in {@link ServerMessage}.meta.inventoryState. */
+export interface WireInventoryState {
+  items: Array<{ id: string; name: string; equippable: boolean; usable: boolean }>;
+  equipped: Record<EquipSlot, { id: string; name: string } | null>;
+}
+
 export interface ServerMessage {
   v: 1;
   id: string;
   type: "room" | "combat" | "dialogue" | "system" | "narrative";
   timestamp: string;
   muddown: string;
-  meta?: Record<string, unknown>;
+  meta?: { inventoryState?: WireInventoryState; [key: string]: unknown };
 }
 
-export interface ClientMessage {
-  v: 1;
-  id: string;
-  type: "command" | "input" | "ping";
-  timestamp: string;
-  command?: string;
-  args?: string[];
-}
+type CommandMessage = { v: 1; id: string; type: "command"; timestamp: string; command: string; args?: string[] };
+type InputMessage   = { v: 1; id: string; type: "input";   timestamp: string; command: string };
+type PingMessage    = { v: 1; id: string; type: "ping";    timestamp: string };
+export type ClientMessage = CommandMessage | InputMessage | PingMessage;
 
 export type WireMessage = ServerMessage | ClientMessage;
 

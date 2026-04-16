@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
-import { WebSocketServer, type WebSocket } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import type { ClientMessage, ServerMessage, EquipSlot, NpcDefinition, DialogueNode, CharacterRecord, CharacterClass } from "@muddown/shared";
-import { PLAYER_DEFAULTS, CLASS_STATS } from "@muddown/shared";
+import { PLAYER_DEFAULTS, CLASS_STATS, WS_CLOSE_QUIT } from "@muddown/shared";
 import { loadWorld, type WorldMap } from "./world.js";
 import {
   dirAliases, findItemByName, findNpcInRoom, findUnclaimedIndex,
@@ -439,13 +439,16 @@ Type commands or click links to explore. Try: \`look\`, \`go north\`, \`help\`
     let msg: ClientMessage;
     try {
       msg = JSON.parse(String(data));
-    } catch {
+    } catch (err) {
+      console.warn(`Invalid JSON from player ${session.name}:`, String(data).slice(0, 200), err);
       send(ws, systemMessage("Could not understand that command."));
       return;
     }
     handleCommand(ws, msg).catch((err) => {
-      const session = sessions.get(ws);
-      console.error(`Command error [player=${session?.id}] [command=${msg.command}]:`, err);
+      console.error(
+        `Command error [player=${session.name}] [characterId=${session.characterId ?? "guest"}] [command=${"command" in msg ? msg.command : "(ping)"}]:`,
+        err,
+      );
       send(ws, systemMessage("An internal error occurred."));
     });
   });
@@ -457,6 +460,12 @@ Type commands or click links to explore. Try: \`look\`, \`go north\`, \`help\`
     }
     sessions.delete(ws);
   });
+
+  ws.on("error", (err) => {
+    const s = sessions.get(ws);
+    console.warn(`WebSocket error [player=${s?.name ?? "unknown"}]:`, err.message);
+    // ws.on("close") fires immediately after and handles session cleanup
+  });
 });
 
 // ─── Command Handling ────────────────────────────────────────────────────────
@@ -465,7 +474,10 @@ async function handleCommand(ws: WebSocket, msg: ClientMessage): Promise<void> {
   const session = sessions.get(ws);
   if (!session) return;
 
-  const raw = (msg.command ?? "").trim().toLowerCase();
+  // Keepalive and input-only messages — no command to dispatch.
+  if (msg.type === "ping" || msg.type === "input") return;
+
+  const raw = ("command" in msg ? msg.command : "").trim().toLowerCase();
   const [verb, ...rest] = raw.split(/\s+/);
   const arg = rest.join(" ");
 
@@ -566,6 +578,17 @@ async function handleCommand(ws: WebSocket, msg: ClientMessage): Promise<void> {
     case "lore":
     case "ask": {
       await handleLore(ws, session, arg);
+      break;
+    }
+    case "quit":
+    case "exit": {
+      const saved = session.characterId ? saveCharacterSession(session) : false;
+      session.characterId = null; // prevent duplicate save in ws.on("close")
+      const farewell = saved
+        ? "Farewell, adventurer. Your progress has been saved."
+        : "Farewell, adventurer.";
+      send(ws, systemMessage(farewell));
+      ws.close(WS_CLOSE_QUIT, "quit");
       break;
     }
     default:
@@ -728,7 +751,7 @@ async function sendRoom(ws: WebSocket, roomId: string, session?: PlayerSession):
   // Replace or inject dynamic Items section using header-boundary slicing
   const itemsHeaderIdx = muddown.indexOf("\n## Items\n");
   if (itemLines.length > 0) {
-    const itemsBlock = "## Items\n\n" + itemLines.join("\n");
+    const itemsBlock = "## Items\n" + itemLines.join("\n");
     if (itemsHeaderIdx !== -1) {
       // Find the end of the Items section: next ## header or closing :::
       const afterHeader = itemsHeaderIdx + 1; // skip the leading \n
@@ -1835,9 +1858,13 @@ function broadcastToRoom(roomId: string, exclude: PlayerSession, message: string
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function send(ws: WebSocket, msg: ServerMessage): void {
-  if (ws.readyState === ws.OPEN) {
-    ws.send(JSON.stringify(msg));
+  if (ws.readyState !== WebSocket.OPEN) {
+    console.debug(`send: socket not open (readyState=${ws.readyState}), dropping type=${msg.type}`);
+    return;
   }
+  ws.send(JSON.stringify(msg), (err) => {
+    if (err) console.warn(`send: WebSocket send error:`, err.message);
+  });
 }
 
 function systemMessage(text: string): ServerMessage {
@@ -1852,8 +1879,8 @@ function systemMessage(text: string): ServerMessage {
 
 // ─── Persistence Helpers ─────────────────────────────────────────────────────
 
-function saveCharacterSession(session: PlayerSession): void {
-  if (!session.characterId) return;
+function saveCharacterSession(session: PlayerSession): boolean {
+  if (!session.characterId) return false;
   try {
     db.saveCharacterState(session.characterId, {
       currentRoom: session.currentRoom,
@@ -1863,11 +1890,13 @@ function saveCharacterSession(session: PlayerSession): void {
       maxHp: session.maxHp,
       xp: session.xp,
     });
+    return true;
   } catch (err) {
     console.error(
       `Failed to save character state [character=${session.characterId}] [name=${session.name}] [room=${session.currentRoom}] [inventory=${JSON.stringify(session.inventory)}]:`,
       err,
     );
+    return false;
   }
 }
 

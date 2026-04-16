@@ -244,20 +244,45 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
     - [x] Tauri `bundle.macOS` config (minimum system version, entitlements, DMG layout)
     - [x] CI notarization verification step (`xcrun stapler validate`)
     - [x] UPDATER_KEYS.md expanded with full Apple notarization setup guide
-    - [ ] D-U-N-S number application submitted for StickMUD Entertainment LLC (pending approval)
-    - [ ] Apple Developer Program enrollment ($99/yr, requires D-U-N-S)
+    - [x] D-U-N-S number assigned for StickMUD Entertainment LLC
+    - [ ] Apple Developer Program enrollment ($99/yr, requires D-U-N-S; single enrollment covers macOS and iOS)
     - [ ] Developer ID Application certificate generation
     - [ ] App-specific password for notarization
     - [ ] Configure 6 Apple CI secrets in GitHub Actions
     - [ ] Verify minimum entitlements under hardened runtime (test removing `allow-unsigned-executable-memory`)
   - [ ] Windows Authenticode signing via SignPath (free open-source tier)
-- [ ] Terminal client (renders MUDdown as styled terminal output)
+- [x] Terminal client (renders MUDdown as styled terminal output)
+  - [x] `TerminalTheme` interface in `packages/client` — maps block types to chalk style functions (glamour pattern); plain text = identity functions
+  - [x] Add `renderTerminal(muddown, options)` to `packages/client` — pure function returning styled string, never writes to stdout; shared by terminal client and telnet bridge
+  - [x] Default dark theme: room titles bold green, combat red, system yellow, dialogue cyan, bold/italic/code inline formatting
+  - [x] Width-aware word wrap (accepts column count, defaults to 80)
+  - [x] Game link rendering: OSC 8 hyperlinks for modern terminals, `TEXT (command)` fallback (gh-style), numbered shortcut mode
+  - [x] Plain text mode (`{ ansi: false }`) — theme with identity functions for basic telnet clients
+  - [x] Scaffold `apps/terminal` workspace, wire `client`/`shared` deps, add to Turborepo
+  - [x] Node `readline` input loop with `CommandHistory` integration (up/down arrows)
+  - [x] `MUDdownConnection` for WebSocket, auto-reconnect status in prompt
+  - [x] Auth support (`--token` CLI flag or interactive prompt)
+  - [x] `--server` flag for custom WebSocket URL (default `wss://muddown.com`)
+  - [x] `--link-mode` flag: `osc8` (default), `numbered`, `plain`
+  - [x] `--theme` flag for future custom theme support
+  - [x] Inventory and hint display using terminal renderer
+  - [x] Unit tests for terminal renderer (ANSI output assertions)
+  - [x] Interactive startup wizard: fetches games directory, numbered game picker, browser-based OAuth login with token-poll (no copy/paste), provider picker, ws-ticket exchange (bypassed if `--server`/`--token` flags are passed)
 - [ ] Telnet bridge (`packages/bridge`): legacy client support (plain telnet + TELNETS/TLS)
+- [ ] Homebrew tap (`MUDdown/homebrew-tap`): `brew install MUDdown/tap/muddown`
+  - [ ] Single-binary build (e.g., `pkg` or `bun compile`) — no Node.js runtime dependency for users
+    - [ ] Multi-architecture builds: separate Intel (`x86_64`) and Apple Silicon (`arm64`) binaries
+    - [ ] Universal binary (`lipo`) or per-arch bottles so `brew install` works natively on both
+  - [ ] Homebrew formula with versioned GitHub Release download and SHA256 verification
+  - [ ] CI automation: GitHub Actions updates formula on new release
+    - [ ] Run `brew audit --strict` and `brew test` in CI to catch formula regressions
+    - [ ] Automated bottle creation (via `brew bottle`) and upload to GitHub Releases on each tag
+  - [ ] Tap README with installation instructions, prerequisites, and troubleshooting (e.g., Gatekeeper, PATH issues)
 
 ### Phase 6 — Mobile App Store Submission
 - [ ] EAS Build setup (`eas.json` for development, preview, production profiles)
 - [ ] Final app icons, splash screen, and adaptive icon artwork
-- [ ] Apple Developer Program enrollment ($99/yr)
+- [ ] Apple Developer Program enrollment (same enrollment as Phase 5 macOS notarization)
 - [ ] Google Play Console enrollment ($25 one-time)
 - [ ] Content moderation system (chat filtering, report/block)
 - [ ] Offline / server-unreachable error states and graceful degradation

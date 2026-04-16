@@ -460,6 +460,30 @@ async function handleCallback(
       console.log(`[handleCallback] Stored completed login for nonce ${pending.loginNonce.slice(0, 8)}… at=${new Date().toISOString()}`);
     }
 
+    // Token-poll clients (terminal, desktop) — don't redirect to /play.
+    // The token is already stored in completedLogins; show a "close this tab" page.
+    if (pending.loginNonce && !pending.mobileRedirect) {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      res.end(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MUDdown — Authenticated</title>
+<style>
+  body{font-family:system-ui,sans-serif;background:#0f1923;color:#c8d6e5;display:flex;
+       align-items:center;justify-content:center;min-height:100vh;margin:0;text-align:center}
+  .card{max-width:420px;padding:2rem;border:1px solid #2a3a4a;border-radius:12px;background:#162029}
+  h1{color:#00d2ff;font-size:1.5rem;margin:0 0 1rem}
+  p{line-height:1.6;margin:0.5rem 0}
+  .dim{color:#6b8299;font-size:0.85rem}
+</style></head><body>
+<div class="card">
+  <h1>Authentication Successful</h1>
+  <p>You may close this tab and return to your terminal.</p>
+  <p class="dim">Your session has been sent to the MUDdown client.</p>
+</div>
+</body></html>`);
+      return;
+    }
+
     // Native app clients pass a redirect_uri with a custom scheme (e.g. muddown://auth).
     // Redirect back to the app with the session token as a query parameter so
     // the app can store it and use Bearer auth for subsequent API calls.
@@ -877,65 +901,75 @@ export function findOrCreateAccount(db: GameDatabase, user: ProviderUser): Accou
 // ─── /auth/me → return account info + active character ───────────────────────
 
 function handleMe(req: IncomingMessage, res: ServerResponse, db: GameDatabase): void {
-  const session = resolveSession(req, db);
-  if (!session) {
-    sendJson(res, 401, { error: "Not authenticated" });
-    return;
-  }
-
-  const account = db.getAccountById(session.accountId);
-  if (!account) {
-    console.error(
-      `handleMe: session references missing account — possible data corruption`,
-      { accountId: session.accountId }
-    );
-    sendJson(res, 401, { error: "Account not found" });
-    return;
-  }
-
-  let activeCharacter: { id: string; name: string; characterClass: string } | null = null;
-  if (session.activeCharacterId) {
-    const char = db.getCharacterById(session.activeCharacterId);
-    if (char && char.accountId === account.id) {
-      activeCharacter = { id: char.id, name: char.name, characterClass: char.characterClass };
-    } else {
-      console.warn(
-        `handleMe: activeCharacterId "${session.activeCharacterId}" is stale ` +
-        `(${char ? "wrong account" : "not found"}) — clearing from session`,
-        { accountId: account.id }
-      );
-      db.updateSessionCharacter(session.token, null);
+  try {
+    const session = resolveSession(req, db);
+    if (!session) {
+      sendJson(res, 401, { error: "Not authenticated" });
+      return;
     }
-  }
 
-  sendJson(res, 200, {
-    id: account.id,
-    displayName: account.displayName,
-    activeCharacter,
-  });
+    const account = db.getAccountById(session.accountId);
+    if (!account) {
+      console.error(
+        `handleMe: session references missing account — possible data corruption`,
+        { accountId: session.accountId }
+      );
+      sendJson(res, 401, { error: "Account not found" });
+      return;
+    }
+
+    let activeCharacter: { id: string; name: string; characterClass: string } | null = null;
+    if (session.activeCharacterId) {
+      const char = db.getCharacterById(session.activeCharacterId);
+      if (char && char.accountId === account.id) {
+        activeCharacter = { id: char.id, name: char.name, characterClass: char.characterClass };
+      } else {
+        console.warn(
+          `handleMe: activeCharacterId "${session.activeCharacterId}" is stale ` +
+          `(${char ? "wrong account" : "not found"}) — clearing from session`,
+          { accountId: account.id }
+        );
+        db.updateSessionCharacter(session.token, null);
+      }
+    }
+
+    sendJson(res, 200, {
+      id: account.id,
+      displayName: account.displayName,
+      activeCharacter,
+    });
+  } catch (err) {
+    console.error("handleMe: database error:", err);
+    sendJson(res, 500, { error: "Failed to load account information. Please try again." });
+  }
 }
 
 // ─── /auth/characters → list characters for account ──────────────────────────
 
 function handleListCharacters(req: IncomingMessage, res: ServerResponse, db: GameDatabase): void {
-  const session = resolveSession(req, db);
-  if (!session) {
-    sendJson(res, 401, { error: "Not authenticated" });
-    return;
-  }
+  try {
+    const session = resolveSession(req, db);
+    if (!session) {
+      sendJson(res, 401, { error: "Not authenticated" });
+      return;
+    }
 
-  const characters = db.getCharactersByAccount(session.accountId);
-  sendJson(res, 200, {
-    characters: characters.map(c => ({
-      id: c.id,
-      name: c.name,
-      characterClass: c.characterClass,
-      hp: c.hp,
-      maxHp: c.maxHp,
-      xp: c.xp,
-      currentRoom: c.currentRoom,
-    })),
-  });
+    const characters = db.getCharactersByAccount(session.accountId);
+    sendJson(res, 200, {
+      characters: characters.map(c => ({
+        id: c.id,
+        name: c.name,
+        characterClass: c.characterClass,
+        hp: c.hp,
+        maxHp: c.maxHp,
+        xp: c.xp,
+        currentRoom: c.currentRoom,
+      })),
+    });
+  } catch (err) {
+    console.error("handleListCharacters: database error:", err);
+    sendJson(res, 500, { error: "Failed to load characters. Please try again." });
+  }
 }
 
 // ─── /auth/select-character → set active character on session ────────────────
@@ -1080,54 +1114,66 @@ const TICKET_RATE_LIMIT = 5;        // max tickets
 const TICKET_RATE_WINDOW_MS = 60_000; // per 60 seconds
 
 function handleWsTicket(req: IncomingMessage, res: ServerResponse, db: GameDatabase): void {
-  const session = resolveSession(req, db);
-  if (!session) {
-    sendJson(res, 401, { error: "Not authenticated" });
-    return;
+  try {
+    const session = resolveSession(req, db);
+    if (!session) {
+      sendJson(res, 401, { error: "Not authenticated" });
+      return;
+    }
+
+    if (!session.activeCharacterId) {
+      sendJson(res, 400, { error: "No active character selected. Select or create a character first." });
+      return;
+    }
+
+    // Verify the character still exists and belongs to this account
+    const character = db.getCharacterById(session.activeCharacterId);
+    if (!character || character.accountId !== session.accountId) {
+      sendJson(res, 400, { error: "Active character not found." });
+      return;
+    }
+
+    const now = Date.now();
+    const timestamps = ticketTimestamps.get(session.accountId) ?? [];
+    const recent = timestamps.filter((t) => t > now - TICKET_RATE_WINDOW_MS);
+
+    if (recent.length >= TICKET_RATE_LIMIT) {
+      sendJson(res, 429, { error: "Too many ticket requests. Try again shortly." });
+      return;
+    }
+
+    recent.push(now);
+    ticketTimestamps.set(session.accountId, recent);
+
+    const ticket = randomUUID();
+    wsTickets.set(ticket, { characterId: character.id, expiresAt: now + 60_000 });
+    sendJson(res, 200, { ticket });
+  } catch (err) {
+    console.error("handleWsTicket: database error:", err);
+    sendJson(res, 500, { error: "Failed to issue WebSocket ticket. Please try again." });
   }
-
-  if (!session.activeCharacterId) {
-    sendJson(res, 400, { error: "No active character selected. Select or create a character first." });
-    return;
-  }
-
-  // Verify the character still exists and belongs to this account
-  const character = db.getCharacterById(session.activeCharacterId);
-  if (!character || character.accountId !== session.accountId) {
-    sendJson(res, 400, { error: "Active character not found." });
-    return;
-  }
-
-  const now = Date.now();
-  const timestamps = ticketTimestamps.get(session.accountId) ?? [];
-  const recent = timestamps.filter((t) => t > now - TICKET_RATE_WINDOW_MS);
-
-  if (recent.length >= TICKET_RATE_LIMIT) {
-    sendJson(res, 429, { error: "Too many ticket requests. Try again shortly." });
-    return;
-  }
-
-  recent.push(now);
-  ticketTimestamps.set(session.accountId, recent);
-
-  const ticket = randomUUID();
-  wsTickets.set(ticket, { characterId: character.id, expiresAt: now + 60_000 });
-  sendJson(res, 200, { ticket });
 }
 
 // ─── /auth/logout → destroy session ─────────────────────────────────────────
 
 function handleLogout(req: IncomingMessage, res: ServerResponse, db: GameDatabase, config: OAuthConfig): void {
-  const token = extractSessionToken(req);
-  if (token) {
-    db.deleteSession(token);
+  try {
+    const token = extractSessionToken(req);
+    if (token) {
+      db.deleteSession(token);
+    }
+    const secureSuffix = secureCookieSuffix(config);
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Set-Cookie": `muddown_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureSuffix}`,
+    });
+    res.end(JSON.stringify({ ok: true }));
+  } catch (err) {
+    console.error("handleLogout: database error:", err);
+    if (!res.headersSent) {
+      sendJson(res, 500, { error: "Logout failed. Please try again." });
+    }
   }
-  const secureSuffix = secureCookieSuffix(config);
-  res.writeHead(200, {
-    "Content-Type": "application/json",
-    "Set-Cookie": `muddown_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureSuffix}`,
-  });
-  res.end(JSON.stringify({ ok: true }));
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

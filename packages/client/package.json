@@ -18,7 +18,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@muddown/shared": "*"
+    "@muddown/shared": "*",
+    "chalk": "^5.6.2"
   },
   "license": "MIT",
   "devDependencies": {

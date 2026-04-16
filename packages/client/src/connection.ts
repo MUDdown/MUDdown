@@ -6,6 +6,7 @@
  * consume server messages without knowing about the wire protocol.
  */
 
+import { WS_CLOSE_QUIT } from "@muddown/shared";
 import type { ServerMessage } from "@muddown/shared";
 import type { InvState } from "./inventory.js";
 import { isInvState } from "./inventory.js";
@@ -26,8 +27,20 @@ export interface ConnectionEvents {
   onClose?: (willReconnect: boolean) => void;
   /** Fired on WebSocket error. */
   onError?: (event: Event) => void;
+  /**
+   * Fired when a token-refresh or reconnect attempt fails (distinct from a
+   * WebSocket-level error).  Receives the thrown error directly.  Falls back
+   * to {@link onError} (with a synthetic `Event`) if not provided.
+   */
+  onReconnectError?: (error: unknown) => void;
   /** Fired when a raw message cannot be parsed. */
   onParseError?: (data: string, error: unknown) => void;
+  /**
+   * Fired before an auto-reconnect attempt.  Return a ticket string to
+   * authenticate the reconnection, or `undefined` to reconnect as a guest.
+   * If not provided, reconnects without a ticket.
+   */
+  onReconnecting?: () => Promise<string | undefined> | string | undefined;
 }
 
 export interface ConnectionOptions {
@@ -73,11 +86,11 @@ export class MUDdownConnection {
       this.handleMessage(event.data);
     };
 
-    this.ws.onclose = () => {
-      const willReconnect = this.opts.autoReconnect && !this.disposed;
+    this.ws.onclose = (event: CloseEvent) => {
+      const willReconnect = this.opts.autoReconnect && !this.disposed && event.code !== WS_CLOSE_QUIT;
       this.events.onClose?.(willReconnect);
       if (willReconnect) {
-        this.reconnectTimer = setTimeout(() => this.connect(), this.opts.reconnectDelay);
+        this.reconnectTimer = setTimeout(() => void this.reconnect(), this.opts.reconnectDelay);
       }
     };
 
@@ -85,6 +98,27 @@ export class MUDdownConnection {
       this.events.onError?.(event);
       this.ws?.close();
     };
+  }
+
+  /** Internal: handle auto-reconnect, optionally requesting a fresh ticket. */
+  private async reconnect(): Promise<void> {
+    if (this.disposed) return;
+    let ticket: string | undefined;
+    try {
+      ticket = await this.events.onReconnecting?.();
+    } catch (e) {
+      console.warn("MUDdownConnection: token refresh failed — reconnecting as guest", e);
+      try {
+        if (this.events.onReconnectError) {
+          this.events.onReconnectError(e);
+        } else {
+          this.events.onError?.(new Event("token-refresh-failed"));
+        }
+      } catch { /* don't let a callback exception block reconnect */ }
+      // ticket remains undefined; reconnect proceeds without auth
+    }
+    if (this.disposed) return;
+    this.connect(ticket);
   }
 
   /** Send a command to the server using the wire protocol envelope. */
@@ -132,10 +166,15 @@ export class MUDdownConnection {
   }
 
   private handleMessage(data: string): void {
+    let msg: ServerMessage;
     try {
-      const msg = JSON.parse(data) as ServerMessage & { meta?: { inventoryState?: unknown } };
+      msg = JSON.parse(data) as ServerMessage;
       if (typeof msg.muddown !== "string") throw new Error("Missing muddown field");
-
+    } catch (err) {
+      this.events.onParseError?.(data, err);
+      return;
+    }
+    try {
       // Inventory state update
       if (msg.meta?.inventoryState !== undefined) {
         if (isInvState(msg.meta.inventoryState)) {
@@ -155,7 +194,7 @@ export class MUDdownConnection {
         }
       }
     } catch (err) {
-      this.events.onParseError?.(data, err);
+      console.error("MUDdownConnection: error in message callback:", err);
     }
   }
 }
