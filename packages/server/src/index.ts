@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
-import { WebSocketServer, type WebSocket } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import type { ClientMessage, ServerMessage, EquipSlot, NpcDefinition, DialogueNode, CharacterRecord, CharacterClass } from "@muddown/shared";
 import { PLAYER_DEFAULTS, CLASS_STATS, WS_CLOSE_QUIT } from "@muddown/shared";
 import { loadWorld, type WorldMap } from "./world.js";
@@ -474,6 +474,9 @@ Type commands or click links to explore. Try: \`look\`, \`go north\`, \`help\`
 async function handleCommand(ws: WebSocket, msg: ClientMessage): Promise<void> {
   const session = sessions.get(ws);
   if (!session) return;
+
+  // Keepalive and input-only messages — no command to dispatch.
+  if (msg.type === "ping" || msg.type === "input") return;
 
   const raw = ("command" in msg ? msg.command : "").trim().toLowerCase();
   const [verb, ...rest] = raw.split(/\s+/);
@@ -1856,7 +1859,7 @@ function broadcastToRoom(roomId: string, exclude: PlayerSession, message: string
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function send(ws: WebSocket, msg: ServerMessage): void {
-  if (ws.readyState !== ws.OPEN) {
+  if (ws.readyState !== WebSocket.OPEN) {
     console.debug(`send: socket not open (readyState=${ws.readyState}), dropping type=${msg.type}`);
     return;
   }

@@ -6,7 +6,7 @@
  * where the output goes.  Shared by the terminal client and telnet bridge.
  */
 
-import chalk, { type ChalkInstance } from "chalk";
+import chalk from "chalk";
 import type { BlockType } from "@muddown/shared";
 import { resolveGameLink } from "./links.js";
 
@@ -116,9 +116,15 @@ export interface NumberedLink {
 /**
  * Render a game link according to the chosen link mode.
  *
- * - `osc8`:     OSC 8 terminal hyperlink wrapping the display text
+ * For game-command links, modes behave as follows:
+ * - `osc8`:     styled text plus a dimmed command hint; game links are not
+ *               rendered as OSC 8 hyperlinks because terminals cannot execute
+ *               in-game commands via OSC 8
  * - `numbered`: `TEXT [N]` with the index appended for shortcut entry
  * - `plain`:    `TEXT (command)` gh-style fallback
+ *
+ * External URLs may be rendered as true OSC 8 hyperlinks elsewhere; this
+ * function only handles game links.
  */
 function renderGameLink(
   displayText: string,
@@ -218,7 +224,7 @@ function terminalInlineFormat(
       renderGameLink(display, scheme, target, mode, links, linkStyle, dim),
   );
 
-  // External URLs — just show as text (no browser in terminal)
+  // External URLs — render as OSC 8 hyperlinks in osc8 mode, else show URL in parens
   result = result.replace(
     /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
     (_m, text: string, url: string) =>

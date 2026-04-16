@@ -1157,7 +1157,7 @@ function runGame(opts: CliOptions): void {
 
     // Built-in client commands
     if (input === "quit" || input === "exit" || input === "/quit" || input === "/exit") {
-      display(opts.ansi ? chalk.yellow("Goodbye!") : "Goodbye!");
+      display(opts.ansi ? chalk.yellow("Disconnecting from game...") : "Disconnecting from game...");
       conn.send("quit");
       return;
     }

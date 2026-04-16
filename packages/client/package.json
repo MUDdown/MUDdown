@@ -13,8 +13,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "FORCE_COLOR=1 vitest run",
-    "test:watch": "FORCE_COLOR=1 vitest",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "clean": "rm -rf dist"
   },
   "dependencies": {

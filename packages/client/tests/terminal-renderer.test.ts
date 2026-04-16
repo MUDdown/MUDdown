@@ -9,7 +9,7 @@ import {
 /** Strip ANSI escape sequences for content-only assertions. */
 function stripAnsi(s: string): string {
   // eslint-disable-next-line no-control-regex
-  return s.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\]8;;[^\x1b]*\x1b\\/g, "");
+  return s.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\]8;;[^\x1b\x07]*(?:\x1b\\|\x07)/g, "");
 }
 
 // ─── wordWrap ────────────────────────────────────────────────────────────────
