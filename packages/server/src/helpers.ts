@@ -470,6 +470,14 @@ export const helpEntries: Record<string, HelpEntry> = {
     detail: "Ask any question about the game world — places, NPCs, items, history, or game commands. The lorekeeper searches the world knowledge base and answers using AI when available, or shows relevant excerpts directly.",
     examples: ["lore who is the priestess?", "lore what are the Eltharan ruins?", "lore where can I find a weapon?", "ask tell me about the smugglers"],
   },
+  quit: {
+    command: "quit",
+    aliases: ["exit"],
+    usage: "quit",
+    description: "Save and disconnect",
+    detail: "Saves your character's progress (location, inventory, equipment, HP) and disconnects you from the server. You can reconnect later and resume where you left off.",
+    examples: ["quit", "exit"],
+  },
 };
 
 /** Look up a help entry by command name or alias. */

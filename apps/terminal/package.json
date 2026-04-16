@@ -1,0 +1,25 @@
+{
+  "name": "@muddown/terminal",
+  "version": "0.1.0",
+  "description": "MUDdown terminal client — play MUDdown games from your terminal",
+  "type": "module",
+  "bin": {
+    "muddown": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "dev": "tsc && node --watch dist/main.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@muddown/client": "*",
+    "@muddown/shared": "*",
+    "chalk": "^5.4.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  },
+  "license": "MIT"
+}

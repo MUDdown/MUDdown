@@ -992,6 +992,66 @@ describe("handleAuthRoute — /auth/callback", () => {
     expect(session).toBeDefined();
     expect(session!.accountId).toBeDefined();
   });
+
+  it("renders close-tab HTML page for token-poll clients (login_nonce)", async () => {
+    const nonce = randomUUID();
+    // Login with login_nonce to create pending state for token-poll flow
+    const loginReq = {
+      method: "GET",
+      url: `/auth/login?provider=github&login_nonce=${encodeURIComponent(nonce)}`,
+      headers: { host: "localhost:3300" },
+      socket: { remoteAddress: "127.0.0.1" },
+    } as unknown as IncomingMessage;
+    const loginRes = mockRes();
+    await handleAuthRoute(loginReq, loginRes, config, db);
+    expect(loginRes.statusCode).toBe(302);
+    const location = loginRes._headers["location"];
+    const state = location.match(/state=([^&]+)/)![1];
+
+    let callCount = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { ok: true, json: async () => ({ access_token: "tok" }) };
+      }
+      return {
+        ok: true,
+        json: async () => ({ id: 777, login: "termuser", name: "Terminal User" }),
+      };
+    }));
+
+    const req = mockReq(`?code=testcode&state=${state}`);
+    const res = mockRes();
+    await handleAuthRoute(req, res, config, db);
+
+    // Token-poll clients get a 200 HTML page, not a 302 redirect
+    expect(res.statusCode).toBe(200);
+    expect(res._headers["content-type"]).toBe("text/html; charset=utf-8");
+    expect(res._headers["cache-control"]).toBe("no-store");
+    expect(res.body).toContain("Authentication Successful");
+    expect(res.body).toContain("close this tab");
+    // No cookie should be set — the token is retrieved via /auth/token-poll
+    expect(res._headers["set-cookie"]).toBeUndefined();
+    // No redirect header
+    expect(res._headers["location"]).toBeUndefined();
+
+    // Verify the completed login was stored and is retrievable via token-poll
+    const pollReq = {
+      method: "GET",
+      url: `/auth/token-poll?nonce=${encodeURIComponent(nonce)}`,
+      headers: { host: "localhost:3300" },
+      socket: { remoteAddress: "127.0.0.1" },
+    } as unknown as IncomingMessage;
+    const pollRes = mockRes();
+    await handleAuthRoute(pollReq, pollRes, config, db);
+    expect(pollRes.statusCode).toBe(200);
+    const pollBody = JSON.parse(pollRes.body) as { token: string };
+    expect(pollBody.token).toBeDefined();
+    // The token should resolve to a valid session in the database
+    const session = db.getSession(pollBody.token);
+    expect(session).toBeDefined();
+    expect(session!.accountId).toBeDefined();
+  });
 });
 
 // ─── exchangeCodeForToken — google branch ────────────────────────────────────

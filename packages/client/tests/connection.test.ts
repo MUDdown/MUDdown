@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { WS_CLOSE_QUIT } from "@muddown/shared";
 import { buildWsUrl, MUDdownConnection } from "../src/connection.js";
 
 describe("buildWsUrl", () => {
@@ -75,8 +76,8 @@ class MockWebSocket {
   simulateMessage(data: string) {
     this.onmessage?.(new MessageEvent("message", { data }));
   }
-  simulateClose() {
-    const event = { type: "close", code: 1000, reason: "", wasClean: true } as CloseEvent;
+  simulateClose(code = 1000) {
+    const event = { type: "close", code, reason: "", wasClean: true } as CloseEvent;
     this.onclose?.(event);
   }
   simulateError() {
@@ -272,5 +273,105 @@ describe("MUDdownConnection", () => {
     const countAfterDispose = MockWebSocket.instances.length;
     await vi.advanceTimersByTimeAsync(5000);
     expect(MockWebSocket.instances.length).toBe(countAfterDispose);
+  });
+
+  it("does not reconnect when server closes with code 4001 (quit)", async () => {
+    const onClose = vi.fn();
+    const conn = new MUDdownConnection(
+      { wsUrl: "ws://localhost:3300/ws", reconnectDelay: 1000 },
+      { onClose },
+    );
+    conn.connect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    MockWebSocket.instances[0].simulateClose(WS_CLOSE_QUIT);
+    expect(onClose).toHaveBeenCalledWith(false);
+
+    const countBefore = MockWebSocket.instances.length;
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(MockWebSocket.instances.length).toBe(countBefore);
+    conn.dispose();
+  });
+
+  it("calls onReconnecting before auto-reconnect and passes ticket", async () => {
+    const onReconnecting = vi.fn().mockResolvedValue("fresh-ticket");
+    const conn = new MUDdownConnection(
+      { wsUrl: "ws://localhost:3300/ws", reconnectDelay: 500 },
+      { onReconnecting },
+    );
+    conn.connect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    MockWebSocket.instances[0].simulateClose();
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(onReconnecting).toHaveBeenCalledOnce();
+    // The reconnect should have used the ticket
+    const lastWs = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    expect(lastWs.url).toBe("ws://localhost:3300/ws?ticket=fresh-ticket");
+    conn.dispose();
+  });
+
+  it("reconnects without ticket when onReconnecting returns undefined", async () => {
+    const onReconnecting = vi.fn().mockResolvedValue(undefined);
+    const conn = new MUDdownConnection(
+      { wsUrl: "ws://localhost:3300/ws", reconnectDelay: 500 },
+      { onReconnecting },
+    );
+    conn.connect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    MockWebSocket.instances[0].simulateClose();
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(onReconnecting).toHaveBeenCalledOnce();
+    const lastWs = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    expect(lastWs.url).toBe("ws://localhost:3300/ws");
+    conn.dispose();
+  });
+
+  it("reconnects as guest when onReconnecting throws", async () => {
+    const onReconnecting = vi.fn().mockRejectedValue(new Error("token refresh failed"));
+    const conn = new MUDdownConnection(
+      { wsUrl: "ws://localhost:3300/ws", reconnectDelay: 500 },
+      { onReconnecting },
+    );
+    conn.connect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    MockWebSocket.instances[0].simulateClose();
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(onReconnecting).toHaveBeenCalledOnce();
+    // Should still reconnect, just without a ticket
+    const lastWs = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    expect(lastWs.url).toBe("ws://localhost:3300/ws");
+    conn.dispose();
+  });
+
+  it("does not reconnect if disposed during onReconnecting await", async () => {
+    let resolveTicket: (v: string | undefined) => void;
+    const ticketPromise = new Promise<string | undefined>((resolve) => {
+      resolveTicket = resolve;
+    });
+    const onReconnecting = vi.fn().mockReturnValue(ticketPromise);
+    const conn = new MUDdownConnection(
+      { wsUrl: "ws://localhost:3300/ws", reconnectDelay: 500 },
+      { onReconnecting },
+    );
+    conn.connect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    MockWebSocket.instances[0].simulateClose();
+    await vi.advanceTimersByTimeAsync(500);
+
+    // Dispose while onReconnecting is pending
+    const countBefore = MockWebSocket.instances.length;
+    conn.dispose();
+    resolveTicket!("late-ticket");
+    await vi.advanceTimersByTimeAsync(0);
+
+    // No new connection should be created
+    expect(MockWebSocket.instances.length).toBe(countBefore);
   });
 });

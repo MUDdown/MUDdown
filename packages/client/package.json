@@ -13,12 +13,13 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "FORCE_COLOR=1 vitest run",
+    "test:watch": "FORCE_COLOR=1 vitest",
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@muddown/shared": "*"
+    "@muddown/shared": "*",
+    "chalk": "^5.6.2"
   },
   "license": "MIT",
   "devDependencies": {
