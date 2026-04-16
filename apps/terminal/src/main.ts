@@ -472,7 +472,12 @@ async function pollForToken(httpBase: string, nonce: string, maxAttempts: number
       // anything else = stop
       if (res.status !== 202) return undefined;
     } catch (err: unknown) {
-      const name = err instanceof Error ? err.name : "";
+      // DOMException (thrown by Node 18+ undici fetch on abort) does not
+      // extend Error, so instanceof Error would miss AbortError.
+      const name =
+        err != null && typeof err === "object" && "name" in err && typeof (err as Record<string, unknown>).name === "string"
+          ? ((err as Record<string, unknown>).name as string)
+          : "";
       if (
         (err instanceof TypeError && String(err.message).toLowerCase().includes("fetch")) ||
         name === "AbortError"
