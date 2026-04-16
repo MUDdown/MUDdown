@@ -447,7 +447,6 @@ Type commands or click links to explore. Try: \`look\`, \`go north\`, \`help\`
     handleCommand(ws, msg).catch((err) => {
       console.error(
         `Command error [player=${session.name}] [characterId=${session.characterId ?? "guest"}] [command=${"command" in msg ? msg.command : "(ping)"}]:`,
-
         err,
       );
       send(ws, systemMessage("An internal error occurred."));
@@ -463,8 +462,8 @@ Type commands or click links to explore. Try: \`look\`, \`go north\`, \`help\`
   });
 
   ws.on("error", (err) => {
-    const session = sessions.get(ws);
-    console.warn(`WebSocket error [player=${session?.name ?? "unknown"}]:`, err.message);
+    const s = sessions.get(ws);
+    console.warn(`WebSocket error [player=${s?.name ?? "unknown"}]:`, err.message);
     // ws.on("close") fires immediately after and handles session cleanup
   });
 });

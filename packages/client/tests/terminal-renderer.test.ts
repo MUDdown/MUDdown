@@ -320,7 +320,7 @@ A bustling plaza with a **stone fountain** in the center.
 
   it("renders with numbered links and returns link table", () => {
     const { text, links } = renderTerminal(room, { ansi: false, linkMode: "numbered" });
-    expect(links.length).toBeGreaterThanOrEqual(4);
+    expect(links.length).toBe(4);
     expect(links[0].command).toBe("go north");
     expect(links[1].command).toBe("go east");
     // NPC and item links

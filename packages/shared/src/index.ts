@@ -80,7 +80,7 @@ export interface MUDdownBlock {
 /** Wire-level inventory state sent in {@link ServerMessage}.meta.inventoryState. */
 export interface WireInventoryState {
   items: Array<{ id: string; name: string; equippable: boolean; usable: boolean }>;
-  equipped: Record<string, { id: string; name: string } | null>;
+  equipped: Record<EquipSlot, { id: string; name: string } | null>;
 }
 
 export interface ServerMessage {

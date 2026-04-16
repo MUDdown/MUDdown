@@ -108,11 +108,13 @@ export class MUDdownConnection {
       ticket = await this.events.onReconnecting?.();
     } catch (e) {
       console.warn("MUDdownConnection: token refresh failed — reconnecting as guest", e);
-      if (this.events.onReconnectError) {
-        this.events.onReconnectError(e);
-      } else {
-        this.events.onError?.(new Event("token-refresh-failed"));
-      }
+      try {
+        if (this.events.onReconnectError) {
+          this.events.onReconnectError(e);
+        } else {
+          this.events.onError?.(new Event("token-refresh-failed"));
+        }
+      } catch { /* don't let a callback exception block reconnect */ }
       // ticket remains undefined; reconnect proceeds without auth
     }
     if (this.disposed) return;

@@ -892,7 +892,13 @@ function runGame(opts: CliOptions): void {
         },
 
         onError: (event: Event) => {
-          const msg = (event as ErrorEvent).message ?? "WebSocket error";
+          const msg =
+            ("message" in event && typeof (event as ErrorEvent).message === "string"
+              ? (event as ErrorEvent).message
+              : undefined) ??
+            (event as Record<string, unknown>).error instanceof Error
+              ? ((event as Record<string, unknown>).error as Error).message
+              : "WebSocket error";
           display(opts.ansi ? chalk.red(`Connection error: ${msg}`) : `Connection error: ${msg}`);
           // onClose fires next and handles reconnect
         },

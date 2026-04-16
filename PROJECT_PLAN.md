@@ -245,7 +245,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
     - [x] CI notarization verification step (`xcrun stapler validate`)
     - [x] UPDATER_KEYS.md expanded with full Apple notarization setup guide
     - [x] D-U-N-S number assigned for StickMUD Entertainment LLC
-    - [ ] Apple Developer Program enrollment ($99/yr, requires D-U-N-S)
+    - [ ] Apple Developer Program enrollment ($99/yr, requires D-U-N-S; single enrollment covers macOS and iOS)
     - [ ] Developer ID Application certificate generation
     - [ ] App-specific password for notarization
     - [ ] Configure 6 Apple CI secrets in GitHub Actions
@@ -282,7 +282,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 ### Phase 6 — Mobile App Store Submission
 - [ ] EAS Build setup (`eas.json` for development, preview, production profiles)
 - [ ] Final app icons, splash screen, and adaptive icon artwork
-- [ ] Apple Developer Program enrollment ($99/yr)
+- [ ] Apple Developer Program enrollment (same enrollment as Phase 5 macOS notarization)
 - [ ] Google Play Console enrollment ($25 one-time)
 - [ ] Content moderation system (chat filtering, report/block)
 - [ ] Offline / server-unreachable error states and graceful degradation
