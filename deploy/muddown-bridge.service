@@ -26,7 +26,7 @@ ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
 ReadOnlyPaths=/opt/muddown/packages/bridge
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 SystemCallFilter=~@module @mount @reboot @swap
 

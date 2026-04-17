@@ -27,7 +27,7 @@
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",
-    "vitest": "^3.2.1"
+    "vitest": "^4.1.2"
   },
   "engines": {
     "node": ">=22.9.0"

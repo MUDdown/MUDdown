@@ -230,13 +230,19 @@ describe("TelnetParser", () => {
 
   it("handles sb-iac with unexpected byte (not SE or IAC)", () => {
     const parser = new TelnetParser();
-    // Start subneg, then IAC followed by something other than SE or IAC
-    // This is technically malformed, but the parser should handle it gracefully
+    // Start subneg, then IAC followed by something other than SE or IAC.
+    // This is technically malformed, but the parser should recover by
+    // terminating the subnegotiation and then parsing the command normally.
     const events = parser.feed(Buffer.from([
-      IAC, SB, OPT_NAWS, 0, 80, IAC, WILL, // IAC WILL inside subneg = exit subneg
+      IAC, SB, OPT_NAWS, 0, 80, IAC, WILL, OPT_ECHO, // IAC WILL inside subneg = exit subneg
     ]));
-    // The parser should emit the subneg (truncated) and the WILL
-    expect(events.length).toBeGreaterThanOrEqual(1);
+    expect(events).toHaveLength(2);
+    expect(events[0].type).toBe("subneg");
+    if (events[0].type === "subneg") {
+      expect(events[0].option).toBe(OPT_NAWS);
+      expect(events[0].data).toEqual(Buffer.from([0, 80]));
+    }
+    expect(events[1]).toEqual({ type: "will", option: OPT_ECHO });
   });
 });
 

@@ -27,7 +27,6 @@ import type { TLSSocket } from "node:tls";
 import WebSocket from "ws";
 import {
   MUDdownConnection,
-  buildWsUrl,
   renderTerminal,
   CommandHistory,
 } from "@muddown/client";
@@ -223,8 +222,10 @@ export class TelnetSession {
 
   // Input buffer (line-buffered)
   private inputBuffer = "";
-  private echoSuppressed = false;
   private lastWasCR = false;
+
+  // Login flow guard
+  private loginInProgress = false;
 
   // Interactive prompt state for multi-step flows (login, character creation)
   private promptHandler: ((line: string) => void) | null = null;
@@ -398,10 +399,8 @@ export class TelnetSession {
       if (byte === 0x08 || byte === 0x7f) {
         if (this.inputBuffer.length > 0) {
           this.inputBuffer = this.inputBuffer.slice(0, -1);
-          if (!this.echoSuppressed) {
-            // Erase character: backspace, space, backspace
-            this.write(Buffer.from([0x08, 0x20, 0x08]));
-          }
+          // Erase character: backspace, space, backspace
+          this.write(Buffer.from([0x08, 0x20, 0x08]));
         }
         continue;
       }
@@ -415,9 +414,7 @@ export class TelnetSession {
         }
         this.lastWasCR = byte === 0x0d;
 
-        if (!this.echoSuppressed) {
-          this.write(Buffer.from("\r\n"));
-        }
+        this.write(Buffer.from("\r\n"));
 
         const line = this.inputBuffer;
         this.inputBuffer = "";
@@ -435,9 +432,7 @@ export class TelnetSession {
       // Printable ASCII
       if (byte >= 0x20 && byte < 0x7f) {
         this.inputBuffer += String.fromCharCode(byte);
-        if (!this.echoSuppressed) {
-          this.write(Buffer.from([byte]));
-        }
+        this.write(Buffer.from([byte]));
       }
     }
   }
@@ -467,12 +462,21 @@ export class TelnetSession {
     }
 
     if (lower === "login") {
-      this.handleLogin().catch((err) => {
-        console.error(`[bridge] [${this.id}] login error:`, err);
-        this.writeLine("\r\nLogin failed unexpectedly.\r\n");
-        this.promptHandler = null;
-        this.promptReject = null;
-      });
+      if (this.loginInProgress) {
+        this.writeLine("\r\nLogin already in progress.\r\n");
+        return;
+      }
+      this.loginInProgress = true;
+      this.handleLogin()
+        .catch((err) => {
+          console.error(`[bridge] [${this.id}] login error:`, err);
+          this.writeLine("\r\nLogin failed unexpectedly.\r\n");
+          this.promptHandler = null;
+          this.promptReject = null;
+        })
+        .finally(() => {
+          this.loginInProgress = false;
+        });
       return;
     }
 
@@ -798,26 +802,20 @@ export class BridgeServer {
 
   start(): void {
     if (!this.config.tlsCert || !this.config.tlsKey) {
-      console.error("[bridge] TELNET_TLS_CERT and TELNET_TLS_KEY are required.");
-      process.exit(1);
+      throw new Error("TELNET_TLS_CERT and TELNET_TLS_KEY are required.");
     }
 
-    try {
-      const tlsOptions = {
-        cert: readFileSync(this.config.tlsCert),
-        key: readFileSync(this.config.tlsKey),
-      };
-      this.tlsServer = createTlsServer(tlsOptions, (socket) => this.handleConnection(socket));
-      this.tlsServer.on("error", (err) => {
-        console.error("[bridge] TLS server error:", err);
-      });
-      this.tlsServer.listen(this.config.port, () => {
-        console.log(`TELNETS bridge listening on port ${this.config.port}`);
-      });
-    } catch (err) {
-      console.error("[bridge] Failed to start TLS server:", err);
-      process.exit(1);
-    }
+    const tlsOptions = {
+      cert: readFileSync(this.config.tlsCert),
+      key: readFileSync(this.config.tlsKey),
+    };
+    this.tlsServer = createTlsServer(tlsOptions, (socket) => this.handleConnection(socket));
+    this.tlsServer.on("error", (err) => {
+      console.error("[bridge] TLS server error:", err);
+    });
+    this.tlsServer.listen(this.config.port, () => {
+      console.log(`TELNETS bridge listening on port ${this.config.port}`);
+    });
   }
 
   private handleConnection(socket: Socket | TLSSocket): void {
@@ -838,13 +836,19 @@ export class BridgeServer {
     return this.sessions.size;
   }
 
-  /** Shut down the bridge and all sessions. */
-  shutdown(): void {
+  /** Shut down the bridge and all sessions. Returns when the TLS server is closed. */
+  shutdown(): Promise<void> {
     for (const session of this.sessions) {
       session.dispose();
     }
     this.sessions.clear();
-    this.tlsServer?.close();
+    return new Promise<void>((resolve) => {
+      if (this.tlsServer) {
+        this.tlsServer.close(() => resolve());
+      } else {
+        resolve();
+      }
+    });
   }
 }
 
@@ -863,8 +867,7 @@ function main(): void {
   // Graceful shutdown — use process.once to avoid duplicate handlers
   const shutdown = (): void => {
     console.log("Shutting down bridge...");
-    bridge.shutdown();
-    process.exit(0);
+    bridge.shutdown().then(() => process.exit(0));
   };
 
   process.once("SIGTERM", shutdown);

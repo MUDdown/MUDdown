@@ -127,7 +127,8 @@ export class TelnetParser {
       }
     };
 
-    for (const byte of chunk) {
+    for (let i = 0; i < chunk.length; i++) {
+      const byte = chunk[i];
       switch (this.state) {
         case "data":
           if (byte === IAC) {
@@ -221,13 +222,16 @@ export class TelnetParser {
             this.subData.push(0xff);
             this.state = "sb-data";
           } else {
-            // Malformed; treat as end of sub-negotiation
+            // Malformed: IAC followed by a command byte inside subneg.
+            // Terminate the sub-negotiation, then re-parse the byte as a
+            // command (it follows the IAC we already consumed).
             events.push({
               type: "subneg",
               option: this.subOption,
               data: Buffer.from(this.subData),
             });
-            this.state = "data";
+            this.state = "iac";
+            i--; // re-process this byte as the IAC command byte
           }
           break;
       }
