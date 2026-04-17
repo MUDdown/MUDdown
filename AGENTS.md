@@ -15,12 +15,13 @@ Turborepo monorepo with npm workspaces:
 | `packages/parser` | MUDdown parser (blocks, attributes, sections, links, frontmatter) |
 | `packages/server` | WebSocket game server (Node.js + `ws`, port 3300) |
 | `packages/client` | Framework-agnostic client library (renderer, connection, history, links, hints, inventory) |
-| `packages/bridge` | Future telnet bridge (empty) |
+| `packages/bridge` | Telnet bridge — TLS proxy to WebSocket game server (port 2323) |
 | `apps/website` | Astro site: landing page, spec docs, playable web client |
 | `apps/mobile` | Expo React Native app for iOS/Android |
 | `apps/desktop` | Tauri v2 desktop app (macOS, Windows, Linux) |
+| `apps/terminal` | Terminal/CLI client (Node.js, ink) |
 
-Dependency graph: `server` → `shared`; `parser` → `shared`; `client` → `shared`; `mobile` → `client`, `shared`; `desktop` → `client`, `shared`; `website` → `spec` (reads Markdown at build time).
+Dependency graph: `server` → `shared`; `parser` → `shared`; `client` → `shared`; `bridge` → `client`, `shared`; `mobile` → `client`, `shared`; `desktop` → `client`, `shared`; `terminal` → `client`, `shared`; `website` → `spec` (reads Markdown at build time).
 
 ## TypeScript Conventions
 
@@ -127,9 +128,10 @@ cd apps/mobile && npm start                          # Start Expo dev server (mo
 ```
 
 Parser tests: `cd packages/parser && npm test` (56 tests via vitest).
-Server tests: `cd packages/server && npm test` (70 tests via vitest).
-Client tests: `cd packages/client && npm test` (86 tests via vitest).
+Server tests: `cd packages/server && npm test` (536 tests via vitest).
+Client tests: `cd packages/client && npm test` (130 tests via vitest).
 MCP tests: `cd packages/mcp && npm test` (24 tests via vitest).
+Bridge tests: `cd packages/bridge && npm test` (66 tests via vitest).
 
 ## Testing
 

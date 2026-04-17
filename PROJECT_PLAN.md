@@ -47,7 +47,7 @@ MUDdown/
 │   ├── parser/         ✅ MUDdown parser (blocks, attributes, sections, links, frontmatter)
 │   ├── server/         ✅ WebSocket game server with demo world
 │   ├── client/         ✅ Framework-agnostic client library (renderer, connection, history, links, hints, inventory)
-│   └── bridge/         📁 Directory created (empty — telnet bridge future)
+│   └── bridge/         📁 Telnet bridge — TCP/TLS proxy to WebSocket game server
 ├── apps/
 │   ├── website/        ✅ Astro site: landing page, spec docs, playable web client
 │   └── mobile/         ✅ Expo React Native app for iOS/Android
@@ -268,7 +268,27 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
   - [x] Inventory and hint display using terminal renderer
   - [x] Unit tests for terminal renderer (ANSI output assertions)
   - [x] Interactive startup wizard: fetches games directory, numbered game picker, browser-based OAuth login with token-poll (no copy/paste), provider picker, ws-ticket exchange (bypassed if `--server`/`--token` flags are passed)
-- [ ] Telnet bridge (`packages/bridge`): legacy client support (plain telnet + TELNETS/TLS)
+- [x] Telnet bridge (`packages/bridge`): legacy client support (TLS-only)
+  - [x] Scaffold `packages/bridge` workspace, wire `client`/`shared` deps, add to Turborepo
+  - [x] TLS listener (`tls.createServer()`) on port 2323 (configurable via `BRIDGE_PORT`, `TELNET_TLS_CERT`, `TELNET_TLS_KEY`)
+  - [x] Telnet protocol negotiation: IAC DO/WILL for NAWS (terminal width), TTYPE (terminal detection), ECHO suppression (password prompts)
+  - [x] ANSI capability detection via TTYPE negotiation; fall back to plain text for basic clients
+  - [x] Bridge-as-proxy architecture: each telnet session creates a `MUDdownConnection` WebSocket to the game server (configurable via `GAME_SERVER_URL`)
+  - [x] MUDdown rendering via `renderTerminal()` — ANSI mode for capable clients, plain text fallback, column-width from NAWS
+  - [x] Game link rendering: plain mode default (`North (go north)`), numbered shortcut mode (`North [1]`) togglable via `linkmode` command
+  - [x] Line-buffered input with command echo, backspace handling, and per-session command history
+  - [x] Auth flow: `login` command prints browser URL, polls `token-poll` endpoint, exchanges for ws-ticket (reuses terminal client pattern)
+  - [x] Guest play: connect without auth for immediate anonymous play
+  - [x] Character creation and selection via inline text prompts (name, class picker)
+  - [x] Telnet keepalive: periodic NOP to detect dead connections; map to WebSocket ping/pong
+  - [x] Graceful shutdown: drain connections on SIGTERM, send "Server shutting down" system message
+  - [x] Connection banner: MUDdown ASCII art, server name, version, login instructions on connect
+  - [x] `WHO` / `QUIT` / `HELP` commands handled locally in bridge (no round-trip for simple queries)
+  - [x] Rate limiting: inherited from WebSocket session (bridge proxies through game server's `TokenBucket`)
+  - [x] Configuration: `.env` support (`BRIDGE_PORT`, `TELNET_TLS_CERT`, `TELNET_TLS_KEY`, `GAME_SERVER_URL`)
+  - [x] Deployment: systemd unit file (`muddown-bridge.service`), firewall rules documentation
+  - [x] Unit tests: telnet negotiation, rendering integration, auth flow, connection lifecycle
+  - [x] Wiki page: `Telnet-Bridge.md` with connection instructions, supported clients, feature comparison
 - [ ] Homebrew tap (`MUDdown/homebrew-tap`): `brew install MUDdown/tap/muddown`
   - [ ] Single-binary build (e.g., `pkg` or `bun compile`) — no Node.js runtime dependency for users
     - [ ] Multi-architecture builds: separate Intel (`x86_64`) and Apple Silicon (`arm64`) binaries
