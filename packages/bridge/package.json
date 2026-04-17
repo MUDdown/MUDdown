@@ -1,0 +1,35 @@
+{
+  "name": "@muddown/bridge",
+  "version": "0.1.0",
+  "description": "TLS telnet bridge — proxy server connecting telnet clients to MUDdown via WebSocket",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MUDdown/MUDdown.git",
+    "directory": "packages/bridge"
+  },
+  "keywords": ["muddown", "telnet", "tls", "bridge", "mud", "proxy"],
+  "type": "module",
+  "bin": {
+    "muddown-bridge": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "dev": "tsc && node dist/main.js",
+    "clean": "rm -rf dist",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@muddown/client": "*",
+    "@muddown/shared": "*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "vitest": "^4.1.2"
+  },
+  "engines": {
+    "node": ">=22.9.0"
+  }
+}

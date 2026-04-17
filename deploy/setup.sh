@@ -163,6 +163,7 @@ ufw default allow outgoing
 ufw allow "${SSH_PORT}/tcp" comment "SSH"
 ufw allow 80/tcp comment "HTTP"
 ufw allow 443/tcp comment "HTTPS"
+ufw allow 2323/tcp comment "Telnet TLS"
 ufw --force enable
 
 # ── 7. fail2ban ──────────────────────────────────────────────────────────────
@@ -279,9 +280,11 @@ ENVEOF
   echo "    Created ${ENV_FILE} — edit with your secrets before starting."
 fi
 
-# ── 12. Install systemd service ──────────────────────────────────────────────
+# ── 12. Install systemd services ─────────────────────────────────────────────
 
-echo "==> Installing systemd service..."
+echo "==> Installing systemd services..."
+
+# Game server
 if [[ -f "${INSTALL_DIR}/deploy/muddown-server.service" ]]; then
   cp "${INSTALL_DIR}/deploy/muddown-server.service" /etc/systemd/system/
 elif [[ -f "${SCRIPT_DIR}/muddown-server.service" ]]; then
@@ -291,8 +294,31 @@ else
   echo "       Copy the full deploy/ directory: scp -r deploy root@<ip>:/root/deploy" >&2
   exit 1
 fi
+
+# Telnet bridge
+if [[ -f "${INSTALL_DIR}/deploy/muddown-bridge.service" ]]; then
+  cp "${INSTALL_DIR}/deploy/muddown-bridge.service" /etc/systemd/system/
+elif [[ -f "${SCRIPT_DIR}/muddown-bridge.service" ]]; then
+  cp "${SCRIPT_DIR}/muddown-bridge.service" /etc/systemd/system/
+else
+  echo "WARNING: muddown-bridge.service not found — telnet bridge will not be installed." >&2
+fi
+
 systemctl daemon-reload
 systemctl enable muddown-server
+
+# Enable bridge if the service file was installed
+if [[ -f /etc/systemd/system/muddown-bridge.service ]]; then
+  if systemd-analyze verify muddown-bridge.service 2>/dev/null; then
+    if systemctl enable muddown-bridge 2>&1; then
+      echo "  muddown-bridge enabled"
+    else
+      echo "WARNING: systemctl enable muddown-bridge failed." >&2
+    fi
+  else
+    echo "WARNING: muddown-bridge.service failed validation — check unit file syntax." >&2
+  fi
+fi
 
 # ── 13. Configure nginx ──────────────────────────────────────────────────────
 
@@ -361,11 +387,19 @@ echo ""
 echo "Next steps:"
 echo "  1. Edit secrets:   nano ${ENV_FILE}"
 echo "  2. Start server:   systemctl start muddown-server"
-echo "  3. Check status:   systemctl status muddown-server"
-echo "  4. View logs:      journalctl -u muddown-server -f"
+if [[ -f /etc/systemd/system/muddown-bridge.service ]]; then
+  echo "  3. Start bridge:   systemctl start muddown-bridge"
+  echo "  4. Check status:   systemctl status muddown-server muddown-bridge"
+  echo "  5. View logs:      journalctl -u muddown-server -u muddown-bridge -f"
+else
+  echo "  3. Check status:   systemctl status muddown-server"
+  echo "  4. View logs:      journalctl -u muddown-server -f"
+  echo "     (Telnet bridge not installed — see deploy/muddown-bridge.service to add it later)"
+fi
 SERVER_IP=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || curl -s --max-time 5 icanhazip.com 2>/dev/null || echo '<this-ip>')
-echo "  5. Point DNS:      muddown.com → ${SERVER_IP}"
-echo "  6. Enable TLS:     certbot --nginx -d muddown.com -d www.muddown.com"
+echo ""
+echo "  Point DNS:         muddown.com → ${SERVER_IP}"
+echo "  Enable TLS:        certbot --nginx -d muddown.com -d www.muddown.com"
 echo ""
 if [[ "${SSH_PORT}" != "22" ]]; then
   echo "  SSH port changed to ${SSH_PORT}. Reconnect with:"
