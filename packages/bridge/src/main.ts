@@ -119,8 +119,9 @@ async function pollForToken(httpBase: string, nonce: string, maxAttempts: number
           isNetworkError = /^(ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EPIPE|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|UND_ERR)/.test(code);
         } else {
           // Fallback: TypeError from fetch with no code is still likely
-          // a network-level failure (e.g. "fetch failed")
-          isNetworkError = true;
+          // a network-level failure (e.g. "fetch failed") — check the
+          // message as a secondary guard before assuming retryable.
+          isNetworkError = /fetch|network|socket/i.test(err.message);
         }
       }
 
@@ -131,7 +132,10 @@ async function pollForToken(httpBase: string, nonce: string, maxAttempts: number
       return undefined;
     }
   }
-  console.error(`[bridge] pollForToken: exhausted ${maxAttempts} attempts for nonce ${nonce}`);
+  const redactedNonce = nonce.length > 8
+    ? `${nonce.slice(0, 4)}…${nonce.slice(-4)}`
+    : "[redacted]";
+  console.error(`[bridge] pollForToken: exhausted ${maxAttempts} attempts for nonce ${redactedNonce}`);
   return undefined;
 }
 
