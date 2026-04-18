@@ -105,7 +105,25 @@ async function pollForToken(httpBase: string, nonce: string, maxAttempts: number
     } catch (err: unknown) {
       const isAbort = (err instanceof DOMException && err.name === "AbortError") ||
         (err instanceof Error && err.name === "AbortError");
-      const isNetworkError = err instanceof TypeError && err.message.toLowerCase().includes("fetch");
+
+      // Detect network errors by checking error properties rather than
+      // brittle message text.  Node's undici-based fetch throws TypeError
+      // with a `cause` carrying a system error code.
+      let isNetworkError = false;
+      if (err instanceof TypeError) {
+        const cause = (err as { cause?: { code?: string } }).cause;
+        const code = cause?.code ?? (err as { code?: string }).code;
+        if (code) {
+          // System-level connection failures (ECONNREFUSED, ECONNRESET,
+          // ENOTFOUND, ETIMEDOUT, EPIPE, etc.)
+          isNetworkError = /^(ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EPIPE|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|UND_ERR)/.test(code);
+        } else {
+          // Fallback: TypeError from fetch with no code is still likely
+          // a network-level failure (e.g. "fetch failed")
+          isNetworkError = true;
+        }
+      }
+
       if (isAbort || isNetworkError) {
         continue;
       }
