@@ -73,6 +73,19 @@ jobs:
               exit 1
             fi
 
+            echo "==> Restarting telnet bridge..."
+            sudo systemctl restart muddown-bridge
+
+            echo "==> Verifying bridge is running..."
+            sleep 2
+            if systemctl is-active --quiet muddown-bridge; then
+              echo "✓ muddown-bridge is running"
+            else
+              echo "✗ muddown-bridge failed to start"
+              sudo journalctl -u muddown-bridge -n 20 --no-pager
+              exit 1
+            fi
+
             echo "==> Setting file permissions..."
             sudo chmod -R o+rX "$INSTALL_DIR"
 
