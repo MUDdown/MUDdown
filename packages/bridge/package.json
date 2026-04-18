@@ -23,7 +23,6 @@
   "dependencies": {
     "@muddown/client": "*",
     "@muddown/shared": "*",
-    "chalk": "^5.6.2",
     "ws": "^8.18.0"
   },
   "devDependencies": {

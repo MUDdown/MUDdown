@@ -263,7 +263,7 @@ interface TerminalRenderOptionsBase {
    * the chalk instance used by the theme closures.  Callers can set this to
    * express the detected client capability for future per-session theming.
    *
-   * TODO: implement per-session theming — see #42
+   * TODO: implement per-session theming.
    */
   colorLevel?: 0 | 1 | 2 | 3;
 }
