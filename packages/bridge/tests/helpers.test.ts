@@ -23,6 +23,10 @@ describe("wsToHttpBase", () => {
   it("returns input unchanged for non-ws URLs", () => {
     expect(wsToHttpBase("https://example.com")).toBe("https://example.com");
   });
+
+  it("converts wss:// to https:// when URL has no path", () => {
+    expect(wsToHttpBase("wss://muddown.com")).toBe("https://muddown.com");
+  });
 });
 
 // ─── getBanner ───────────────────────────────────────────────────────────────

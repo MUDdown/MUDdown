@@ -244,6 +244,18 @@ describe("TelnetParser", () => {
     }
     expect(events[1]).toEqual({ type: "will", option: OPT_ECHO });
   });
+
+  it("skips unknown IAC command and resumes parsing", () => {
+    const parser = new TelnetParser();
+    // 0xF5 = Abort Output (not handled by our parser), then normal data
+    const events = parser.feed(Buffer.from([IAC, 0xf5, 0x41]));
+    // Unknown command is skipped, 0x41 ('A') is data
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe("data");
+    if (events[0].type === "data") {
+      expect(events[0].data).toEqual(Buffer.from([0x41]));
+    }
+  });
 });
 
 // ─── NAWS Parsing ────────────────────────────────────────────────────────────
@@ -295,6 +307,21 @@ describe("parseNaws", () => {
 
   it("returns undefined for empty buffer", () => {
     expect(parseNaws(Buffer.alloc(0))).toBeUndefined();
+  });
+  it("returns undefined for cols too large (501)", () => {
+    // 501 = 0x01F5
+    expect(parseNaws(Buffer.from([0x01, 0xf5, 0x00, 0x18]))).toBeUndefined();
+  });
+
+  it("returns undefined for rows too large (201)", () => {
+    // 201 = 0x00C9
+    expect(parseNaws(Buffer.from([0x00, 0x50, 0x00, 0xc9]))).toBeUndefined();
+  });
+
+  it("parses maximum valid size (500 cols, 200 rows)", () => {
+    // 500 = 0x01F4, 200 = 0x00C8
+    const result = parseNaws(Buffer.from([0x01, 0xf4, 0x00, 0xc8]));
+    expect(result).toEqual({ cols: 500, rows: 200 });
   });
 });
 

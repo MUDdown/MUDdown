@@ -49,6 +49,7 @@ import {
   OPT_TTYPE,
   OPT_NAWS,
 } from "./telnet.js";
+import type { IacEvent } from "./telnet.js";
 
 import {
   loadConfig,
@@ -92,28 +93,27 @@ async function pollForToken(httpBase: string, nonce: string, maxAttempts: number
         `${httpBase}/auth/token-poll?nonce=${encodeURIComponent(nonce)}`,
       );
       if (res.status === 200) {
-        const data = await res.json() as { token?: string };
-        return data.token;
+        try {
+          const data = await res.json() as { token?: string };
+          return data.token;
+        } catch (parseErr: unknown) {
+          console.error("[bridge] pollForToken: failed to parse 200 response as JSON:", parseErr);
+          return undefined;
+        }
       }
       if (res.status !== 202) return undefined;
     } catch (err: unknown) {
-      // AbortError = our timeout fired
-      if (err instanceof DOMException && err.name === "AbortError") {
+      const isAbort = (err instanceof DOMException && err.name === "AbortError") ||
+        (err instanceof Error && err.name === "AbortError");
+      const isNetworkError = err instanceof TypeError && err.message.toLowerCase().includes("fetch");
+      if (isAbort || isNetworkError) {
         continue;
       }
-      // SyntaxError = malformed JSON from res.json() — treat as transient
-      if (err instanceof SyntaxError) {
-        continue;
-      }
-      // TypeError with fetch-related message = network failure
-      if (err instanceof TypeError && /fetch/i.test(err.message)) {
-        continue;
-      }
-      console.error("[bridge] pollForToken unexpected error:", err);
+      console.error("[bridge] pollForToken: non-retryable error:", err);
       return undefined;
     }
   }
-  console.warn("[bridge] pollForToken exhausted all", maxAttempts, "attempts");
+  console.error(`[bridge] pollForToken: exhausted ${maxAttempts} attempts for nonce ${nonce}`);
   return undefined;
 }
 
@@ -210,7 +210,7 @@ export class TelnetSession {
   private cols = 80;
   private rows = 24;
   private terminalType: string | undefined;
-  private ansi = false;
+  private ansi = true;
   private negotiationDone = false;
   private negotiationTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -248,8 +248,8 @@ export class TelnetSession {
       }
     });
     this.socket.on("close", () => this.dispose());
-    this.socket.on("error", (err) => {
-      console.error(`[bridge] [${this.id}] socket error:`, err);
+    this.socket.on("error", (err: Error) => {
+      console.error(`[bridge] session ${this.id}: socket error from ${this.socket.remoteAddress ?? "unknown"}:`, err.stack ?? err.message);
       this.dispose();
     });
 
@@ -299,31 +299,44 @@ export class TelnetSession {
   // ─── Data handling ───────────────────────────────────────────────────
 
   private onData(chunk: Buffer): void {
-    const events = this.parser.feed(chunk);
+    let events: IacEvent[];
+    try {
+      events = this.parser.feed(chunk);
+    } catch (err: unknown) {
+      console.error(`[bridge] session ${this.id}: parser error; dropping connection:`, err);
+      this.dispose();
+      return;
+    }
 
     for (const event of events) {
-      switch (event.type) {
-        case "will":
-          this.handleWill(event.option);
-          break;
-        case "wont":
-          this.handleWont(event.option);
-          break;
-        case "do":
-          this.handleDo(event.option);
-          break;
-        case "dont":
-          this.handleDont(event.option);
-          break;
-        case "subneg":
-          this.handleSubneg(event.option, event.data);
-          break;
-        case "data":
-          this.handleUserData(event.data);
-          break;
-        case "nop":
-          // Ignore client NOPs
-          break;
+      try {
+        switch (event.type) {
+          case "will":
+            this.handleWill(event.option);
+            break;
+          case "wont":
+            this.handleWont(event.option);
+            break;
+          case "do":
+            this.handleDo(event.option);
+            break;
+          case "dont":
+            this.handleDont(event.option);
+            break;
+          case "subneg":
+            this.handleSubneg(event.option, event.data);
+            break;
+          case "data":
+            this.handleUserData(event.data);
+            break;
+          case "nop":
+            // Ignore client NOPs
+            break;
+        }
+      } catch (err: unknown) {
+        console.error(`[bridge] session ${this.id}: error handling telnet event ${event.type}:`, err);
+        this.dispose();
+        return;
       }
     }
   }
@@ -658,8 +671,8 @@ export class TelnetSession {
           // Connection established — no need to announce, the server
           // will send the room description
         },
-        onMessage: (muddown: string) => {
-          this.renderAndSend(muddown);
+        onMessage: (muddown: string, type: string) => {
+          this.renderAndSend(muddown, type);
         },
         onHint: (hint) => {
           // Render hint as a system message
@@ -687,7 +700,10 @@ export class TelnetSession {
             const httpBase = wsToHttpBase(this.config.gameServerUrl);
             const ticket = await fetchWsTicket(httpBase, this.sessionToken);
             if (!ticket) {
-              this.writeLine("\r\n[Warning] Could not refresh auth ticket. Reconnecting as guest.\r\n");
+              console.error(`[bridge] session ${this.id}: failed to refresh WS ticket; reconnecting as guest`);
+              if (!this.disposed) {
+                this.writeLine("\r\n[Warning] Could not refresh authentication — reconnecting as guest.\r\n");
+              }
             }
             return ticket;
           }
@@ -713,11 +729,17 @@ export class TelnetSession {
 
   // ─── Rendering ───────────────────────────────────────────────────────
 
-  private renderAndSend(muddown: string): void {
+  private renderAndSend(muddown: string, type: string): void {
     const opts = { cols: this.cols, linkMode: this.linkMode, ansi: this.ansi };
     const { text, links } = renderTerminal(muddown, opts);
 
-    this.activeLinks = links;
+    // Room messages always replace the link table (an empty array clears
+    // stale links from a previous room).  Non-room messages (system,
+    // narrative, combat, dialogue) only update when they carry links —
+    // a follow-up notification shouldn't wipe the current room's links.
+    if (type === "room" || links.length > 0) {
+      this.activeLinks = links;
+    }
 
     // Convert \n to \r\n for telnet
     const telnetText = text.replace(/(?<!\r)\n/g, "\r\n");
