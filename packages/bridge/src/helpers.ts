@@ -63,3 +63,27 @@ export function wsToHttpBase(wsUrl: string): string {
   if (wsUrl.startsWith("ws://")) return "http://" + wsUrl.slice(5).replace(/\/ws$/, "");
   return wsUrl;
 }
+
+// ─── TTYPE cycling ───────────────────────────────────────────────────────────
+
+/**
+ * Update the TTYPE cycle state given a newly received terminal type string.
+ * Returns whether the cycle is complete and the updated types array.
+ *
+ * RFC 1091: the client cycles through its terminal types in order; when it
+ * repeats a value already seen, the cycle is complete.
+ */
+export function updateTtypeCycle(
+  existing: string[],
+  incoming: string | undefined,
+): { done: boolean; types: string[] } {
+  if (!incoming) {
+    // Malformed TTYPE response — finish with what we have
+    return { done: true, types: existing };
+  }
+  if (existing.includes(incoming)) {
+    // Repeated value signals end of cycle
+    return { done: true, types: existing };
+  }
+  return { done: false, types: [...existing, incoming] };
+}

@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+
+// Must precede all imports — sets chalk color level across every chalk instance
+// in the process (supports-color reads this env var at module load time).
+process.env.FORCE_COLOR ??= "1";
+
 /**
  * MUDdown Telnet Bridge
  *
@@ -32,7 +37,6 @@ import {
 } from "@muddown/client";
 import type { LinkMode, NumberedLink } from "@muddown/client";
 import { CHARACTER_CLASSES } from "@muddown/shared";
-
 import {
   TelnetParser,
   iacDo,
@@ -43,18 +47,19 @@ import {
   requestTtype,
   parseNaws,
   parseTtype,
-  supportsAnsi,
+  detectColorLevel,
   OPT_ECHO,
   OPT_SGA,
   OPT_TTYPE,
   OPT_NAWS,
 } from "./telnet.js";
-import type { IacEvent } from "./telnet.js";
+import type { IacEvent, ColorLevel } from "./telnet.js";
 
 import {
   loadConfig,
   getBanner,
   wsToHttpBase,
+  updateTtypeCycle,
 } from "./helpers.js";
 import type { BridgeConfig } from "./helpers.js";
 
@@ -231,8 +236,9 @@ export class TelnetSession {
   // Telnet negotiation state
   private cols = 80;
   private rows = 24;
-  private terminalType: string | undefined;
+  private terminalTypes: string[] = [];
   private ansi = true;
+  private colorLevel: ColorLevel = 1;
   private negotiationDone = false;
   private negotiationTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -303,8 +309,9 @@ export class TelnetSession {
     this.negotiationDone = true;
     clearTimeout(this.negotiationTimer);
 
-    // Determine ANSI from terminal type
-    this.ansi = supportsAnsi(this.terminalType);
+    // Determine color level from all collected terminal types
+    this.colorLevel = detectColorLevel(this.terminalTypes);
+    this.ansi = this.colorLevel > 0;
 
     // Send banner
     this.writeLine(getBanner(this.config.serverName));
@@ -421,12 +428,13 @@ export class TelnetSession {
       }
       case OPT_TTYPE: {
         const ttype = parseTtype(data);
-        if (ttype) {
-          this.terminalType = ttype;
-          this.ansi = supportsAnsi(ttype);
+        const { done, types } = updateTtypeCycle(this.terminalTypes, ttype);
+        this.terminalTypes = types;
+        if (done) {
+          if (!this.negotiationDone) this.finishNegotiation();
+        } else {
+          this.write(requestTtype());
         }
-        // TTYPE is often the last negotiation step
-        if (!this.negotiationDone) this.finishNegotiation();
         break;
       }
     }
@@ -752,7 +760,7 @@ export class TelnetSession {
   // ─── Rendering ───────────────────────────────────────────────────────
 
   private renderAndSend(muddown: string, type: string): void {
-    const opts = { cols: this.cols, linkMode: this.linkMode, ansi: this.ansi };
+    const opts = { cols: this.cols, linkMode: this.linkMode, ansi: this.ansi, colorLevel: this.colorLevel };
     const { text, links } = renderTerminal(muddown, opts);
 
     // Room messages always replace the link table (an empty array clears

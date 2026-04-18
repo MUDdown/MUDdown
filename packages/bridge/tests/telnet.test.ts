@@ -11,6 +11,7 @@ import {
   parseNaws,
   parseTtype,
   supportsAnsi,
+  detectColorLevel,
   IAC,
   SE,
   SB,
@@ -409,5 +410,61 @@ describe("supportsAnsi", () => {
     expect(supportsAnsi("ZMUD")).toBe(true);
     expect(supportsAnsi("TINTIN++")).toBe(true);
     expect(supportsAnsi("TINYFUGUE")).toBe(true);
+  });
+});
+
+// ─── Color Level Detection ──────────────────────────────────────────────────
+
+describe("detectColorLevel", () => {
+  it("returns 3 for ANSI-TRUECOLOR in TTYPE cycle", () => {
+    expect(detectColorLevel(["MUDLET", "ANSI-TRUECOLOR"])).toBe(3);
+  });
+
+  it("returns 3 for 24BIT indicator", () => {
+    expect(detectColorLevel(["XTERM", "XTERM-24BIT"])).toBe(3);
+  });
+
+  it("returns 3 for DIRECT indicator", () => {
+    expect(detectColorLevel(["XTERM-DIRECT"])).toBe(3);
+  });
+
+  it("returns 2 for 256COLOR in TTYPE cycle", () => {
+    expect(detectColorLevel(["MUDLET", "XTERM-256COLOR"])).toBe(2);
+  });
+
+  it("returns 1 for basic ANSI terminal", () => {
+    expect(detectColorLevel(["VT100"])).toBe(1);
+  });
+
+  it("returns 1 for known MUD client without color suffix", () => {
+    expect(detectColorLevel(["MUDLET"])).toBe(1);
+  });
+
+  it("returns 0 for empty list", () => {
+    expect(detectColorLevel([])).toBe(0);
+  });
+
+  it("returns 0 for unknown terminal", () => {
+    expect(detectColorLevel(["DUMB"])).toBe(0);
+  });
+
+  it("picks highest level across multiple types", () => {
+    expect(detectColorLevel(["VT100", "XTERM-256COLOR"])).toBe(2);
+  });
+
+  it("is case-insensitive", () => {
+    expect(detectColorLevel(["mudlet", "ansi-truecolor"])).toBe(3);
+  });
+
+  it("returns 1 for ANSI terminal type", () => {
+    expect(detectColorLevel(["ANSI"])).toBe(1);
+  });
+
+  it("returns 3 when only truecolor type is present", () => {
+    expect(detectColorLevel(["ANSI-TRUECOLOR"])).toBe(3);
+  });
+
+  it("returns 2 for 256color without truecolor", () => {
+    expect(detectColorLevel(["XTERM-256COLOR"])).toBe(2);
   });
 });

@@ -85,15 +85,6 @@ export function requestTtype(): Buffer {
 
 // ─── Negotiation state machine ───────────────────────────────────────────────
 
-export interface NegotiationResult {
-  /** Terminal width from NAWS, or undefined if not negotiated. */
-  cols?: number;
-  /** Terminal height from NAWS, or undefined if not negotiated. */
-  rows?: number;
-  /** Terminal type from TTYPE, or undefined if not negotiated. */
-  terminalType?: string;
-}
-
 /** Parsed IAC event from the telnet stream. */
 export type IacEvent =
   | { type: "will"; option: number }
@@ -292,4 +283,50 @@ export function supportsAnsi(terminalType: string | undefined): boolean {
   const upper = terminalType.toUpperCase();
   if (ANSI_TERMINALS.has(upper)) return true;
   return upper.includes("XTERM") || upper.includes("256COLOR") || upper.includes("ANSI");
+}
+
+/**
+ * Chalk color level: 0 = no color, 1 = basic 16, 2 = 256, 3 = TrueColor (16M).
+ */
+export type ColorLevel = 0 | 1 | 2 | 3;
+
+/**
+ * Determine the best chalk color level from a list of terminal type strings
+ * collected via RFC 1091 TTYPE cycling.
+ *
+ * The TTYPE cycle typically yields:
+ *   1. Client name (e.g. "MUDLET")
+ *   2. Terminal emulation type (e.g. "ANSI-TRUECOLOR")
+ *   3. Repeat of (2) signaling end of cycle
+ *
+ * We examine all collected types and return the highest level matched:
+ *   - 3 (TrueColor) for "TRUECOLOR", "24BIT", or "DIRECT"
+ *   - 2 (256-color) for "256COLOR"
+ *   - 1 (basic 16) for any other known ANSI terminal
+ *   - 0 (no color) if nothing suggests ANSI support
+ */
+export function detectColorLevel(terminalTypes: string[]): ColorLevel {
+  let level: ColorLevel = 0;
+
+  for (const raw of terminalTypes) {
+    const upper = raw.toUpperCase();
+
+    // TrueColor indicators
+    if (upper.includes("TRUECOLOR") || upper.includes("24BIT") || upper.includes("DIRECT")) {
+      return 3;
+    }
+
+    // 256-color
+    if (upper.includes("256COLOR")) {
+      level = Math.max(level, 2) as ColorLevel;
+      continue;
+    }
+
+    // Basic ANSI
+    if (ANSI_TERMINALS.has(upper) || upper.includes("XTERM") || upper.includes("ANSI")) {
+      level = Math.max(level, 1) as ColorLevel;
+    }
+  }
+
+  return level;
 }

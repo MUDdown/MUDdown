@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { loadConfig, getBanner, wsToHttpBase } from "../src/helpers.js";
+import { loadConfig, getBanner, wsToHttpBase, updateTtypeCycle } from "../src/helpers.js";
 
 // ─── wsToHttpBase ────────────────────────────────────────────────────────────
 
@@ -129,5 +129,40 @@ describe("loadConfig", () => {
   it("falls back to defaults for non-numeric TELNET_KEEPALIVE_MS", () => {
     process.env.TELNET_KEEPALIVE_MS = "";
     expect(loadConfig().keepaliveMs).toBe(30000);
+  });
+});
+
+// ─── updateTtypeCycle ────────────────────────────────────────────────────────
+
+describe("updateTtypeCycle", () => {
+  it("returns done:true with existing types when incoming is undefined", () => {
+    const result = updateTtypeCycle(["XTERM"], undefined);
+    expect(result).toEqual({ done: true, types: ["XTERM"] });
+  });
+
+  it("returns done:true when incoming repeats a value already seen", () => {
+    const result = updateTtypeCycle(["MUDLET", "XTERM-256COLOR"], "MUDLET");
+    expect(result).toEqual({ done: true, types: ["MUDLET", "XTERM-256COLOR"] });
+  });
+
+  it("returns done:false and appends a new type", () => {
+    const result = updateTtypeCycle(["MUDLET"], "XTERM-256COLOR");
+    expect(result).toEqual({ done: false, types: ["MUDLET", "XTERM-256COLOR"] });
+  });
+
+  it("returns done:false for the first type on an empty list", () => {
+    const result = updateTtypeCycle([], "MUDLET");
+    expect(result).toEqual({ done: false, types: ["MUDLET"] });
+  });
+
+  it("returns done:true for empty list with undefined incoming", () => {
+    const result = updateTtypeCycle([], undefined);
+    expect(result).toEqual({ done: true, types: [] });
+  });
+
+  it("does not mutate the existing array", () => {
+    const existing = ["MUDLET"];
+    updateTtypeCycle(existing, "XTERM-256COLOR");
+    expect(existing).toEqual(["MUDLET"]);
   });
 });

@@ -257,6 +257,15 @@ interface TerminalRenderOptionsBase {
   cols?: number;
   /** Link rendering mode. Defaults to `"osc8"`. */
   linkMode?: LinkMode;
+  /**
+   * Desired chalk color level: 0 = none, 1 = basic 16, 2 = 256, 3 = TrueColor.
+   * Currently informational — the process-level `FORCE_COLOR` env var controls
+   * the chalk instance used by the theme closures.  Callers can set this to
+   * express the detected client capability for future per-session theming.
+   *
+   * TODO: implement per-session theming — see #42
+   */
+  colorLevel?: 0 | 1 | 2 | 3;
 }
 
 interface AnsiRenderOptions extends TerminalRenderOptionsBase {
