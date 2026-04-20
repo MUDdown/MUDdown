@@ -16,6 +16,17 @@ export interface BridgeConfig {
   tlsKey: string;
   /** Game server WebSocket URL (default wss://muddown.com/ws). */
   gameServerUrl: string;
+  /**
+   * Public HTTP base URL shown to the user for browser-based login
+   * (e.g. "https://muddown.com"). When the bridge runs on the same host
+   * as the game server and uses `ws://localhost:3300/ws` internally,
+   * set this to the publicly reachable URL so remote telnet clients
+   * can open the login link in their browser.
+   *
+   * When unset, the bridge derives a base URL from `gameServerUrl`,
+   * which is only correct when `gameServerUrl` is itself public.
+   */
+  publicBaseUrl?: string;
   /** Keepalive interval in ms (default 30000). */
   keepaliveMs: number;
   /** Bridge server name shown in banner. */
@@ -30,6 +41,7 @@ export function loadConfig(): BridgeConfig {
     tlsCert: process.env.TELNET_TLS_CERT ?? "",
     tlsKey: process.env.TELNET_TLS_KEY ?? "",
     gameServerUrl: process.env.GAME_SERVER_URL ?? "wss://muddown.com/ws",
+    publicBaseUrl: process.env.PUBLIC_BASE_URL?.replace(/\/$/, "") || undefined,
     keepaliveMs: Number.isNaN(keepaliveMs) ? 30000 : keepaliveMs,
     serverName: process.env.BRIDGE_SERVER_NAME ?? "MUDdown",
   };

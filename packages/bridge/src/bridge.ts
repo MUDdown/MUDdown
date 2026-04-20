@@ -579,7 +579,8 @@ export class TelnetSession {
     }
 
     const nonce = randomUUID();
-    const loginUrl = `${httpBase}/auth/login?provider=${encodeURIComponent(provider)}&login_nonce=${encodeURIComponent(nonce)}`;
+    const publicBase = this.config.publicBaseUrl ?? httpBase;
+    const loginUrl = `${publicBase}/auth/login?provider=${encodeURIComponent(provider)}&login_nonce=${encodeURIComponent(nonce)}`;
 
     this.writeLine("\r\nOpen this URL in your browser to log in:\r\n");
     this.writeLine(`  ${loginUrl}\r\n`);
@@ -910,6 +911,9 @@ export function main(): void {
 
   console.log("MUDdown Telnet Bridge (TLS)");
   console.log(`  Game server: ${config.gameServerUrl}`);
+  if (config.publicBaseUrl) {
+    console.log(`  Public URL:  ${config.publicBaseUrl}`);
+  }
   console.log(`  Port:        ${config.port}`);
 
   const bridge = new BridgeServer(config);

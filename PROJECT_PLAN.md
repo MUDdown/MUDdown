@@ -285,7 +285,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
   - [x] Connection banner: MUDdown ASCII art, server name, version, login instructions on connect
   - [x] Local bridge commands: `quit`/`exit`, `login`, `linkmode`, `legend`
   - [x] Rate limiting: inherited from WebSocket session (bridge proxies through game server's `TokenBucket`)
-  - [x] Configuration: `.env` support (`BRIDGE_PORT`, `TELNET_TLS_CERT`, `TELNET_TLS_KEY`, `GAME_SERVER_URL`)
+  - [x] Configuration: `.env` support (`BRIDGE_PORT`, `TELNET_TLS_CERT`, `TELNET_TLS_KEY`, `GAME_SERVER_URL`, `PUBLIC_BASE_URL`)
   - [x] Deployment: systemd unit file (`muddown-bridge.service`), firewall rules documentation
   - [x] Unit tests: telnet negotiation, rendering integration, auth flow, connection lifecycle
   - [x] Wiki page: `Telnet-Bridge.md` with connection instructions, supported clients, feature comparison

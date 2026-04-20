@@ -89,6 +89,7 @@ describe("loadConfig", () => {
     expect(config.tlsCert).toBe("");
     expect(config.tlsKey).toBe("");
     expect(config.gameServerUrl).toBe("wss://muddown.com/ws");
+    expect(config.publicBaseUrl).toBeUndefined();
     expect(config.keepaliveMs).toBe(30000);
     expect(config.serverName).toBe("MUDdown");
   });
@@ -119,6 +120,21 @@ describe("loadConfig", () => {
   it("reads BRIDGE_SERVER_NAME", () => {
     process.env.BRIDGE_SERVER_NAME = "MyMUD";
     expect(loadConfig().serverName).toBe("MyMUD");
+  });
+
+  it("reads PUBLIC_BASE_URL", () => {
+    process.env.PUBLIC_BASE_URL = "https://muddown.com";
+    expect(loadConfig().publicBaseUrl).toBe("https://muddown.com");
+  });
+
+  it("strips trailing slash from PUBLIC_BASE_URL", () => {
+    process.env.PUBLIC_BASE_URL = "https://muddown.com/";
+    expect(loadConfig().publicBaseUrl).toBe("https://muddown.com");
+  });
+
+  it("treats empty PUBLIC_BASE_URL as unset", () => {
+    process.env.PUBLIC_BASE_URL = "";
+    expect(loadConfig().publicBaseUrl).toBeUndefined();
   });
 
   it("falls back to defaults for non-numeric BRIDGE_PORT", () => {
