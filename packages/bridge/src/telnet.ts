@@ -50,19 +50,29 @@ export const TTYPE_IS = 0;
 export const TTYPE_SEND = 1;
 
 // NEW-ENVIRON sub-negotiation codes — RFC 1572
-/** NEW-ENVIRON IS (client sends variable values). */
+//
+// Note: RFC 1572 intentionally reuses byte values across two positional
+// contexts, so the constants below overlap by design:
+//   * The *leading type byte* of a sub-negotiation — IS=0, SEND=1, INFO=2.
+//   * The *field-type bytes* inside the payload — VAR=0, VALUE=1, ESC=2,
+//     USERVAR=3.
+// These are not interchangeable even though some share a numeric value.
+// Always use the constant that matches the position you are encoding or
+// decoding; do not substitute one group for the other.
+
+/** NEW-ENVIRON IS (client sends variable values). Leading byte. */
 export const NEW_ENVIRON_IS = 0;
-/** NEW-ENVIRON SEND (server requests variable values). */
+/** NEW-ENVIRON SEND (server requests variable values). Leading byte. */
 export const NEW_ENVIRON_SEND = 1;
-/** NEW-ENVIRON INFO (client volunteers updated variable values). */
+/** NEW-ENVIRON INFO (client volunteers updated variable values). Leading byte. */
 export const NEW_ENVIRON_INFO = 2;
-/** NEW-ENVIRON VAR — well-known variable (USER, JOB, etc.). */
+/** NEW-ENVIRON VAR — well-known variable (USER, JOB, etc.). Field-type byte. */
 export const NEW_ENVIRON_VAR = 0;
-/** NEW-ENVIRON VALUE — prefix for a variable's value. */
+/** NEW-ENVIRON VALUE — prefix for a variable's value. Field-type byte. */
 export const NEW_ENVIRON_VALUE = 1;
-/** NEW-ENVIRON ESC — escape byte for embedded control codes. */
+/** NEW-ENVIRON ESC — escape byte for embedded control codes. Field-type byte. */
 export const NEW_ENVIRON_ESC = 2;
-/** NEW-ENVIRON USERVAR — application-defined variable. */
+/** NEW-ENVIRON USERVAR — application-defined variable. Field-type byte. */
 export const NEW_ENVIRON_USERVAR = 3;
 
 // ─── Command builders ────────────────────────────────────────────────────────
@@ -87,9 +97,21 @@ export function iacDont(option: number): Buffer {
   return Buffer.from([IAC, DONT, option]);
 }
 
-/** Build a sub-negotiation sequence: IAC SB <option> <...payload> IAC SE. */
+/**
+ * Build a sub-negotiation sequence: IAC SB <option> <...payload> IAC SE.
+ *
+ * Per RFC 854, any `IAC` (0xFF) byte appearing inside the payload must be
+ * doubled so the remote parser does not interpret it as the start of an
+ * IAC sequence. All current callers pass printable ASCII, but doubling
+ * here hardens the builder against future callers that pass 8-bit data.
+ */
 export function iacSub(option: number, ...payload: number[]): Buffer {
-  return Buffer.from([IAC, SB, option, ...payload, IAC, SE]);
+  const escaped: number[] = [];
+  for (const b of payload) {
+    escaped.push(b);
+    if (b === IAC) escaped.push(IAC);
+  }
+  return Buffer.from([IAC, SB, option, ...escaped, IAC, SE]);
 }
 
 /** Build an IAC NOP (keepalive). */
@@ -109,7 +131,9 @@ export function requestTtype(): Buffer {
  * to send all variables it knows about, which is what we want for Mudlet's
  * OSC_HYPERLINKS capability uservars (future-proof against new cap names).
  *
- * If `uservars` is provided, only those specific USERVARs are requested.
+ * If `uservars` is non-empty, only those specific USERVARs are requested.
+ * An empty or omitted `uservars` array is treated identically (both produce
+ * a bare SEND and ask for all variables).
  *
  * USERVAR names must be printable 7-bit ASCII (codepoints 0x20–0x7E) and
  * must not contain any NEW-ENVIRON control bytes (VAR=0, VALUE=1, ESC=2,
@@ -205,7 +229,10 @@ export function parseNewEnviron(data: Buffer): ParsedNewEnviron | undefined {
       nameBytes.push(b);
       i++;
     }
-    const name = Buffer.from(nameBytes).toString("ascii");
+    // Use `latin1` (byte-preserving) instead of `ascii`, which masks the
+    // high bit and would corrupt any 8-bit byte appearing in NEW-ENVIRON
+    // payloads after IAC unescaping.
+    const name = Buffer.from(nameBytes).toString("latin1");
 
     let value = "";
     if (i < data.length && data[i] === NEW_ENVIRON_VALUE) {
@@ -227,7 +254,7 @@ export function parseNewEnviron(data: Buffer): ParsedNewEnviron | undefined {
         valueBytes.push(b);
         i++;
       }
-      value = Buffer.from(valueBytes).toString("ascii");
+      value = Buffer.from(valueBytes).toString("latin1");
     }
 
     (type === NEW_ENVIRON_USERVAR ? uservars : vars).set(name, value);

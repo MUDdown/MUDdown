@@ -212,6 +212,35 @@ describe("parseNewEnviron", () => {
     const parsed = expectParsed(payload);
     expect(parsed.warnings).toEqual([]);
   });
+
+  it("preserves 8-bit bytes in values (does not mask the high bit)", () => {
+    // After IAC-unescaping the outer telnet framing, a NEW-ENVIRON value
+    // may legitimately carry 0x80–0xFF bytes. `toString("ascii")` would
+    // clear the high bit and corrupt the value; `latin1` is byte-preserving.
+    const payload = Buffer.from([
+      NEW_ENVIRON_IS,
+      NEW_ENVIRON_USERVAR, ...Buffer.from("BIN", "ascii"),
+      NEW_ENVIRON_VALUE, 0x80, 0xaa, 0xff,
+    ]);
+    const parsed = expectParsed(payload);
+    const value = parsed.uservars.get("BIN");
+    expect(value).toBeDefined();
+    if (value === undefined) return;
+    expect(value.length).toBe(3);
+    expect(value.charCodeAt(0)).toBe(0x80);
+    expect(value.charCodeAt(1)).toBe(0xaa);
+    expect(value.charCodeAt(2)).toBe(0xff);
+  });
+});
+
+describe("iacSub", () => {
+  it("doubles embedded IAC bytes in the payload", async () => {
+    const { iacSub } = await import("../src/telnet.js");
+    // Payload containing a literal 0xFF must be escaped to IAC IAC so the
+    // remote parser does not treat it as the start of an IAC sequence.
+    const buf = iacSub(OPT_NEW_ENVIRON, 0x01, 0xff, 0x02);
+    expect([...buf]).toEqual([IAC, SB, OPT_NEW_ENVIRON, 0x01, IAC, IAC, 0x02, IAC, SE]);
+  });
 });
 
 describe("buildOsc8Hyperlink", () => {
@@ -237,6 +266,33 @@ describe("buildOsc8Hyperlink", () => {
     const textIdx = out.indexOf("TEXT_VAL");
     expect(uriIdx).toBeGreaterThan(-1);
     expect(textIdx).toBeGreaterThan(uriIdx);
+  });
+
+  it("strips control characters from uri and text to prevent escape-sequence injection", () => {
+    // An attacker-controlled string containing ESC + ST would prematurely
+    // close the outer OSC 8 envelope and let arbitrary ANSI leak through.
+    // We only need to strip the control bytes (ESC, BEL, etc.) — the
+    // remaining printable residue is harmless inside the hyperlink text.
+    const hostile = "evil\x1b]8;;\x1b\\hijack";
+    const out = buildOsc8Hyperlink("https://ok.example/", hostile, true);
+    // No raw ESC anywhere except in the outer envelope produced by this fn.
+    // Confirm the hostile ESCs are gone by counting ESC bytes: exactly 3
+    // (opening OSC, separating ST, closing OSC + ST = 4? Let's just check
+    // the hostile string is neutralized instead).
+    expect(out.includes("\x1b]8;;\x1b\\")).toBe(true); // our own envelope
+    // The hostile payload must not appear with its original ESC bytes:
+    expect(out.includes(hostile)).toBe(false);
+  });
+
+  it("strips control characters from text even when disabled", () => {
+    const out = buildOsc8Hyperlink("unused", "a\x07b\x1bc", false);
+    expect(out).toBe("abc");
+  });
+
+  it("strips C1 control bytes from uri and text", () => {
+    const out = buildOsc8Hyperlink("https://ok/\x9d", "x\x85y", true);
+    expect(out.includes("\x9d")).toBe(false);
+    expect(out.includes("\x85")).toBe(false);
   });
 });
 

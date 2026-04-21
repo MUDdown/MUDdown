@@ -103,6 +103,17 @@ export function updateTtypeCycle(
 // ─── OSC 8 ──────────────────────────────────────────────────────────────────
 
 /**
+ * Strip C0/C1 control bytes and DEL from a string. Prevents injection of
+ * embedded escape sequences (notably `ESC`, BEL, and the OSC/ST terminators)
+ * into an outer OSC 8 envelope, which would break terminal output or allow
+ * attacker-controlled ANSI sequences to leak through the hyperlink wrapper.
+ */
+function stripControlChars(s: string): string {
+  // U+0000–U+001F (C0) + U+007F (DEL) + U+0080–U+009F (C1)
+  return s.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
+}
+
+/**
  * Wrap `text` in an OSC 8 hyperlink pointing at `uri` when `enabled` is true;
  * otherwise return `text` unchanged.
  *
@@ -111,12 +122,18 @@ export function updateTtypeCycle(
  * Parameter order matches the OSC 8 wire layout (URI first, then text).
  * When `enabled` is false, returns a plain string so copy/paste still works
  * on clients that do not advertise `OSC_HYPERLINKS`.
+ *
+ * Both `uri` and `text` are sanitized of C0/C1 control bytes and DEL before
+ * being interpolated, so a caller cannot inject a premature ST terminator or
+ * nested escape sequence into the outer envelope.
  */
 export function buildOsc8Hyperlink(uri: string, text: string, enabled: boolean): string {
-  if (!enabled) return text;
+  const safeText = stripControlChars(text);
+  if (!enabled) return safeText;
+  const safeUri = stripControlChars(uri);
   const OSC = "\x1b]";
   const ST = "\x1b\\";
-  return `${OSC}8;;${uri}${ST}${text}${OSC}8;;${ST}`;
+  return `${OSC}8;;${safeUri}${ST}${safeText}${OSC}8;;${ST}`;
 }
 
 // ─── Capability interpretation ──────────────────────────────────────────────
