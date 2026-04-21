@@ -62,6 +62,7 @@ describe("loadConfig", () => {
     "TELNET_TLS_CERT",
     "TELNET_TLS_KEY",
     "GAME_SERVER_URL",
+    "PUBLIC_BASE_URL",
     "TELNET_KEEPALIVE_MS",
     "BRIDGE_SERVER_NAME",
   ];
