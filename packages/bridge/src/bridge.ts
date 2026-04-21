@@ -335,7 +335,7 @@ export class TelnetSession {
     this.colorLevel = detectColorLevel(this.terminalTypes);
     this.ansi = this.colorLevel > 0;
 
-    console.log(`[bridge] [${this.id}] negotiation complete: ttype=[${this.terminalTypes.join(", ")}], colorLevel=${this.colorLevel}, cols=${this.cols}, capabilities=[${[...this.capabilities].join(", ")}], effectiveLinkMode=${this.effectiveLinkMode}`);
+    console.log(`[bridge] [${this.id}] negotiation complete: ttype=[${this.terminalTypes.join(", ")}], colorLevel=${this.colorLevel}, cols=${this.cols}, capabilities=[${[...this.capabilities].map((c) => JSON.stringify(c)).join(", ")}], effectiveLinkMode=${this.effectiveLinkMode}`);
 
     // Send banner
     this.writeLine(getBanner(this.config.serverName));
@@ -497,12 +497,15 @@ export class TelnetSession {
         for (const [name, value] of parsed.uservars) {
           const enabled = isCapabilityEnabled(value);
           const had = this.capabilities.has(name);
+          // Log name via JSON.stringify so embedded control bytes in a
+          // client-supplied USERVAR name can't inject escape sequences
+          // or forge newlines in the operator console.
           if (enabled) {
             this.capabilities.add(name);
-            if (!had) console.log(`[bridge] [${this.id}] capability +${name} (value=${JSON.stringify(value)})`);
+            if (!had) console.log(`[bridge] [${this.id}] capability +${JSON.stringify(name)} (value=${JSON.stringify(value)})`);
           } else {
             this.capabilities.delete(name);
-            if (had) console.log(`[bridge] [${this.id}] capability -${name} (value=${JSON.stringify(value)})`);
+            if (had) console.log(`[bridge] [${this.id}] capability -${JSON.stringify(name)} (value=${JSON.stringify(value)})`);
           }
         }
         break;

@@ -240,6 +240,22 @@ describe("renderTerminal — link modes", () => {
     expect(text).toContain("\x1b]8;;https://muddown.com\x1b\\");
   });
 
+  it("osc8 and osc8-send modes strip control bytes from external URLs", () => {
+    // A URL containing ESC or BEL would close the OSC 8 envelope early.
+    // Both OSC 8 modes must sanitize the URL before interpolating,
+    // matching the game-link sanitizer behaviour.
+    const hostile = "- [site](https://example.com/\x1bevil\x07more?q=1)";
+    for (const mode of ["osc8", "osc8-send"] as const) {
+      const { text } = renderTerminal(hostile, { ansi: false, linkMode: mode });
+      // Raw control bytes must not appear anywhere in the output
+      expect(text.includes("\x1b" + "evil")).toBe(false);
+      expect(text.includes("\x07")).toBe(false);
+      // Sanitized URL should be interpolated (control bytes stripped,
+      // other characters preserved)
+      expect(text).toContain("\x1b]8;;https://example.com/evilmore?q=1\x1b\\");
+    }
+  });
+
   it("osc8-send mode strips C0/C1 bytes from the send: URI to prevent envelope injection", () => {
     // A hostile link whose target contains ESC would close the outer
     // OSC 8 envelope early. The renderer must strip control bytes from

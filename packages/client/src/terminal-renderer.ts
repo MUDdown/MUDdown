@@ -249,12 +249,18 @@ function terminalInlineFormat(
 
   // External URLs — render as OSC 8 hyperlinks whenever an OSC 8 mode
   // is active; fall back to `TEXT (URL)` for numbered/plain modes.
+  // Strip C0/C1/DEL from the URL before interpolating into the envelope
+  // so a control byte in the URL path can't close the OSC 8 sequence
+  // early (mirroring the game-link sanitizer in the osc8-send branch).
   result = result.replace(
     /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
-    (_m, text: string, url: string) =>
-      mode === "osc8" || mode === "osc8-send"
-        ? `\x1b]8;;${url}\x1b\\${linkStyle(text)}\x1b]8;;\x1b\\`
-        : `${text} ${dim(`(${url})`)}`,
+    (_m, text: string, url: string) => {
+      if (mode !== "osc8" && mode !== "osc8-send") {
+        return `${text} ${dim(`(${url})`)}`;
+      }
+      const safeUrl = url.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
+      return `\x1b]8;;${safeUrl}\x1b\\${linkStyle(text)}\x1b]8;;\x1b\\`;
+    },
   );
 
   // Relative / unknown links — plain text

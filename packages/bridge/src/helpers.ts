@@ -63,7 +63,7 @@ export function getBanner(serverName: string): string {
     "  Type 'help' for commands, 'login' to authenticate,",
     "  or just start playing as a guest.",
     "",
-    "  Type 'linkmode' to toggle numbered link shortcuts.",
+    "  Type 'linkmode' to cycle link rendering: auto (capability-derived) → plain (TEXT command) → numbered (TEXT [N] shortcuts) → osc8-send (clickable for Mudlet/FADO/MUDFORGE) → auto.",
     "",
   ].join("\r\n");
 }
