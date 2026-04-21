@@ -99,3 +99,37 @@ export function updateTtypeCycle(
   }
   return { done: false, types: [...existing, incoming] };
 }
+
+// ─── OSC 8 ──────────────────────────────────────────────────────────────────
+
+/**
+ * Wrap `text` in an OSC 8 hyperlink pointing at `uri` when `enabled` is true;
+ * otherwise return `text` unchanged.
+ *
+ * Wire format: `ESC ] 8 ; ; URI ESC \ TEXT ESC ] 8 ; ; ESC \`
+ *
+ * Parameter order matches the OSC 8 wire layout (URI first, then text).
+ * When `enabled` is false, returns a plain string so copy/paste still works
+ * on clients that do not advertise `OSC_HYPERLINKS`.
+ */
+export function buildOsc8Hyperlink(uri: string, text: string, enabled: boolean): string {
+  if (!enabled) return text;
+  const OSC = "\x1b]";
+  const ST = "\x1b\\";
+  return `${OSC}8;;${uri}${ST}${text}${OSC}8;;${ST}`;
+}
+
+// ─── Capability interpretation ──────────────────────────────────────────────
+
+/**
+ * Interpret a NEW-ENVIRON USERVAR value as a boolean capability flag.
+ *
+ * Mudlet advertises OSC 8 capabilities with values like "1", "true", or an
+ * empty string (presence-only). Treat those as enabled; treat "0", "false",
+ * and any other explicit value as disabled.
+ */
+export function isCapabilityEnabled(value: string): boolean {
+  if (value === "") return true;
+  const lower = value.toLowerCase();
+  return lower === "1" || lower === "true";
+}

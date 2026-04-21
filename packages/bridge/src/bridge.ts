@@ -56,6 +56,8 @@ import {
   getBanner,
   wsToHttpBase,
   updateTtypeCycle,
+  buildOsc8Hyperlink,
+  isCapabilityEnabled,
 } from "./helpers.js";
 import type { BridgeConfig } from "./helpers.js";
 
@@ -405,6 +407,14 @@ export class TelnetSession {
     if (option === OPT_TTYPE) {
       // No TTYPE — finish negotiation if NAWS already came or timed out
       if (!this.negotiationDone) this.finishNegotiation();
+    } else if (option === OPT_NEW_ENVIRON) {
+      // Client revoked (or refused) NEW-ENVIRON. Drop any advertised
+      // capabilities so we don't keep sending OSC 8 sequences to a
+      // client that has opted out.
+      if (this.capabilities.size > 0) {
+        console.log(`[bridge] [${this.id}] client sent WONT NEW-ENVIRON; clearing capabilities`);
+        this.capabilities.clear();
+      }
     }
   }
 
@@ -458,12 +468,21 @@ export class TelnetSession {
       }
       case OPT_NEW_ENVIRON: {
         const parsed = parseNewEnviron(data);
-        if (!parsed) break;
+        if (!parsed) {
+          console.warn(`[bridge] [${this.id}] ignoring malformed NEW-ENVIRON sub-negotiation (len=${data.length}, first=0x${data[0]?.toString(16) ?? "??"})`);
+          break;
+        }
+        for (const warning of parsed.warnings) {
+          console.warn(`[bridge] [${this.id}] NEW-ENVIRON: ${warning}`);
+        }
+        if (this.negotiationDone) {
+          console.log(`[bridge] [${this.id}] NEW-ENVIRON arrived after negotiation timeout; capabilities still accepted`);
+        }
         // Mudlet advertises OSC 8 capability tiers as USERVARs with a
-        // truthy value.  Accept "1", "true", or any non-"0" value.
+        // truthy value ("", "1", "true"). Any other explicit value
+        // (e.g. "0") means the capability is disabled.
         for (const [name, value] of parsed.uservars) {
-          const enabled = value === "" || value === "1" || value.toLowerCase() === "true";
-          if (enabled) {
+          if (isCapabilityEnabled(value)) {
             this.capabilities.add(name);
           } else {
             this.capabilities.delete(name);
@@ -621,8 +640,9 @@ export class TelnetSession {
     // If the client advertises OSC 8 hyperlink support via NEW-ENVIRON,
     // render the URL as a clickable hyperlink.  Clients without the cap
     // see the bare URL (copy/paste friendly).
+    const hyperlinkEnabled = this.capabilities.has("OSC_HYPERLINKS");
     this.writeLine("\r\nOpen this URL in your browser to log in:\r\n");
-    this.writeLine(`  ${this.renderHyperlink(loginUrl, loginUrl)}\r\n`);
+    this.writeLine(`  ${buildOsc8Hyperlink(loginUrl, loginUrl, hyperlinkEnabled)}\r\n`);
     this.writeLine("Waiting for login (up to 2 minutes)...");
 
     const sessionToken = await pollForToken(httpBase, nonce, 60, 2000);
@@ -796,22 +816,6 @@ export class TelnetSession {
   }
 
   // ─── Rendering ───────────────────────────────────────────────────────
-
-  /**
-   * Wrap `text` in an OSC 8 hyperlink pointing at `uri` if the client
-   * advertised `OSC_HYPERLINKS` via NEW-ENVIRON; otherwise return the
-   * plain text so copy/paste still works on non-capable clients.
-   *
-   * Format: `ESC ] 8 ; ; URI ESC \ TEXT ESC ] 8 ; ; ESC \`
-   */
-  private renderHyperlink(text: string, uri: string): string {
-    if (!this.capabilities.has("OSC_HYPERLINKS")) {
-      return text;
-    }
-    const OSC = "\x1b]";
-    const ST = "\x1b\\";
-    return `${OSC}8;;${uri}${ST}${text}${OSC}8;;${ST}`;
-  }
 
   private renderAndSend(muddown: string, type: string): void {
     const opts = { cols: this.cols, linkMode: this.linkMode, ansi: this.ansi, colorLevel: this.colorLevel };

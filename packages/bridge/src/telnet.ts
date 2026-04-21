@@ -110,13 +110,28 @@ export function requestTtype(): Buffer {
  * OSC_HYPERLINKS capability uservars (future-proof against new cap names).
  *
  * If `uservars` is provided, only those specific USERVARs are requested.
+ *
+ * USERVAR names must be printable 7-bit ASCII (codepoints 0x20–0x7E) and
+ * must not contain any NEW-ENVIRON control bytes (VAR=0, VALUE=1, ESC=2,
+ * USERVAR=3). Callers passing non-ASCII or control characters will cause
+ * this function to throw rather than silently truncate the name on the
+ * wire — ASCII-only is an RFC 1572 §3 requirement for interoperability.
+ *
+ * @throws {RangeError} if any name contains a non-ASCII or control byte.
  */
 export function requestNewEnviron(uservars: string[] = []): Buffer {
   const parts: number[] = [NEW_ENVIRON_SEND];
   for (const name of uservars) {
     parts.push(NEW_ENVIRON_USERVAR);
     for (let i = 0; i < name.length; i++) {
-      parts.push(name.charCodeAt(i) & 0xff);
+      const code = name.charCodeAt(i);
+      if (code < 0x20 || code > 0x7e) {
+        throw new RangeError(
+          `requestNewEnviron: USERVAR name ${JSON.stringify(name)} ` +
+          `contains non-printable-ASCII byte 0x${code.toString(16)} at index ${i}`,
+        );
+      }
+      parts.push(code);
     }
   }
   return iacSub(OPT_NEW_ENVIRON, ...parts);
@@ -126,6 +141,13 @@ export function requestNewEnviron(uservars: string[] = []): Buffer {
 export interface ParsedNewEnviron {
   vars: Map<string, string>;
   uservars: Map<string, string>;
+  /**
+   * Non-fatal diagnostic messages produced during parsing (e.g. trailing
+   * ESC bytes on split telnet frames). Always present; empty array on a
+   * clean parse. Callers are responsible for logging these with whatever
+   * context (session id, remote address) they have available.
+   */
+  warnings: string[];
 }
 
 /**
@@ -133,9 +155,16 @@ export interface ParsedNewEnviron {
  *
  * Format: `<IS|INFO> [<VAR|USERVAR> <name> [VALUE <value>]]...`
  *
+ * The caller must pass the already-stripped sub-negotiation payload: bytes
+ * between `IAC SB NEW-ENVIRON` and `IAC SE`, with the leading option byte
+ * removed. Raw wire bytes will not parse correctly.
+ *
  * Returns `undefined` for payloads that do not begin with IS or INFO.
  * Malformed trailing bytes are tolerated: parsing stops and whatever pairs
- * were successfully extracted are returned.
+ * were successfully extracted are returned. A trailing `ESC` byte with no
+ * following byte is recorded as a string in `result.warnings` so the caller
+ * can log it with session context; the partially-parsed name or value is
+ * still included in the maps.
  */
 export function parseNewEnviron(data: Buffer): ParsedNewEnviron | undefined {
   if (data.length < 1) return undefined;
@@ -144,13 +173,14 @@ export function parseNewEnviron(data: Buffer): ParsedNewEnviron | undefined {
 
   const vars = new Map<string, string>();
   const uservars = new Map<string, string>();
+  const warnings: string[] = [];
 
   let i = 1;
   while (i < data.length) {
     const type = data[i];
     if (type !== NEW_ENVIRON_VAR && type !== NEW_ENVIRON_USERVAR) {
       // Unexpected byte — stop but return what we have
-      return { vars, uservars };
+      return { vars, uservars, warnings };
     }
     i++;
 
@@ -165,6 +195,10 @@ export function parseNewEnviron(data: Buffer): ParsedNewEnviron | undefined {
         if (i < data.length) {
           nameBytes.push(data[i]);
           i++;
+        } else {
+          // Truncated: ESC at end of buffer with no byte to escape.
+          // Likely a TCP frame split at a packet boundary.
+          warnings.push("trailing ESC in variable name; payload truncated");
         }
         continue;
       }
@@ -185,6 +219,8 @@ export function parseNewEnviron(data: Buffer): ParsedNewEnviron | undefined {
           if (i < data.length) {
             valueBytes.push(data[i]);
             i++;
+          } else {
+            warnings.push("trailing ESC in variable value; payload truncated");
           }
           continue;
         }
@@ -197,7 +233,7 @@ export function parseNewEnviron(data: Buffer): ParsedNewEnviron | undefined {
     (type === NEW_ENVIRON_USERVAR ? uservars : vars).set(name, value);
   }
 
-  return { vars, uservars };
+  return { vars, uservars, warnings };
 }
 
 // ─── Negotiation state machine ───────────────────────────────────────────────
