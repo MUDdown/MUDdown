@@ -7,6 +7,7 @@
  * - TTYPE (Terminal Type) — RFC 1091
  * - ECHO suppression — RFC 857
  * - SGA (Suppress Go Ahead) — RFC 858
+ * - NEW-ENVIRON — RFC 1572 (Mudlet OSC 8 capability advertisement)
  */
 
 // ─── IAC Command Bytes ───────────────────────────────────────────────────────
@@ -38,6 +39,8 @@ export const OPT_SGA = 3;
 export const OPT_TTYPE = 24;
 /** Negotiate About Window Size — RFC 1073. */
 export const OPT_NAWS = 31;
+/** NEW-ENVIRON — RFC 1572. Used by Mudlet to advertise OSC 8 support. */
+export const OPT_NEW_ENVIRON = 39;
 
 // ─── Sub-negotiation constants ───────────────────────────────────────────────
 
@@ -45,6 +48,32 @@ export const OPT_NAWS = 31;
 export const TTYPE_IS = 0;
 /** TTYPE SEND (server requests terminal type). */
 export const TTYPE_SEND = 1;
+
+// NEW-ENVIRON sub-negotiation codes — RFC 1572
+//
+// Note: RFC 1572 intentionally reuses byte values across two positional
+// contexts, so the constants below overlap by design:
+//   * The *leading type byte* of a sub-negotiation — IS=0, SEND=1, INFO=2.
+//   * The *field-type bytes* inside the payload — VAR=0, VALUE=1, ESC=2,
+//     USERVAR=3.
+// These are not interchangeable even though some share a numeric value.
+// Always use the constant that matches the position you are encoding or
+// decoding; do not substitute one group for the other.
+
+/** NEW-ENVIRON IS (client sends variable values). Leading byte. */
+export const NEW_ENVIRON_IS = 0;
+/** NEW-ENVIRON SEND (server requests variable values). Leading byte. */
+export const NEW_ENVIRON_SEND = 1;
+/** NEW-ENVIRON INFO (client volunteers updated variable values). Leading byte. */
+export const NEW_ENVIRON_INFO = 2;
+/** NEW-ENVIRON VAR — well-known variable (USER, JOB, etc.). Field-type byte. */
+export const NEW_ENVIRON_VAR = 0;
+/** NEW-ENVIRON VALUE — prefix for a variable's value. Field-type byte. */
+export const NEW_ENVIRON_VALUE = 1;
+/** NEW-ENVIRON ESC — escape byte for embedded control codes. Field-type byte. */
+export const NEW_ENVIRON_ESC = 2;
+/** NEW-ENVIRON USERVAR — application-defined variable. Field-type byte. */
+export const NEW_ENVIRON_USERVAR = 3;
 
 // ─── Command builders ────────────────────────────────────────────────────────
 
@@ -68,9 +97,21 @@ export function iacDont(option: number): Buffer {
   return Buffer.from([IAC, DONT, option]);
 }
 
-/** Build a sub-negotiation sequence: IAC SB <option> <...payload> IAC SE. */
+/**
+ * Build a sub-negotiation sequence: IAC SB <option> <...payload> IAC SE.
+ *
+ * Per RFC 854, any `IAC` (0xFF) byte appearing inside the payload must be
+ * doubled so the remote parser does not interpret it as the start of an
+ * IAC sequence. All current callers pass printable ASCII, but doubling
+ * here hardens the builder against future callers that pass 8-bit data.
+ */
 export function iacSub(option: number, ...payload: number[]): Buffer {
-  return Buffer.from([IAC, SB, option, ...payload, IAC, SE]);
+  const escaped: number[] = [];
+  for (const b of payload) {
+    escaped.push(b);
+    if (b === IAC) escaped.push(IAC);
+  }
+  return Buffer.from([IAC, SB, option, ...escaped, IAC, SE]);
 }
 
 /** Build an IAC NOP (keepalive). */
@@ -81,6 +122,145 @@ export function iacNop(): Buffer {
 /** Request TTYPE from client: IAC SB TTYPE SEND IAC SE. */
 export function requestTtype(): Buffer {
   return iacSub(OPT_TTYPE, TTYPE_SEND);
+}
+
+/**
+ * Build a NEW-ENVIRON SEND sub-negotiation requesting USERVAR values.
+ *
+ * Per RFC 1572, an empty request (SEND with no type/name) asks the client
+ * to send all variables it knows about, which is what we want for Mudlet's
+ * OSC_HYPERLINKS capability uservars (future-proof against new cap names).
+ *
+ * If `uservars` is non-empty, only those specific USERVARs are requested.
+ * An empty or omitted `uservars` array is treated identically (both produce
+ * a bare SEND and ask for all variables).
+ *
+ * USERVAR names must be printable 7-bit ASCII (codepoints 0x20–0x7E) and
+ * must not contain any NEW-ENVIRON control bytes (VAR=0, VALUE=1, ESC=2,
+ * USERVAR=3). Callers passing non-ASCII or control characters will cause
+ * this function to throw rather than silently truncate the name on the
+ * wire — ASCII-only is an RFC 1572 §3 requirement for interoperability.
+ *
+ * @throws {RangeError} if any name contains a non-ASCII or control byte.
+ */
+export function requestNewEnviron(uservars: string[] = []): Buffer {
+  const parts: number[] = [NEW_ENVIRON_SEND];
+  for (const name of uservars) {
+    parts.push(NEW_ENVIRON_USERVAR);
+    for (let i = 0; i < name.length; i++) {
+      const code = name.charCodeAt(i);
+      if (code < 0x20 || code > 0x7e) {
+        throw new RangeError(
+          `requestNewEnviron: USERVAR name ${JSON.stringify(name)} ` +
+          `contains non-printable-ASCII byte 0x${code.toString(16)} at index ${i}`,
+        );
+      }
+      parts.push(code);
+    }
+  }
+  return iacSub(OPT_NEW_ENVIRON, ...parts);
+}
+
+/** Parsed NEW-ENVIRON IS/INFO payload — separate maps for VARs and USERVARs. */
+export interface ParsedNewEnviron {
+  vars: Map<string, string>;
+  uservars: Map<string, string>;
+  /**
+   * Non-fatal diagnostic messages produced during parsing (e.g. trailing
+   * ESC bytes on split telnet frames). Always present; empty array on a
+   * clean parse. Callers are responsible for logging these with whatever
+   * context (session id, remote address) they have available.
+   */
+  warnings: string[];
+}
+
+/**
+ * Parse a NEW-ENVIRON IS or INFO sub-negotiation payload.
+ *
+ * Format: `<IS|INFO> [<VAR|USERVAR> <name> [VALUE <value>]]...`
+ *
+ * The caller must pass the already-stripped sub-negotiation payload: bytes
+ * between `IAC SB NEW-ENVIRON` and `IAC SE`, with the leading option byte
+ * removed. Raw wire bytes will not parse correctly.
+ *
+ * Returns `undefined` for payloads that do not begin with IS or INFO.
+ * Malformed trailing bytes are tolerated: parsing stops and whatever pairs
+ * were successfully extracted are returned. A trailing `ESC` byte with no
+ * following byte is recorded as a string in `result.warnings` so the caller
+ * can log it with session context; the partially-parsed name or value is
+ * still included in the maps.
+ */
+export function parseNewEnviron(data: Buffer): ParsedNewEnviron | undefined {
+  if (data.length < 1) return undefined;
+  const kind = data[0];
+  if (kind !== NEW_ENVIRON_IS && kind !== NEW_ENVIRON_INFO) return undefined;
+
+  const vars = new Map<string, string>();
+  const uservars = new Map<string, string>();
+  const warnings: string[] = [];
+
+  let i = 1;
+  while (i < data.length) {
+    const type = data[i];
+    if (type !== NEW_ENVIRON_VAR && type !== NEW_ENVIRON_USERVAR) {
+      // Unexpected byte — stop but return what we have
+      return { vars, uservars, warnings };
+    }
+    i++;
+
+    const nameBytes: number[] = [];
+    while (i < data.length) {
+      const b = data[i];
+      if (b === NEW_ENVIRON_VAR || b === NEW_ENVIRON_USERVAR || b === NEW_ENVIRON_VALUE) {
+        break;
+      }
+      if (b === NEW_ENVIRON_ESC) {
+        i++;
+        if (i < data.length) {
+          nameBytes.push(data[i]);
+          i++;
+        } else {
+          // Truncated: ESC at end of buffer with no byte to escape.
+          // Likely a TCP frame split at a packet boundary.
+          warnings.push("trailing ESC in variable name; payload truncated");
+        }
+        continue;
+      }
+      nameBytes.push(b);
+      i++;
+    }
+    // Use `latin1` (byte-preserving) instead of `ascii`, which masks the
+    // high bit and would corrupt any 8-bit byte appearing in NEW-ENVIRON
+    // payloads after IAC unescaping.
+    const name = Buffer.from(nameBytes).toString("latin1");
+
+    let value = "";
+    if (i < data.length && data[i] === NEW_ENVIRON_VALUE) {
+      i++;
+      const valueBytes: number[] = [];
+      while (i < data.length) {
+        const b = data[i];
+        if (b === NEW_ENVIRON_VAR || b === NEW_ENVIRON_USERVAR) break;
+        if (b === NEW_ENVIRON_ESC) {
+          i++;
+          if (i < data.length) {
+            valueBytes.push(data[i]);
+            i++;
+          } else {
+            warnings.push("trailing ESC in variable value; payload truncated");
+          }
+          continue;
+        }
+        valueBytes.push(b);
+        i++;
+      }
+      value = Buffer.from(valueBytes).toString("latin1");
+    }
+
+    (type === NEW_ENVIRON_USERVAR ? uservars : vars).set(name, value);
+  }
+
+  return { vars, uservars, warnings };
 }
 
 // ─── Negotiation state machine ───────────────────────────────────────────────

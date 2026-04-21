@@ -38,13 +38,16 @@ import {
   iacWont,
   iacNop,
   requestTtype,
+  requestNewEnviron,
   parseNaws,
   parseTtype,
+  parseNewEnviron,
   detectColorLevel,
   OPT_ECHO,
   OPT_SGA,
   OPT_TTYPE,
   OPT_NAWS,
+  OPT_NEW_ENVIRON,
 } from "./telnet.js";
 import type { IacEvent, ColorLevel } from "./telnet.js";
 
@@ -53,6 +56,8 @@ import {
   getBanner,
   wsToHttpBase,
   updateTtypeCycle,
+  buildOsc8Hyperlink,
+  isCapabilityEnabled,
 } from "./helpers.js";
 import type { BridgeConfig } from "./helpers.js";
 
@@ -235,6 +240,18 @@ export class TelnetSession {
   private negotiationDone = false;
   private negotiationTimer: ReturnType<typeof setTimeout> | undefined;
 
+  /**
+   * Client capabilities advertised via NEW-ENVIRON USERVARs.
+   * Populated from Mudlet's OSC_HYPERLINKS* uservars — see
+   * https://wiki.mudlet.org/w/Manual:OSC_8_Hyperlinks
+   *
+   * A USERVAR is considered "advertised" when the client sends it with
+   * a truthy value ("1", "true", or empty but present).  The sub-negotiation
+   * response `IAC SB NEW-ENVIRON IS USERVAR OSC_HYPERLINKS VALUE 1 ... IAC SE`
+   * is the baseline signal that OSC 8 hyperlinks are supported.
+   */
+  private capabilities = new Set<string>();
+
   // Link mode
   private linkMode: LinkMode = "plain";
 
@@ -281,12 +298,13 @@ export class TelnetSession {
   // ─── Telnet Negotiation ──────────────────────────────────────────────
 
   private negotiate(): void {
-    // Request NAWS, TTYPE, and offer SGA
+    // Request NAWS, TTYPE, NEW-ENVIRON, and offer SGA.
     // Note: we do NOT send WILL ECHO — Mudlet treats that as password-masking
     // mode and shows asterisks instead of typed characters. The client handles
     // local echo, so the bridge must not echo input back.
     this.write(iacDo(OPT_NAWS));
     this.write(iacDo(OPT_TTYPE));
+    this.write(iacDo(OPT_NEW_ENVIRON));
     this.write(iacWill(OPT_SGA));
 
     // Give client 1.5s to respond to negotiation before proceeding
@@ -372,6 +390,11 @@ export class TelnetSession {
         // Client agrees to send terminal type — request it
         this.write(requestTtype());
         break;
+      case OPT_NEW_ENVIRON:
+        // Client agrees to send environment vars — ask for everything it has.
+        // Mudlet responds with its OSC_HYPERLINKS* capability uservars.
+        this.write(requestNewEnviron());
+        break;
       default:
         // Reject unknown options (DONT is the correct response to WILL)
         this.write(iacDont(option));
@@ -384,6 +407,14 @@ export class TelnetSession {
     if (option === OPT_TTYPE) {
       // No TTYPE — finish negotiation if NAWS already came or timed out
       if (!this.negotiationDone) this.finishNegotiation();
+    } else if (option === OPT_NEW_ENVIRON) {
+      // Client revoked (or refused) NEW-ENVIRON. Drop any advertised
+      // capabilities so we don't keep sending OSC 8 sequences to a
+      // client that has opted out.
+      if (this.capabilities.size > 0) {
+        console.log(`[bridge] [${this.id}] client sent WONT NEW-ENVIRON; clearing capabilities`);
+        this.capabilities.clear();
+      }
     }
   }
 
@@ -432,6 +463,30 @@ export class TelnetSession {
           this.ansi = this.colorLevel > 0;
         } else {
           this.write(requestTtype());
+        }
+        break;
+      }
+      case OPT_NEW_ENVIRON: {
+        const parsed = parseNewEnviron(data);
+        if (!parsed) {
+          console.warn(`[bridge] [${this.id}] ignoring malformed NEW-ENVIRON sub-negotiation (len=${data.length}, first=0x${data[0]?.toString(16) ?? "??"})`);
+          break;
+        }
+        for (const warning of parsed.warnings) {
+          console.warn(`[bridge] [${this.id}] NEW-ENVIRON: ${warning}`);
+        }
+        if (this.negotiationDone) {
+          console.log(`[bridge] [${this.id}] NEW-ENVIRON arrived after negotiation timeout; capabilities still accepted`);
+        }
+        // Mudlet advertises OSC 8 capability tiers as USERVARs with a
+        // truthy value ("", "1", "true"). Any other explicit value
+        // (e.g. "0") means the capability is disabled.
+        for (const [name, value] of parsed.uservars) {
+          if (isCapabilityEnabled(value)) {
+            this.capabilities.add(name);
+          } else {
+            this.capabilities.delete(name);
+          }
         }
         break;
       }
@@ -582,8 +637,12 @@ export class TelnetSession {
     const publicBase = this.config.publicBaseUrl ?? httpBase;
     const loginUrl = `${publicBase}/auth/login?provider=${encodeURIComponent(provider)}&login_nonce=${encodeURIComponent(nonce)}`;
 
+    // If the client advertises OSC 8 hyperlink support via NEW-ENVIRON,
+    // render the URL as a clickable hyperlink.  Clients without the cap
+    // see the bare URL (copy/paste friendly).
+    const hyperlinkEnabled = this.capabilities.has("OSC_HYPERLINKS");
     this.writeLine("\r\nOpen this URL in your browser to log in:\r\n");
-    this.writeLine(`  ${loginUrl}\r\n`);
+    this.writeLine(`  ${buildOsc8Hyperlink(loginUrl, loginUrl, hyperlinkEnabled)}\r\n`);
     this.writeLine("Waiting for login (up to 2 minutes)...");
 
     const sessionToken = await pollForToken(httpBase, nonce, 60, 2000);
