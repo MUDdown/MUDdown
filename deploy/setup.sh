@@ -294,6 +294,12 @@ BRIDGE_PORT=2323
 TELNET_TLS_CERT=/etc/letsencrypt/live/muddown.com/fullchain.pem
 TELNET_TLS_KEY=/etc/letsencrypt/live/muddown.com/privkey.pem
 GAME_SERVER_URL=ws://localhost:3300
+
+# Public HTTPS base URL shown to users in the browser login prompt.
+# The bridge connects to GAME_SERVER_URL internally, but prints this URL
+# to remote telnet users so they can complete OAuth in a browser.
+PUBLIC_BASE_URL=https://muddown.com
+
 BRIDGE_SERVER_NAME=MUDdown
 ENVEOF
   chown "${SERVICE_USER}:${SERVICE_USER}" "${BRIDGE_ENV}"
