@@ -7,6 +7,7 @@
  * - TTYPE (Terminal Type) — RFC 1091
  * - ECHO suppression — RFC 857
  * - SGA (Suppress Go Ahead) — RFC 858
+ * - NEW-ENVIRON — RFC 1572 (Mudlet OSC 8 capability advertisement)
  */
 
 // ─── IAC Command Bytes ───────────────────────────────────────────────────────
@@ -38,6 +39,8 @@ export const OPT_SGA = 3;
 export const OPT_TTYPE = 24;
 /** Negotiate About Window Size — RFC 1073. */
 export const OPT_NAWS = 31;
+/** NEW-ENVIRON — RFC 1572. Used by Mudlet to advertise OSC 8 support. */
+export const OPT_NEW_ENVIRON = 39;
 
 // ─── Sub-negotiation constants ───────────────────────────────────────────────
 
@@ -45,6 +48,22 @@ export const OPT_NAWS = 31;
 export const TTYPE_IS = 0;
 /** TTYPE SEND (server requests terminal type). */
 export const TTYPE_SEND = 1;
+
+// NEW-ENVIRON sub-negotiation codes — RFC 1572
+/** NEW-ENVIRON IS (client sends variable values). */
+export const NEW_ENVIRON_IS = 0;
+/** NEW-ENVIRON SEND (server requests variable values). */
+export const NEW_ENVIRON_SEND = 1;
+/** NEW-ENVIRON INFO (client volunteers updated variable values). */
+export const NEW_ENVIRON_INFO = 2;
+/** NEW-ENVIRON VAR — well-known variable (USER, JOB, etc.). */
+export const NEW_ENVIRON_VAR = 0;
+/** NEW-ENVIRON VALUE — prefix for a variable's value. */
+export const NEW_ENVIRON_VALUE = 1;
+/** NEW-ENVIRON ESC — escape byte for embedded control codes. */
+export const NEW_ENVIRON_ESC = 2;
+/** NEW-ENVIRON USERVAR — application-defined variable. */
+export const NEW_ENVIRON_USERVAR = 3;
 
 // ─── Command builders ────────────────────────────────────────────────────────
 
@@ -81,6 +100,104 @@ export function iacNop(): Buffer {
 /** Request TTYPE from client: IAC SB TTYPE SEND IAC SE. */
 export function requestTtype(): Buffer {
   return iacSub(OPT_TTYPE, TTYPE_SEND);
+}
+
+/**
+ * Build a NEW-ENVIRON SEND sub-negotiation requesting USERVAR values.
+ *
+ * Per RFC 1572, an empty request (SEND with no type/name) asks the client
+ * to send all variables it knows about, which is what we want for Mudlet's
+ * OSC_HYPERLINKS capability uservars (future-proof against new cap names).
+ *
+ * If `uservars` is provided, only those specific USERVARs are requested.
+ */
+export function requestNewEnviron(uservars: string[] = []): Buffer {
+  const parts: number[] = [NEW_ENVIRON_SEND];
+  for (const name of uservars) {
+    parts.push(NEW_ENVIRON_USERVAR);
+    for (let i = 0; i < name.length; i++) {
+      parts.push(name.charCodeAt(i) & 0xff);
+    }
+  }
+  return iacSub(OPT_NEW_ENVIRON, ...parts);
+}
+
+/** Parsed NEW-ENVIRON IS/INFO payload — separate maps for VARs and USERVARs. */
+export interface ParsedNewEnviron {
+  vars: Map<string, string>;
+  uservars: Map<string, string>;
+}
+
+/**
+ * Parse a NEW-ENVIRON IS or INFO sub-negotiation payload.
+ *
+ * Format: `<IS|INFO> [<VAR|USERVAR> <name> [VALUE <value>]]...`
+ *
+ * Returns `undefined` for payloads that do not begin with IS or INFO.
+ * Malformed trailing bytes are tolerated: parsing stops and whatever pairs
+ * were successfully extracted are returned.
+ */
+export function parseNewEnviron(data: Buffer): ParsedNewEnviron | undefined {
+  if (data.length < 1) return undefined;
+  const kind = data[0];
+  if (kind !== NEW_ENVIRON_IS && kind !== NEW_ENVIRON_INFO) return undefined;
+
+  const vars = new Map<string, string>();
+  const uservars = new Map<string, string>();
+
+  let i = 1;
+  while (i < data.length) {
+    const type = data[i];
+    if (type !== NEW_ENVIRON_VAR && type !== NEW_ENVIRON_USERVAR) {
+      // Unexpected byte — stop but return what we have
+      return { vars, uservars };
+    }
+    i++;
+
+    const nameBytes: number[] = [];
+    while (i < data.length) {
+      const b = data[i];
+      if (b === NEW_ENVIRON_VAR || b === NEW_ENVIRON_USERVAR || b === NEW_ENVIRON_VALUE) {
+        break;
+      }
+      if (b === NEW_ENVIRON_ESC) {
+        i++;
+        if (i < data.length) {
+          nameBytes.push(data[i]);
+          i++;
+        }
+        continue;
+      }
+      nameBytes.push(b);
+      i++;
+    }
+    const name = Buffer.from(nameBytes).toString("ascii");
+
+    let value = "";
+    if (i < data.length && data[i] === NEW_ENVIRON_VALUE) {
+      i++;
+      const valueBytes: number[] = [];
+      while (i < data.length) {
+        const b = data[i];
+        if (b === NEW_ENVIRON_VAR || b === NEW_ENVIRON_USERVAR) break;
+        if (b === NEW_ENVIRON_ESC) {
+          i++;
+          if (i < data.length) {
+            valueBytes.push(data[i]);
+            i++;
+          }
+          continue;
+        }
+        valueBytes.push(b);
+        i++;
+      }
+      value = Buffer.from(valueBytes).toString("ascii");
+    }
+
+    (type === NEW_ENVIRON_USERVAR ? uservars : vars).set(name, value);
+  }
+
+  return { vars, uservars };
 }
 
 // ─── Negotiation state machine ───────────────────────────────────────────────
