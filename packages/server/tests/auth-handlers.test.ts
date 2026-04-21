@@ -1980,6 +1980,108 @@ describe("handleAuthRoute — /auth/token-poll", () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toEqual({ token: "proxy-token" });
   });
+
+  it("trusts loopback pollers with no proxy headers (telnet bridge scenario)", async () => {
+    // Browser originates the login from a public IP; the bridge polls from
+    // 127.0.0.1 directly (no nginx in front). The IP check would otherwise
+    // reject every bridge login.
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "bridge-token", "203.0.113.50");
+
+    const res = mockRes();
+    await handleAuthRoute(pollReq(nonce, "127.0.0.1"), res, dummyConfig, db);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ token: "bridge-token" });
+  });
+
+  it("trusts IPv6 loopback pollers (::1) with no proxy headers", async () => {
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "ipv6-bridge-token", "2001:db8::1");
+
+    const res = mockRes();
+    await handleAuthRoute(pollReq(nonce, "::1"), res, dummyConfig, db);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ token: "ipv6-bridge-token" });
+  });
+
+  it("trusts IPv4-mapped IPv6 loopback (::ffff:127.0.0.1) with no proxy headers", async () => {
+    // Node dual-stack listeners report IPv4 loopback connections as
+    // `::ffff:127.0.0.1`; the bridge on Linux hits exactly this path.
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "dual-stack-token", "203.0.113.50");
+
+    const res = mockRes();
+    await handleAuthRoute(pollReq(nonce, "::ffff:127.0.0.1"), res, dummyConfig, db);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ token: "dual-stack-token" });
+  });
+
+  it("does NOT trust loopback when proxy headers are present (still enforces XFF)", async () => {
+    // A request to loopback WITH X-Forwarded-For came through nginx — apply
+    // the normal IP check using the forwarded value, not the loopback exemption.
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "xff-token", "203.0.113.50");
+
+    const req = {
+      method: "GET",
+      url: `/auth/token-poll?nonce=${encodeURIComponent(nonce)}`,
+      headers: { host: "localhost:3300", "x-forwarded-for": "198.51.100.7" },
+      socket: { remoteAddress: "127.0.0.1" },
+    } as unknown as IncomingMessage;
+
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)).toEqual({ error: "Forbidden." });
+  });
+
+  it("does NOT trust loopback when X-Real-IP is present (still enforces origin IP)", async () => {
+    // Some nginx deployments set only X-Real-IP. The loopback exemption must
+    // not silently bypass the check in that setup.
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "xri-token", "203.0.113.50");
+
+    const req = {
+      method: "GET",
+      url: `/auth/token-poll?nonce=${encodeURIComponent(nonce)}`,
+      headers: { host: "localhost:3300", "x-real-ip": "198.51.100.7" },
+      socket: { remoteAddress: "127.0.0.1" },
+    } as unknown as IncomingMessage;
+
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)).toEqual({ error: "Forbidden." });
+  });
+
+  it("preserves the nonce when loopback+XFF mismatch triggers 403", async () => {
+    // A 403 from the XFF mismatch path must not consume the nonce, so the
+    // legitimate caller can still retrieve the token afterwards.
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "preserved-xff-token", "203.0.113.50");
+
+    const badReq = {
+      method: "GET",
+      url: `/auth/token-poll?nonce=${encodeURIComponent(nonce)}`,
+      headers: { host: "localhost:3300", "x-forwarded-for": "198.51.100.7" },
+      socket: { remoteAddress: "127.0.0.1" },
+    } as unknown as IncomingMessage;
+    const bad = mockRes();
+    await handleAuthRoute(badReq, bad, dummyConfig, db);
+    expect(bad.statusCode).toBe(403);
+
+    // Correct origin IP via XFF still succeeds
+    const goodReq = {
+      method: "GET",
+      url: `/auth/token-poll?nonce=${encodeURIComponent(nonce)}`,
+      headers: { host: "localhost:3300", "x-forwarded-for": "203.0.113.50" },
+      socket: { remoteAddress: "127.0.0.1" },
+    } as unknown as IncomingMessage;
+    const good = mockRes();
+    await handleAuthRoute(goodReq, good, dummyConfig, db);
+    expect(good.statusCode).toBe(200);
+    expect(JSON.parse(good.body)).toEqual({ token: "preserved-xff-token" });
+  });
 });
 
 // ─── /auth/login — login_nonce validation ────────────────────────────────────

@@ -179,7 +179,25 @@ function getClientIp(req: IncomingMessage): string | undefined {
     const val = Array.isArray(xri) ? xri[0] : xri;
     if (val) return val.trim();
   }
-  return req.socket.remoteAddress ?? undefined;
+  // `req.socket` can be null on a destroyed / half-closed connection.
+  return req.socket?.remoteAddress ?? undefined;
+}
+
+/**
+ * True when the request came directly from loopback with no proxy headers.
+ * Used by the token-poll endpoint to skip the origin-IP anti-theft check
+ * for trusted on-host services (e.g. the telnet bridge on `localhost:3300`).
+ * Access to loopback already implies on-host trust, and the nonce is a
+ * 128-bit secret, so the IP binding adds no meaningful protection here.
+ */
+function isTrustedLoopbackPoller(req: IncomingMessage): boolean {
+  const hasProxyHeaders = Boolean(
+    req.headers["x-forwarded-for"] || req.headers["x-real-ip"],
+  );
+  if (hasProxyHeaders) return false;
+  // `req.socket` can be null on a destroyed / half-closed connection.
+  const addr = req.socket?.remoteAddress;
+  return addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
 }
 
 // ─── Route Handler ───────────────────────────────────────────────────────────
@@ -270,13 +288,25 @@ function handleTokenPoll(url: URL, req: IncomingMessage, res: ServerResponse): v
   }
   // Verify the poller's IP matches the IP that initiated the login.
   // This prevents a remote attacker from polling for a victim's token.
-  if (entry.originIp && getClientIp(req) !== entry.originIp) {
+  // Trusted loopback pollers (on-host services like the telnet bridge)
+  // are exempt — they connect via 127.0.0.1 without proxy headers, while
+  // the browser's origin IP is the user's public address, so the check
+  // would otherwise always fail for bridge logins.
+  const pollerIp = getClientIp(req);
+  const loopbackExempt = isTrustedLoopbackPoller(req);
+  const truncatedNonce = `${nonce.slice(0, 8)}…`;
+  if (entry.originIp && pollerIp !== entry.originIp && !loopbackExempt) {
+    console.warn(
+      `[auth:token_poll_ip_mismatch] nonce=${truncatedNonce} pollerIp=${pollerIp ?? "unknown"} originIp=${entry.originIp} at=${new Date().toISOString()}`,
+    );
     sendJson(res, 403, { error: "Forbidden." });
     return;
   }
   // One-time retrieval — delete after successful poll
   completedLogins.delete(nonce);
-  console.log(`[auth:token_retrieved] nonce=${nonce} pollerIp=${getClientIp(req) ?? "unknown"} originIp=${entry.originIp ?? "none"} at=${new Date().toISOString()}`);
+  console.log(
+    `[auth:token_retrieved] nonce=${truncatedNonce} pollerIp=${pollerIp ?? "unknown"} originIp=${entry.originIp ?? "none"} loopbackExempt=${loopbackExempt} at=${new Date().toISOString()}`,
+  );
   sendJson(res, 200, { token: entry.token });
 }
 
