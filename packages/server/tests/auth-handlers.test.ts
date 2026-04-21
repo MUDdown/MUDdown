@@ -2054,6 +2054,43 @@ describe("handleAuthRoute — /auth/token-poll", () => {
     expect(JSON.parse(res.body)).toEqual({ error: "Forbidden." });
   });
 
+  it("does NOT trust loopback when X-Forwarded-For is present but empty", async () => {
+    // Header *presence* (not truthiness) must suppress the exemption, so a
+    // client sending `X-Forwarded-For: ` (empty value) can't opportunistically
+    // slip through the loopback exemption.
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "empty-xff-token", "203.0.113.50");
+
+    const req = {
+      method: "GET",
+      url: `/auth/token-poll?nonce=${encodeURIComponent(nonce)}`,
+      headers: { host: "localhost:3300", "x-forwarded-for": "" },
+      socket: { remoteAddress: "127.0.0.1" },
+    } as unknown as IncomingMessage;
+
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)).toEqual({ error: "Forbidden." });
+  });
+
+  it("does NOT trust loopback when X-Real-IP is present but empty", async () => {
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "empty-xri-token", "203.0.113.50");
+
+    const req = {
+      method: "GET",
+      url: `/auth/token-poll?nonce=${encodeURIComponent(nonce)}`,
+      headers: { host: "localhost:3300", "x-real-ip": "" },
+      socket: { remoteAddress: "127.0.0.1" },
+    } as unknown as IncomingMessage;
+
+    const res = mockRes();
+    await handleAuthRoute(req, res, dummyConfig, db);
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)).toEqual({ error: "Forbidden." });
+  });
+
   it("preserves the nonce when loopback+XFF mismatch triggers 403", async () => {
     // A 403 from the XFF mismatch path must not consume the nonce, so the
     // legitimate caller can still retrieve the token afterwards.

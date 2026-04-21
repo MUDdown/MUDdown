@@ -191,9 +191,10 @@ function getClientIp(req: IncomingMessage): string | undefined {
  * 128-bit secret, so the IP binding adds no meaningful protection here.
  */
 function isTrustedLoopbackPoller(req: IncomingMessage): boolean {
-  const hasProxyHeaders = Boolean(
-    req.headers["x-forwarded-for"] || req.headers["x-real-ip"],
-  );
+  // Use presence (not truthiness): a client-supplied empty header value
+  // such as `X-Forwarded-For: ` should still suppress the exemption.
+  const hasProxyHeaders =
+    "x-forwarded-for" in req.headers || "x-real-ip" in req.headers;
   if (hasProxyHeaders) return false;
   // `req.socket` can be null on a destroyed / half-closed connection.
   const addr = req.socket?.remoteAddress;
