@@ -58,6 +58,8 @@ import {
   updateTtypeCycle,
   buildOsc8Hyperlink,
   isCapabilityEnabled,
+  deriveLinkMode,
+  nextLinkMode,
 } from "./helpers.js";
 import type { BridgeConfig } from "./helpers.js";
 
@@ -252,8 +254,17 @@ export class TelnetSession {
    */
   private capabilities = new Set<string>();
 
-  // Link mode
-  private linkMode: LinkMode = "plain";
+  // Link mode. `linkMode` is the user's explicit override (set via the
+  // `linkmode` command); `undefined` means "auto" — derive from capabilities
+  // at render time. When the client advertises `OSC_HYPERLINKS_SEND`
+  // (Mudlet, FADO, MUDFORGE, any other OSC 8-send-aware client) we prefer
+  // the `osc8-send` mode so game-command links become clickable.
+  private linkMode: LinkMode | undefined = undefined;
+
+  /** Link mode actually used for rendering, considering capabilities. */
+  private get effectiveLinkMode(): LinkMode {
+    return deriveLinkMode(this.linkMode, this.capabilities);
+  }
 
   // Auth state
   private sessionToken: string | undefined;
@@ -323,6 +334,8 @@ export class TelnetSession {
     // Determine color level from all collected terminal types
     this.colorLevel = detectColorLevel(this.terminalTypes);
     this.ansi = this.colorLevel > 0;
+
+    console.log(`[bridge] [${this.id}] negotiation complete: ttype=[${this.terminalTypes.join(", ")}], colorLevel=${this.colorLevel}, cols=${this.cols}, capabilities=[${[...this.capabilities].map((c) => JSON.stringify(c)).join(", ")}], effectiveLinkMode=${this.effectiveLinkMode}`);
 
     // Send banner
     this.writeLine(getBanner(this.config.serverName));
@@ -482,10 +495,17 @@ export class TelnetSession {
         // truthy value ("", "1", "true"). Any other explicit value
         // (e.g. "0") means the capability is disabled.
         for (const [name, value] of parsed.uservars) {
-          if (isCapabilityEnabled(value)) {
+          const enabled = isCapabilityEnabled(value);
+          const had = this.capabilities.has(name);
+          // Log name via JSON.stringify so embedded control bytes in a
+          // client-supplied USERVAR name can't inject escape sequences
+          // or forge newlines in the operator console.
+          if (enabled) {
             this.capabilities.add(name);
+            if (!had) console.log(`[bridge] [${this.id}] capability +${JSON.stringify(name)} (value=${JSON.stringify(value)})`);
           } else {
             this.capabilities.delete(name);
+            if (had) console.log(`[bridge] [${this.id}] capability -${JSON.stringify(name)} (value=${JSON.stringify(value)})`);
           }
         }
         break;
@@ -553,8 +573,11 @@ export class TelnetSession {
     }
 
     if (lower === "linkmode") {
-      this.linkMode = this.linkMode === "plain" ? "numbered" : "plain";
-      this.writeLine(`\r\nLink mode: ${this.linkMode}\r\n`);
+      // Cycle explicit modes: plain → numbered → (osc8-send if capable) → auto.
+      // "auto" clears the override and returns to capability-derived mode.
+      this.linkMode = nextLinkMode(this.linkMode, this.capabilities);
+      const display = this.linkMode ?? `auto (${this.effectiveLinkMode})`;
+      this.writeLine(`\r\nLink mode: ${display}\r\n`);
       return;
     }
 
@@ -577,7 +600,7 @@ export class TelnetSession {
       return;
     }
 
-    if (lower === "legend" && this.linkMode === "numbered" && this.activeLinks.length > 0) {
+    if (lower === "legend" && this.effectiveLinkMode === "numbered" && this.activeLinks.length > 0) {
       this.writeLine("");
       for (const link of this.activeLinks) {
         this.writeLine(`  [${link.index}] ${link.command}`);
@@ -587,7 +610,7 @@ export class TelnetSession {
     }
 
     // Numbered link shortcut
-    if (this.linkMode === "numbered" && /^\d+$/.test(trimmed)) {
+    if (this.effectiveLinkMode === "numbered" && /^\d+$/.test(trimmed)) {
       const idx = parseInt(trimmed, 10);
       const link = this.activeLinks.find(l => l.index === idx);
       if (link) {
@@ -818,8 +841,20 @@ export class TelnetSession {
   // ─── Rendering ───────────────────────────────────────────────────────
 
   private renderAndSend(muddown: string, type: string): void {
-    const opts = { cols: this.cols, linkMode: this.linkMode, ansi: this.ansi, colorLevel: this.colorLevel };
-    const { text, links } = renderTerminal(muddown, opts);
+    const mode = this.effectiveLinkMode;
+    let text: string;
+    let links: { index: number; command: string }[] = [];
+    try {
+      const opts = { cols: this.cols, linkMode: mode, ansi: this.ansi, colorLevel: this.colorLevel };
+      const rendered = renderTerminal(muddown, opts);
+      text = rendered.text;
+      links = rendered.links;
+    } catch (err) {
+      console.error(`[bridge] [${this.id}] renderTerminal failed (mode=${mode}, type=${type}):`, err);
+      // Fall back to the raw MUDdown text so the player still sees *something*
+      // rather than a silent dropped message.
+      text = muddown;
+    }
 
     // Room messages always replace the link table (an empty array clears
     // stale links from a previous room).  Non-room messages (system,
@@ -834,7 +869,7 @@ export class TelnetSession {
     this.writeLine("\r\n" + telnetText);
 
     // Show link legend if in numbered mode and there are links
-    if (this.linkMode === "numbered" && links.length > 0) {
+    if (mode === "numbered" && links.length > 0) {
       this.writeLine("");
       for (const link of links) {
         this.writeLine(`  [${link.index}] ${link.command}`);

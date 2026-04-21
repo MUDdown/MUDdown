@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { loadConfig, getBanner, wsToHttpBase, updateTtypeCycle } from "../src/helpers.js";
+import { loadConfig, getBanner, wsToHttpBase, updateTtypeCycle, deriveLinkMode, nextLinkMode } from "../src/helpers.js";
 
 // ─── wsToHttpBase ────────────────────────────────────────────────────────────
 
@@ -181,5 +181,55 @@ describe("updateTtypeCycle", () => {
     const existing = ["MUDLET"];
     updateTtypeCycle(existing, "XTERM-256COLOR");
     expect(existing).toEqual(["MUDLET"]);
+  });
+});
+
+// ─── deriveLinkMode ──────────────────────────────────────────────────────────
+
+describe("deriveLinkMode", () => {
+  it("returns the explicit override when set", () => {
+    const caps = new Set(["OSC_HYPERLINKS_SEND"]);
+    expect(deriveLinkMode("numbered", caps)).toBe("numbered");
+    expect(deriveLinkMode("plain", caps)).toBe("plain");
+    expect(deriveLinkMode("osc8", new Set())).toBe("osc8");
+  });
+
+  it("auto-selects osc8-send when OSC_HYPERLINKS_SEND is advertised", () => {
+    const caps = new Set(["OSC_HYPERLINKS", "OSC_HYPERLINKS_SEND"]);
+    expect(deriveLinkMode(undefined, caps)).toBe("osc8-send");
+  });
+
+  it("falls back to plain when no send capability is advertised", () => {
+    expect(deriveLinkMode(undefined, new Set())).toBe("plain");
+    expect(deriveLinkMode(undefined, new Set(["OSC_HYPERLINKS"]))).toBe("plain");
+  });
+
+  it("override wins even when capabilities would suggest otherwise", () => {
+    const caps = new Set(["OSC_HYPERLINKS_SEND"]);
+    expect(deriveLinkMode("plain", caps)).toBe("plain");
+  });
+});
+
+// ─── nextLinkMode ────────────────────────────────────────────────────────────
+
+describe("nextLinkMode", () => {
+  it("cycles auto → plain → numbered → osc8-send → auto for capable clients", () => {
+    const caps = new Set(["OSC_HYPERLINKS_SEND"]);
+    expect(nextLinkMode(undefined, caps)).toBe("plain");
+    expect(nextLinkMode("plain", caps)).toBe("numbered");
+    expect(nextLinkMode("numbered", caps)).toBe("osc8-send");
+    expect(nextLinkMode("osc8-send", caps)).toBeUndefined();
+  });
+
+  it("skips osc8-send for non-capable clients", () => {
+    const caps = new Set<string>();
+    expect(nextLinkMode(undefined, caps)).toBe("plain");
+    expect(nextLinkMode("plain", caps)).toBe("numbered");
+    expect(nextLinkMode("numbered", caps)).toBeUndefined();
+  });
+
+  it("treats OSC_HYPERLINKS alone as non-capable for send mode", () => {
+    const caps = new Set(["OSC_HYPERLINKS"]);
+    expect(nextLinkMode("numbered", caps)).toBeUndefined();
   });
 });

@@ -4,7 +4,7 @@
  * Extracted from main.ts so they can be unit-tested without importing
  * the full bridge server (which starts TCP listeners).
  */
-
+import type { LinkMode } from "@muddown/client";
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 export interface BridgeConfig {
@@ -63,7 +63,7 @@ export function getBanner(serverName: string): string {
     "  Type 'help' for commands, 'login' to authenticate,",
     "  or just start playing as a guest.",
     "",
-    "  Type 'linkmode' to toggle numbered link shortcuts.",
+    "  Type 'linkmode' to cycle link rendering: auto (capability-derived) → plain (TEXT command) → numbered (TEXT [N] shortcuts) → osc8-send (clickable for Mudlet/FADO/MUDFORGE) → auto.",
     "",
   ].join("\r\n");
 }
@@ -149,4 +149,46 @@ export function isCapabilityEnabled(value: string): boolean {
   if (value === "") return true;
   const lower = value.toLowerCase();
   return lower === "1" || lower === "true";
+}
+
+// ─── Link mode derivation ────────────────────────────────────────────────────
+
+
+/**
+ * Derive the effective link mode from the user's explicit override and the
+ * current capability set.
+ *
+ * - If the user has set an explicit override, return it unchanged.
+ * - Otherwise, if the client advertised `OSC_HYPERLINKS_SEND`, prefer
+ *   `osc8-send` so game-command links become clickable in the client
+ *   (Mudlet, FADO, MUDFORGE, and any other OSC 8-send-aware client).
+ * - Otherwise fall back to `plain`.
+ */
+export function deriveLinkMode(
+  override: LinkMode | undefined,
+  capabilities: ReadonlySet<string>,
+): LinkMode {
+  if (override) return override;
+  if (capabilities.has("OSC_HYPERLINKS_SEND")) return "osc8-send";
+  return "plain";
+}
+
+/**
+ * Compute the next step in the `linkmode` command cycle.
+ *
+ * Cycle: `undefined` (auto) → `plain` → `numbered` → (`osc8-send` iff the
+ * client advertised `OSC_HYPERLINKS_SEND`) → `undefined`.
+ *
+ * For non-capable clients the cycle skips `osc8-send` entirely so the user
+ * can't manually engage a mode their terminal won't honour.
+ */
+export function nextLinkMode(
+  current: LinkMode | undefined,
+  capabilities: ReadonlySet<string>,
+): LinkMode | undefined {
+  const canSend = capabilities.has("OSC_HYPERLINKS_SEND");
+  if (current === undefined) return "plain";
+  if (current === "plain") return "numbered";
+  if (current === "numbered") return canSend ? "osc8-send" : undefined;
+  return undefined;
 }

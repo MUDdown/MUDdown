@@ -263,7 +263,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
   - [x] `MUDdownConnection` for WebSocket, auto-reconnect status in prompt
   - [x] Auth support (`--token` CLI flag or interactive prompt)
   - [x] `--server` flag for custom WebSocket URL (default `wss://muddown.com`)
-  - [x] `--link-mode` flag: `osc8` (default), `numbered`, `plain`
+  - [x] `--link-mode` flag: `osc8` (default), `numbered`, `plain` — `osc8` is host-terminal mode (real OSC 8 for external URLs, dimmed `TEXT (command)` hint for game links since host terminals can't execute MUD commands). Distinct from the bridge's `osc8-send` mode (see telnet bridge section), which emits OSC 8 `send:<command>` URIs only valid when the client advertises `OSC_HYPERLINKS_SEND`.
   - [x] `--theme` flag for future custom theme support
   - [x] Inventory and hint display using terminal renderer
   - [x] Unit tests for terminal renderer (ANSI output assertions)
@@ -275,7 +275,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
   - [x] ANSI capability detection via TTYPE negotiation; fall back to plain text for basic clients
   - [x] Bridge-as-proxy architecture: each telnet session creates a `MUDdownConnection` WebSocket to the game server (configurable via `GAME_SERVER_URL`)
   - [x] MUDdown rendering via `renderTerminal()` — ANSI mode for capable clients, plain text fallback, column-width from NAWS
-  - [x] Game link rendering: plain mode default (`North (go north)`), numbered shortcut mode (`North [1]`) togglable via `linkmode` command
+  - [x] Game link rendering: plain mode default (`North (go north)`), numbered shortcut mode (`North [1]`) togglable via `linkmode` command; `osc8-send` mode (distinct from the terminal client's `osc8` mode) auto-enables when the client advertises `OSC_HYPERLINKS_SEND`, emitting OSC 8 `send:<command>` URIs that clients like Mudlet / FADO / MUDFORGE execute on click
   - [x] Line-buffered input with command echo, backspace handling, and per-session command history
   - [x] Auth flow: `login` command prints browser URL, polls `token-poll` endpoint, exchanges for ws-ticket (reuses terminal client pattern)
   - [x] Guest play: connect without auth for immediate anonymous play
@@ -292,7 +292,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
   - [ ] OSC 8 hyperlinks with Mudlet capability detection
     - [x] NEW-ENVIRON (RFC 1572) telnet option negotiation — parse client-advertised USERVARs into session capability set
     - [x] OSC 8 hyperlink wrapping for the login URL when `OSC_HYPERLINKS` is advertised (plain URL fallback for other clients)
-    - [ ] Auto-enable `osc8` link mode and map MUDdown game links to Mudlet `send:` URIs when `OSC_HYPERLINKS_SEND` is advertised
+    - [x] Auto-enable `osc8-send` link mode and map MUDdown game links to OSC 8 `send:` URIs when `OSC_HYPERLINKS_SEND` is advertised (supported by Mudlet, FADO, MUDFORGE, and other OSC 8-send-aware clients)
     - [ ] Tooltip and right-click menu metadata for game links (behind `OSC_HYPERLINKS_TOOLTIP` / `OSC_HYPERLINKS_MENU` capabilities)
 - [ ] Homebrew tap (`MUDdown/homebrew-tap`): `brew install MUDdown/tap/muddown`
   - [ ] Single-binary build (e.g., `pkg` or `bun compile`) — no Node.js runtime dependency for users

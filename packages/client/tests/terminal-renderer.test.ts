@@ -226,6 +226,92 @@ describe("renderTerminal — link modes", () => {
     expect(text).toContain("look Kandawen");
     expect(text).not.toContain("a781b366");
   });
+
+  it("osc8-send mode wraps game links in OSC 8 send: URIs", () => {
+    const { text } = renderTerminal(input, { ansi: false, linkMode: "osc8-send" });
+    // Format: ESC ] 8 ; ; send:<cmd> ESC \ TEXT ESC ] 8 ; ; ESC \
+    expect(text).toContain("\x1b]8;;send:go north\x1b\\North\x1b]8;;\x1b\\");
+    expect(text).toContain("\x1b]8;;send:examine rusty-sword\x1b\\Examine sword\x1b]8;;\x1b\\");
+  });
+
+  it("osc8-send mode emits OSC 8 for external URLs too", () => {
+    const httpInput = "- [MUDdown](https://muddown.com)";
+    const { text } = renderTerminal(httpInput, { ansi: false, linkMode: "osc8-send" });
+    expect(text).toContain("\x1b]8;;https://muddown.com\x1b\\");
+  });
+
+  it("osc8 and osc8-send modes strip control bytes from external URLs", () => {
+    // A URL containing ESC or BEL would close the OSC 8 envelope early.
+    // Both OSC 8 modes must sanitize the URL before interpolating,
+    // matching the game-link sanitizer behaviour.
+    const hostile = "- [site](https://example.com/\x1bevil\x07more?q=1)";
+    for (const mode of ["osc8", "osc8-send"] as const) {
+      const { text } = renderTerminal(hostile, { ansi: false, linkMode: mode });
+      // Raw control bytes must not appear anywhere in the output
+      expect(text.includes("\x1b" + "evil")).toBe(false);
+      expect(text.includes("\x07")).toBe(false);
+      // Sanitized URL should be interpolated (control bytes stripped,
+      // other characters preserved)
+      expect(text).toContain("\x1b]8;;https://example.com/evilmore?q=1\x1b\\");
+    }
+  });
+
+  it("osc8-send mode strips C0/C1 bytes from the send: URI to prevent envelope injection", () => {
+    // A hostile link whose target contains ESC would close the outer
+    // OSC 8 envelope early. The renderer must strip control bytes from
+    // the resolved command before emitting the sequence.
+    const hostile = "- [evil](cmd:go\x1bnorth)";
+    const { text } = renderTerminal(hostile, { ansi: false, linkMode: "osc8-send" });
+    expect(text.includes("\x1bnorth")).toBe(false);
+    expect(text).toContain("\x1b]8;;send:gonorth\x1b\\");
+  });
+
+  it("osc8-send mode resolves player links to the display name", () => {
+    const playerInput = "- [@Kandawen](player:a781b366-54a3-4ee0-a230-d1b5fb32b2c0)";
+    const { text } = renderTerminal(playerInput, { ansi: false, linkMode: "osc8-send" });
+    expect(text).toContain("\x1b]8;;send:look Kandawen\x1b\\");
+    expect(text).not.toContain("a781b366");
+  });
+
+  it("osc8-send mode falls back to plain rendering when the sanitized command is empty", () => {
+    // C1 bytes (0x80-0x9f) survive resolveGameLink (which strips only C0+DEL)
+    // but are stripped by the osc8-send sanitizer. If the entire command is
+    // C1 bytes the send: URI would be empty — a silently-clickable no-op.
+    // The renderer must detect this and emit the plain fallback instead,
+    // and must NOT echo the raw command (which is all control bytes).
+    const input = `- [danger](cmd:\x9b\x9c\x9d)`;
+    const { text } = renderTerminal(input, { ansi: false, linkMode: "osc8-send" });
+    // Must NOT emit a send: URI with an empty command
+    expect(text).not.toContain("send:\x1b\\");
+    expect(text).not.toMatch(/send:[\s]*\x1b\\/);
+    // Must still show the display text
+    expect(text).toContain("danger");
+    // Must NOT echo the raw C1 bytes into the terminal
+    expect(text).not.toContain("\x9b");
+    expect(text).not.toContain("\x9c");
+    expect(text).not.toContain("\x9d");
+    // Should surface the unsafe-command placeholder
+    expect(text).toContain("<unsafe>");
+  });
+
+  it("osc8-send mode strips C1 bytes (0x9c/0x9d) as well as ESC", () => {
+    // ST (0x9c) is the single-byte String Terminator — if it leaked into
+    // the envelope a receiving terminal could treat it as a close marker.
+    const hostile = "- [evil](cmd:go\x9cnorth\x9deast)";
+    const { text } = renderTerminal(hostile, { ansi: false, linkMode: "osc8-send" });
+    expect(text.includes("\x9c")).toBe(false);
+    expect(text.includes("\x9d")).toBe(false);
+    expect(text).toContain("send:gonortheast");
+  });
+
+  it("osc8-send mode does not append to the numbered-links table", () => {
+    // The links array is used by the bridge to populate numbered shortcuts;
+    // osc8-send must not leak entries into it or users could trigger
+    // unexpected numbered commands in a mode that isn't numbered.
+    const input = `- [North](go:north)\n- [South](go:south)`;
+    const { links } = renderTerminal(input, { ansi: false, linkMode: "osc8-send" });
+    expect(links).toHaveLength(0);
+  });
 });
 
 // ─── Container fence detection ──────────────────────────────────────────────

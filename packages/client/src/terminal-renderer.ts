@@ -105,7 +105,7 @@ export const plainTheme: TerminalTheme = {
 
 // ─── Link Modes ──────────────────────────────────────────────────────────────
 
-export type LinkMode = "osc8" | "numbered" | "plain";
+export type LinkMode = "osc8" | "osc8-send" | "numbered" | "plain";
 
 /** Tracked game links for numbered shortcut mode. */
 export interface NumberedLink {
@@ -117,11 +117,16 @@ export interface NumberedLink {
  * Render a game link according to the chosen link mode.
  *
  * For game-command links, modes behave as follows:
- * - `osc8`:     styled text plus a dimmed command hint; game links are not
- *               rendered as OSC 8 hyperlinks because terminals cannot execute
- *               in-game commands via OSC 8
- * - `numbered`: `TEXT [N]` with the index appended for shortcut entry
- * - `plain`:    `TEXT (command)` gh-style fallback
+ * - `osc8`:       styled text plus a dimmed command hint; game links are not
+ *                 rendered as OSC 8 hyperlinks because host terminals cannot
+ *                 execute in-game commands via OSC 8
+ * - `osc8-send`:  wraps the link in an OSC 8 `send:<command>` URI, which
+ *                 OSC 8-send-aware MUD clients (Mudlet, FADO, MUDFORGE, …)
+ *                 resolve by sending the command on click. The telnet bridge
+ *                 picks this mode automatically when the client advertises
+ *                 `OSC_HYPERLINKS_SEND` via NEW-ENVIRON.
+ * - `numbered`:   `TEXT [N]` with the index appended for shortcut entry
+ * - `plain`:      `TEXT (command)` gh-style fallback
  *
  * External URLs may be rendered as true OSC 8 hyperlinks elsewhere; this
  * function only handles game links.
@@ -145,6 +150,24 @@ function renderGameLink(
     case "osc8":
       // OSC 8 can't execute game commands in a host terminal — show hint
       return `${linkStyle(displayText)} ${dim(`(${command})`)}`;
+    case "osc8-send": {
+      // OSC 8 clients that honour the `send:<command>` URI scheme execute
+      // the command on click. Supported by Mudlet, FADO, MUDFORGE, and any
+      // other client that advertises `OSC_HYPERLINKS_SEND` via NEW-ENVIRON.
+      // Strip C0/C1 + DEL from the command so a payload containing ESC
+      // can't close the outer envelope early.
+      const safeCmd = command.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
+      if (!safeCmd) {
+        // Command consisted entirely of control bytes; emitting
+        // `send:` with an empty command would be a silently clickable
+        // no-op. Fall back to a plain-mode rendering — but do NOT echo
+        // the raw `command` (which by definition contains only control
+        // bytes). Use a placeholder so the user sees the display text
+        // with an indicator that the underlying command was unsafe.
+        return `${linkStyle(displayText)} ${dim("(<unsafe>)")}`;
+      }
+      return `\x1b]8;;send:${safeCmd}\x1b\\${linkStyle(displayText)}\x1b]8;;\x1b\\`;
+    }
     case "numbered": {
       const idx = links.length + 1;
       links.push({ index: idx, command });
@@ -224,13 +247,20 @@ function terminalInlineFormat(
       renderGameLink(display, scheme, target, mode, links, linkStyle, dim),
   );
 
-  // External URLs — render as OSC 8 hyperlinks in osc8 mode, else show URL in parens
+  // External URLs — render as OSC 8 hyperlinks whenever an OSC 8 mode
+  // is active; fall back to `TEXT (URL)` for numbered/plain modes.
+  // Strip C0/C1/DEL from the URL before interpolating into the envelope
+  // so a control byte in the URL path can't close the OSC 8 sequence
+  // early (mirroring the game-link sanitizer in the osc8-send branch).
   result = result.replace(
     /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
-    (_m, text: string, url: string) =>
-      mode === "osc8"
-        ? `\x1b]8;;${url}\x1b\\${linkStyle(text)}\x1b]8;;\x1b\\`
-        : `${text} ${dim(`(${url})`)}`,
+    (_m, text: string, url: string) => {
+      if (mode !== "osc8" && mode !== "osc8-send") {
+        return `${text} ${dim(`(${url})`)}`;
+      }
+      const safeUrl = url.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
+      return `\x1b]8;;${safeUrl}\x1b\\${linkStyle(text)}\x1b]8;;\x1b\\`;
+    },
   );
 
   // Relative / unknown links — plain text
