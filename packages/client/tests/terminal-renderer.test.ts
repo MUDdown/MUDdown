@@ -527,6 +527,35 @@ describe("renderTerminal — link modes", () => {
     expect(cfg.tooltip.length).toBeLessThanOrEqual(200);
   });
 
+  it("osc8-send truncation does not split a UTF-16 surrogate pair", () => {
+    // Exactly 200 emoji (each a surrogate pair → 2 UTF-16 code units)
+    // appended to a prefix.  A naive `slice(0, 200)` on the UTF-16 view
+    // would cut mid-pair and leave an unpaired surrogate that makes
+    // `encodeURIComponent` throw `URIError` — which would either drop
+    // the entire ?config= payload or (pre-guard) crash rendering.
+    // Truncating by code points avoids that.
+    const emoji = "\u{1F600}"; // 😀 — a surrogate pair in UTF-16
+    const display = "X" + emoji.repeat(300);
+    const input = `- The [${display}](npc:crier) waves.`;
+    const { text } = renderTerminal(input, {
+      ansi: false,
+      linkMode: "osc8-send",
+      osc8Features: { tooltip: true },
+    });
+    const m = text.match(/\?config=([^\x1b]+)/);
+    expect(m).not.toBeNull();
+    // Must decode without URIError even though a naive byte-slice would
+    // have produced an unpaired surrogate.
+    expect(() => decodeURIComponent(m![1])).not.toThrow();
+    const cfg = JSON.parse(decodeURIComponent(m![1]));
+    // 200 code-point cap means at most 200 code points in tooltip,
+    // which is at most 400 UTF-16 units — never an orphan surrogate.
+    expect([...cfg.tooltip].length).toBeLessThanOrEqual(200);
+    // No lone high or low surrogate anywhere in the result.
+    expect(cfg.tooltip).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(cfg.tooltip).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+
   it("osc8-send attaches config to links inside headings", () => {
     const input = `# Welcome to [Northkeep](go:north)\n`;
     const { text } = renderTerminal(input, {

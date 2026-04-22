@@ -177,9 +177,13 @@ function buildLinkMetadata(
         ],
       };
     case "player":
-      // Guard against an empty player target — we would otherwise emit
-      // `send:look ` (trailing space, no argument) which is a benign but
-      // meaningless command on the server side.
+      // Defensive fallback: `renderGameLink()` currently calls
+      // `resolveGameLink()` first and returns early for empty targets,
+      // so this branch is not reached via the existing code path. We
+      // keep the guard to avoid emitting `send:look ` (trailing space,
+      // no argument) if this metadata builder is ever invoked without
+      // that prevalidation — e.g., a future call site that reaches
+      // `buildOsc8ConfigParam` directly.
       if (cleanTarget.length === 0) {
         return { tooltip: `Look at ${displayClean}`, menu: [] };
       }
@@ -203,13 +207,22 @@ function buildLinkMetadata(
  *
  * Strips C0/C1/DEL bytes so a hostile display name or target can't
  * smuggle a String Terminator out of the envelope. Also caps length at
- * 200 chars per field so a pathological message can't blow past Mudlet's
- * 4096-byte URL limit when combined with other fields.
+ * 200 Unicode code points per field so a pathological message can't
+ * blow past Mudlet's 4096-byte URL limit when combined with other
+ * fields.
+ *
+ * Truncation iterates over code points (via `Array.from`) rather than
+ * UTF-16 code units so we never split a surrogate pair. An unpaired
+ * surrogate would otherwise survive into the JSON payload and make
+ * `encodeURIComponent` in `buildOsc8ConfigParam` throw `URIError` for
+ * any field that happens to end on an emoji or other astral-plane
+ * character at the cut boundary.
  */
 function sanitizeConfigString(s: string): string {
   // eslint-disable-next-line no-control-regex
   const stripped = s.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
-  return stripped.length > 200 ? stripped.slice(0, 200) : stripped;
+  const points = Array.from(stripped);
+  return points.length > 200 ? points.slice(0, 200).join("") : stripped;
 }
 
 /**
@@ -248,22 +261,18 @@ function buildOsc8ConfigParam(
     if (cleanMenu.length > 0) config.menu = cleanMenu;
   }
   if (Object.keys(config).length === 0) return "";
-  // JSON.stringify can throw on circular references or BigInt values.
-  // `config` is built from plain strings and `-` literals so this should
-  // be structurally impossible today, but guard against future changes
-  // to `buildLinkMetadata` that might introduce such a value.
-  let serialized: string;
+  // JSON.stringify can throw on circular references or BigInt values,
+  // and encodeURIComponent can throw URIError on an unpaired UTF-16
+  // surrogate. `config` is built from plain strings and `-` literals
+  // so neither should be structurally possible today, but guard against
+  // future changes to `buildLinkMetadata` and against any edge case
+  // that slips past `sanitizeConfigString` (e.g. input that contains
+  // raw lone surrogates before we ever saw it).
   try {
-    serialized = JSON.stringify(config);
+    return `?config=${encodeURIComponent(JSON.stringify(config))}`;
   } catch {
     return "";
   }
-  // `encodeURIComponent` percent-encodes every byte outside the URL
-  // unreserved set, which includes ESC (0x1b), BEL (0x07), and all C0/C1
-  // control bytes. That means the emitted `?config=…` parameter cannot
-  // contain an OSC 8 String Terminator from the renderer's own output,
-  // even if a hostile display name or target survived earlier sanitization.
-  return `?config=${encodeURIComponent(serialized)}`;
 }
 
 /**
