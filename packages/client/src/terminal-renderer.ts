@@ -114,10 +114,10 @@ export interface NumberedLink {
 }
 
 /**
- * Optional OSC 8 `osc8-send` enrichments advertised by Mudlet-compatible
- * MUD clients via NEW-ENVIRON USERVARs. When enabled, the renderer appends
- * a percent-encoded `?config=…` JSON object to the `send:` URI carrying
- * tooltip text and/or a right-click menu of related actions.
+ * Optional OSC 8 `osc8-send` enrichments advertised by MUD clients via
+ * NEW-ENVIRON USERVARs. When enabled, the renderer appends a percent-encoded
+ * `?config=…` JSON object to the `send:` URI carrying tooltip text and/or
+ * a right-click menu of related actions.
  *
  * See: https://wiki.mudlet.org/w/Manual:OSC — Tier 3 (Tooltips, Context Menus).
  *
@@ -283,7 +283,7 @@ function buildOsc8ConfigParam(
  *                 rendered as OSC 8 hyperlinks because host terminals cannot
  *                 execute in-game commands via OSC 8
  * - `osc8-send`:  wraps the link in an OSC 8 `send:<command>` URI, which
- *                 OSC 8-send-aware MUD clients (Mudlet, FADO, MUDFORGE, …)
+ *                 OSC 8-send-aware MUD clients (Mudlet, Fado, MudForge, …)
  *                 resolve by sending the command on click. The telnet bridge
  *                 picks this mode automatically when the client advertises
  *                 `OSC_HYPERLINKS_SEND` via NEW-ENVIRON.
@@ -315,7 +315,7 @@ function renderGameLink(
       return `${linkStyle(displayText)} ${dim(`(${command})`)}`;
     case "osc8-send": {
       // OSC 8 clients that honour the `send:<command>` URI scheme execute
-      // the command on click. Supported by Mudlet, FADO, MUDFORGE, and any
+      // the command on click. Supported by Mudlet, Fado, MudForge, and any
       // other client that advertises `OSC_HYPERLINKS_SEND` via NEW-ENVIRON.
       // Strip C0/C1 + DEL from the command so a payload containing ESC
       // can't close the outer envelope early.

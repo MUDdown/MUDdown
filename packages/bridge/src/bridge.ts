@@ -257,7 +257,7 @@ export class TelnetSession {
   // Link mode. `linkMode` is the user's explicit override (set via the
   // `linkmode` command); `undefined` means "auto" — derive from capabilities
   // at render time. When the client advertises `OSC_HYPERLINKS_SEND`
-  // (Mudlet, FADO, MUDFORGE, any other OSC 8-send-aware client) we prefer
+  // (Mudlet, Fado, MudForge, any other OSC 8-send-aware client) we prefer
   // the `osc8-send` mode so game-command links become clickable.
   private linkMode: LinkMode | undefined = undefined;
 

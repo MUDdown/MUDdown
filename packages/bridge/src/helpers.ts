@@ -63,7 +63,7 @@ export function getBanner(serverName: string): string {
     "  Type 'help' for commands, 'login' to authenticate,",
     "  or just start playing as a guest.",
     "",
-    "  Type 'linkmode' to cycle link rendering: auto (capability-derived) → plain (TEXT command) → numbered (TEXT [N] shortcuts) → osc8-send (clickable for Mudlet/FADO/MUDFORGE) → auto.",
+    "  Type 'linkmode' to cycle link rendering: auto (capability-derived) → plain (TEXT command) → numbered (TEXT [N] shortcuts) → osc8-send (clickable for Mudlet/Fado/MudForge) → auto.",
     "",
   ].join("\r\n");
 }
@@ -161,7 +161,7 @@ export function isCapabilityEnabled(value: string): boolean {
  * - If the user has set an explicit override, return it unchanged.
  * - Otherwise, if the client advertised `OSC_HYPERLINKS_SEND`, prefer
  *   `osc8-send` so game-command links become clickable in the client
- *   (Mudlet, FADO, MUDFORGE, and any other OSC 8-send-aware client).
+ *   (Mudlet, Fado, MudForge, and any other OSC 8-send-aware client).
  * - Otherwise fall back to `plain`.
  */
 export function deriveLinkMode(

@@ -170,6 +170,7 @@ Detailed how-to guides live in `.github/skills/<name>/SKILL.md` (canonical) with
 | `oauth-provider` | Add a new OAuth/OIDC identity provider (shared types, auth switches, server config, login button, env vars, tests) |
 | `mobile-testing` | Test the Expo React Native app on physical devices via Expo Go or iOS Simulator (LAN config, SDK alignment, entry point, simulators, OAuth) |
 | `desktop-app` | Build and maintain the Tauri v2 desktop app (scaffolding, Turborepo wiring, CI matrix, auto-updater signature verification, native integrations) |
+| `osc8-bridge` | Add or modify OSC 8 hyperlink capabilities in the telnet bridge — NEW-ENVIRON negotiation, Mudlet `send:`/`prompt:` URIs, tooltip/menu `?config=` metadata, word-wrap envelope invariant |
 
 ### Maintaining Skills
 
