@@ -289,11 +289,11 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
   - [x] Deployment: systemd unit file (`muddown-bridge.service`), firewall rules documentation
   - [x] Unit tests: telnet negotiation, rendering integration, auth flow, connection lifecycle
   - [x] Wiki page: `Telnet-Bridge.md` with connection instructions, supported clients, feature comparison
-  - [ ] OSC 8 hyperlinks with Mudlet capability detection
+  - [x] OSC 8 hyperlinks with Mudlet capability detection
     - [x] NEW-ENVIRON (RFC 1572) telnet option negotiation — parse client-advertised USERVARs into session capability set
     - [x] OSC 8 hyperlink wrapping for the login URL when `OSC_HYPERLINKS` is advertised (plain URL fallback for other clients)
     - [x] Auto-enable `osc8-send` link mode and map MUDdown game links to OSC 8 `send:` URIs when `OSC_HYPERLINKS_SEND` is advertised (supported by Mudlet, FADO, MUDFORGE, and other OSC 8-send-aware clients)
-    - [ ] Tooltip and right-click menu metadata for game links (behind `OSC_HYPERLINKS_TOOLTIP` / `OSC_HYPERLINKS_MENU` capabilities)
+    - [x] Tooltip and right-click menu metadata for game links (behind `OSC_HYPERLINKS_TOOLTIP` / `OSC_HYPERLINKS_MENU` capabilities)
 - [ ] Homebrew tap (`MUDdown/homebrew-tap`): `brew install MUDdown/tap/muddown`
   - [ ] Single-binary build (e.g., `pkg` or `bun compile`) — no Node.js runtime dependency for users
     - [ ] Multi-architecture builds: separate Intel (`x86_64`) and Apple Silicon (`arm64`) binaries

@@ -845,15 +845,24 @@ export class TelnetSession {
     let text: string;
     let links: { index: number; command: string }[] = [];
     try {
-      const opts = { cols: this.cols, linkMode: mode, ansi: this.ansi, colorLevel: this.colorLevel };
+      const osc8Features = mode === "osc8-send"
+        ? {
+            tooltip: this.capabilities.has("OSC_HYPERLINKS_TOOLTIP"),
+            menu: this.capabilities.has("OSC_HYPERLINKS_MENU"),
+          }
+        : undefined;
+      const opts = { cols: this.cols, linkMode: mode, ansi: this.ansi, colorLevel: this.colorLevel, osc8Features };
       const rendered = renderTerminal(muddown, opts);
       text = rendered.text;
       links = rendered.links;
     } catch (err) {
       console.error(`[bridge] [${this.id}] renderTerminal failed (mode=${mode}, type=${type}):`, err);
-      // Fall back to the raw MUDdown text so the player still sees *something*
-      // rather than a silent dropped message.
-      text = muddown;
+      // The renderer threw.  Showing the raw MUDdown source (container
+      // fences, Markdown link syntax, etc.) on a plain terminal looks
+      // worse than a clean error message, so surface a one-line notice
+      // instead and drop the links for this message.
+      text = "[A message could not be displayed due to a rendering error.]";
+      links = [];
     }
 
     // Room messages always replace the link table (an empty array clears

@@ -13,6 +13,7 @@ export type {
   TerminalRenderOptions,
   LinkMode,
   NumberedLink,
+  Osc8Features,
   InlineStyles,
   BlockStyles,
 } from "./terminal-renderer.js";
