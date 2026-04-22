@@ -97,6 +97,23 @@ describe("parseNewEnviron", () => {
     expect(parsed.uservars.get("OSC_HYPERLINKS_MENU")).toBe("0");
   });
 
+  it("parses OSC_HYPERLINKS_TOOLTIP and OSC_HYPERLINKS_MENU enrichment capabilities", () => {
+    // These capabilities gate the tooltip and right-click menu JSON
+    // config Mudlet will consume from our OSC 8 URIs. A typo in either
+    // name anywhere in the pipeline would silently produce no tooltips
+    // and no menus, so both must round-trip through parseNewEnviron.
+    const payload = Buffer.from([
+      NEW_ENVIRON_IS,
+      NEW_ENVIRON_USERVAR, ...Buffer.from("OSC_HYPERLINKS_TOOLTIP", "ascii"),
+      NEW_ENVIRON_VALUE, ...Buffer.from("1", "ascii"),
+      NEW_ENVIRON_USERVAR, ...Buffer.from("OSC_HYPERLINKS_MENU", "ascii"),
+      NEW_ENVIRON_VALUE, ...Buffer.from("1", "ascii"),
+    ]);
+    const parsed = expectParsed(payload);
+    expect(parsed.uservars.get("OSC_HYPERLINKS_TOOLTIP")).toBe("1");
+    expect(parsed.uservars.get("OSC_HYPERLINKS_MENU")).toBe("1");
+  });
+
   it("treats a USERVAR with no VALUE as an empty string", () => {
     const payload = Buffer.from([
       NEW_ENVIRON_IS,

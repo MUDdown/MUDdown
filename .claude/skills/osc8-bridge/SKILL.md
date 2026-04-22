@@ -1,0 +1,1 @@
+../../../.github/skills/osc8-bridge/SKILL.md

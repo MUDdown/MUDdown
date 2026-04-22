@@ -114,6 +114,170 @@ export interface NumberedLink {
 }
 
 /**
+ * Optional OSC 8 `osc8-send` enrichments advertised by MUD clients via
+ * NEW-ENVIRON USERVARs. When enabled, the renderer appends a percent-encoded
+ * `?config=…` JSON object to the `send:` URI carrying tooltip text and/or
+ * a right-click menu of related actions.
+ *
+ * See: https://wiki.mudlet.org/w/Manual:OSC — Tier 3 (Tooltips, Context Menus).
+ *
+ * Keys are gated on the client-advertised capability:
+ * - `tooltip`: `OSC_HYPERLINKS_TOOLTIP`
+ * - `menu`:    `OSC_HYPERLINKS_MENU`
+ *
+ * Callers that don't advertise the capability (or clients that ignore
+ * unknown `?config=…` payloads) remain functional because Mudlet silently
+ * ignores invalid JSON and still honours the `send:` command on click.
+ */
+export interface Osc8Features {
+  /** Emit a `tooltip` field in the OSC 8 config. */
+  tooltip?: boolean;
+  /** Emit a `menu` array of related actions in the OSC 8 config. */
+  menu?: boolean;
+}
+
+/**
+ * Build the tooltip string and right-click menu entries for a game link
+ * based on its scheme. `cleanTarget` is the already-sanitized target
+ * (e.g. display name for `player:`, id for `item:`/`npc:`).
+ */
+function buildLinkMetadata(
+  scheme: string,
+  cleanTarget: string,
+  displayText: string,
+): { tooltip: string; menu: Array<Record<string, string> | "-"> } {
+  switch (scheme) {
+    case "go":
+      return {
+        tooltip: `Go ${cleanTarget}`,
+        menu: [
+          { Go: `send:go ${cleanTarget}` },
+          { Look: `send:look ${cleanTarget}` },
+        ],
+      };
+    case "npc":
+      return {
+        tooltip: `Talk to ${displayText}`,
+        menu: [
+          { Talk: `send:talk ${cleanTarget}` },
+          { Examine: `send:examine ${cleanTarget}` },
+          "-",
+          { Attack: `send:attack ${cleanTarget}` },
+        ],
+      };
+    case "item":
+      return {
+        tooltip: `Examine ${displayText}`,
+        menu: [
+          { Examine: `send:examine ${cleanTarget}` },
+          { Get: `send:get ${cleanTarget}` },
+          { Drop: `send:drop ${cleanTarget}` },
+        ],
+      };
+    case "player": {
+      // Strip a leading `@` from the player display name for tooltip readability
+      // (player links are authored as `[@Alice](player:alice)`).
+      const displayClean = displayText.replace(/^@/, "");
+      // Defensive fallback: `renderGameLink()` currently calls
+      // `resolveGameLink()` first and returns early for empty targets,
+      // so this branch is not reached via the existing code path. We
+      // keep the guard to avoid emitting `send:look ` (trailing space,
+      // no argument) if this metadata builder is ever invoked without
+      // that prevalidation — e.g., a future call site that reaches
+      // `buildOsc8ConfigParam` directly.
+      if (cleanTarget.length === 0) {
+        return { tooltip: `Look at ${displayClean}`, menu: [] };
+      }
+      return {
+        tooltip: `Look at ${displayClean}`,
+        menu: [
+          { Look: `send:look ${cleanTarget}` },
+          { Tell: `prompt:tell ${cleanTarget} ` },
+        ],
+      };
+    }
+    case "help":
+      return { tooltip: `Help: ${cleanTarget}`, menu: [] };
+    case "cmd":
+    default:
+      return { tooltip: cleanTarget, menu: [] };
+  }
+}
+
+/**
+ * Sanitize a string for inclusion in an OSC 8 config JSON value.
+ *
+ * Strips C0/C1/DEL bytes so a hostile display name or target can't
+ * smuggle a String Terminator out of the envelope. Also caps length at
+ * 200 Unicode code points per field so a pathological message can't
+ * blow past Mudlet's 4096-byte URL limit when combined with other
+ * fields.
+ *
+ * Truncation iterates over code points (via `Array.from`) rather than
+ * UTF-16 code units so we never split a surrogate pair. An unpaired
+ * surrogate would otherwise survive into the JSON payload and make
+ * `encodeURIComponent` in `buildOsc8ConfigParam` throw `URIError` for
+ * any field that happens to end on an emoji or other astral-plane
+ * character at the cut boundary.
+ */
+function sanitizeConfigString(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  const stripped = s.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
+  const points = Array.from(stripped);
+  return points.length > 200 ? points.slice(0, 200).join("") : stripped;
+}
+
+/**
+ * Build and percent-encode the `?config=…` payload for a game link.
+ * Returns `""` when neither tooltip nor menu is enabled (or both are
+ * empty after filtering), so the caller can emit a bare `send:<cmd>`
+ * URI.
+ */
+function buildOsc8ConfigParam(
+  scheme: string,
+  cleanTarget: string,
+  displayText: string,
+  features: Osc8Features,
+): string {
+  if (!features.tooltip && !features.menu) return "";
+  const meta = buildLinkMetadata(scheme, cleanTarget, displayText);
+  const config: { tooltip?: string; menu?: Array<Record<string, string> | "-"> } = {};
+  if (features.tooltip && meta.tooltip) {
+    config.tooltip = sanitizeConfigString(meta.tooltip);
+  }
+  if (features.menu && meta.menu.length > 0) {
+    const cleanMenu: Array<Record<string, string> | "-"> = [];
+    for (const entry of meta.menu) {
+      if (entry === "-") {
+        cleanMenu.push("-");
+        continue;
+      }
+      const entries = Object.entries(entry);
+      // Defensive: an empty `{}` menu entry would produce `label ===
+      // undefined` below, throwing from `.replace()` inside sanitize.
+      // Skip it instead.
+      if (entries.length === 0) continue;
+      const [label, cmd] = entries[0];
+      cleanMenu.push({ [sanitizeConfigString(label)]: sanitizeConfigString(cmd) });
+    }
+    if (cleanMenu.length > 0) config.menu = cleanMenu;
+  }
+  if (Object.keys(config).length === 0) return "";
+  // JSON.stringify can throw on circular references or BigInt values,
+  // and encodeURIComponent can throw URIError on an unpaired UTF-16
+  // surrogate. `config` is built from plain strings and `-` literals
+  // so neither should be structurally possible today, but guard against
+  // future changes to `buildLinkMetadata` and against any edge case
+  // that slips past `sanitizeConfigString` (e.g. input that contains
+  // raw lone surrogates before we ever saw it).
+  try {
+    return `?config=${encodeURIComponent(JSON.stringify(config))}`;
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Render a game link according to the chosen link mode.
  *
  * For game-command links, modes behave as follows:
@@ -121,7 +285,7 @@ export interface NumberedLink {
  *                 rendered as OSC 8 hyperlinks because host terminals cannot
  *                 execute in-game commands via OSC 8
  * - `osc8-send`:  wraps the link in an OSC 8 `send:<command>` URI, which
- *                 OSC 8-send-aware MUD clients (Mudlet, FADO, MUDFORGE, …)
+ *                 OSC 8-send-aware MUD clients (Mudlet, Fado, MudForge, …)
  *                 resolve by sending the command on click. The telnet bridge
  *                 picks this mode automatically when the client advertises
  *                 `OSC_HYPERLINKS_SEND` via NEW-ENVIRON.
@@ -139,6 +303,7 @@ function renderGameLink(
   links: NumberedLink[],
   linkStyle: (s: string) => string,
   dim: (s: string) => string,
+  features: Osc8Features,
 ): string {
   // For player: links, use the display name (stripped of @) instead of the
   // opaque UUID so the legend shows "look Kandawen" not "look a781b366-...".
@@ -152,7 +317,7 @@ function renderGameLink(
       return `${linkStyle(displayText)} ${dim(`(${command})`)}`;
     case "osc8-send": {
       // OSC 8 clients that honour the `send:<command>` URI scheme execute
-      // the command on click. Supported by Mudlet, FADO, MUDFORGE, and any
+      // the command on click. Supported by Mudlet, Fado, MudForge, and any
       // other client that advertises `OSC_HYPERLINKS_SEND` via NEW-ENVIRON.
       // Strip C0/C1 + DEL from the command so a payload containing ESC
       // can't close the outer envelope early.
@@ -166,7 +331,13 @@ function renderGameLink(
         // with an indicator that the underlying command was unsafe.
         return `${linkStyle(displayText)} ${dim("(<unsafe>)")}`;
       }
-      return `\x1b]8;;send:${safeCmd}\x1b\\${linkStyle(displayText)}\x1b]8;;\x1b\\`;
+      // Append ?config=… for tooltip/menu enrichments when the client
+      // advertises the corresponding OSC_HYPERLINKS_TOOLTIP / _MENU
+      // capabilities. The resolved target (display name for player:,
+      // id/alias for item:/npc:) is the correct argument for the menu's
+      // commands — it mirrors resolveGameLink's own arg selection.
+      const configParam = buildOsc8ConfigParam(scheme, resolvedTarget, displayText, features);
+      return `\x1b]8;;send:${safeCmd}${configParam}\x1b\\${linkStyle(displayText)}\x1b]8;;\x1b\\`;
     }
     case "numbered": {
       const idx = links.length + 1;
@@ -186,20 +357,47 @@ function renderGameLink(
 
 /**
  * Strip ANSI escape sequences so we can measure visible character width.
+ *
+ * Covers:
+ * - CSI sequences `ESC [ … <final byte 0x40–0x7e>` (SGR `m`, cursor
+ *   moves, erases, and every other CSI)
+ * - OSC sequences `ESC ] … ST` where ST is either `ESC \` or BEL (0x07)
+ * - Two-byte ESC sequences `ESC <0x20–0x7e>` (e.g. character-set
+ *   selection, reset) excluding the `[` and `]` introducers handled above
+ *
+ * Any escape that inflated the measured visible width would cause
+ * premature line breaks, so we strip liberally rather than narrowly.
  */
 function stripAnsi(s: string): string {
-  // eslint-disable-next-line no-control-regex
-  return s.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\]8;;[^\x1b\x07]*(?:\x1b\\|\x07)/g, "");
+  return (
+    s
+      // CSI: ESC [ params final
+      // eslint-disable-next-line no-control-regex
+      .replace(/\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, "")
+      // OSC: ESC ] … (ST = ESC \ | BEL)
+      // eslint-disable-next-line no-control-regex
+      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
+      // Two-byte ESC sequences: ESC followed by a single byte in 0x20–0x7e
+      // (excluding `[` and `]` already handled by the patterns above).
+      // eslint-disable-next-line no-control-regex
+      .replace(/\x1b[\x20-\x5a\x5c\x5e-\x7e]/g, "")
+  );
 }
 
 /**
- * Word-wrap a string to the given column width, preserving ANSI codes.
+ * Word-wrap a string to the given column width, preserving ANSI codes
+ * and OSC 8 hyperlink envelopes.
  *
- * Splits on spaces.  Words longer than `cols` are not broken (they overflow).
+ * Splits on spaces.  Words longer than `cols` are not broken (they
+ * overflow).  Spaces that appear inside an OSC 8 hyperlink target
+ * (between `ESC ] 8 ; ; URI ESC \`) are treated as part of the enclosing
+ * "word" so the envelope is never broken across lines — a split there
+ * would leak a raw space into the URI and produce a clickable no-op on
+ * receiving clients.
  */
 export function wordWrap(text: string, cols: number): string {
   if (cols <= 0) return text;
-  const words = text.split(" ");
+  const words = splitPreservingOsc8(text);
   const lines: string[] = [];
   let currentLine = "";
   let currentWidth = 0;
@@ -219,6 +417,71 @@ export function wordWrap(text: string, cols: number): string {
   return lines.join("\n");
 }
 
+/**
+ * Split a string on spaces, but keep complete OSC 8 hyperlink envelopes
+ * (opening `ESC ] 8 ; ; … ESC \` through closing `ESC ] 8 ; ; ESC \`)
+ * grouped with the word they belong to. Runs of OSC 8 sequences and
+ * their display text are treated atomically so a space inside the URI
+ * (e.g. `send:talk crier`) or between the opener and the visible text
+ * never becomes a wrap point.
+ */
+function splitPreservingOsc8(text: string): string[] {
+  const out: string[] = [];
+  let current = "";
+  let inOsc8 = false;
+  let i = 0;
+  while (i < text.length) {
+    // Detect an OSC 8 opener: `ESC ] 8 ;` — we're now inside an envelope
+    // until we see the matching `ESC ] 8 ; ; ESC \` closer.
+    if (text.startsWith("\x1b]8;", i)) {
+      // Consume the full OSC 8 sequence up to ST (ESC \) or BEL (0x07).
+      const { end, terminated } = findOsc8End(text, i);
+      const seq = text.slice(i, end);
+      current += seq;
+      i = end;
+      if (!terminated) {
+        // Unterminated opener. The envelope "runs to end-of-input" which
+        // means everything after it ends up as one unbreakable word. Warn
+        // so operators can trace the malformed source, then bail out of
+        // the envelope state so the remaining text (if any) is still
+        // wrappable.
+        // eslint-disable-next-line no-console
+        console.warn("terminal-renderer: unterminated OSC 8 sequence; word-wrap may produce a long line");
+        inOsc8 = false;
+        continue;
+      }
+      // `ESC ] 8 ; ; ESC \` (empty URI) is the closer; otherwise we're
+      // now inside an envelope and must treat subsequent spaces as
+      // non-breaking until we see that closer.
+      if (/^\x1b\]8;;\x1b\\$|^\x1b\]8;;\x07$/.test(seq)) {
+        inOsc8 = false;
+      } else {
+        inOsc8 = true;
+      }
+      continue;
+    }
+    const ch = text[i];
+    if (ch === " " && !inOsc8) {
+      out.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+    i++;
+  }
+  if (current.length > 0 || out.length === 0) out.push(current);
+  return out;
+}
+
+/** Find the byte index just past the next OSC 8 terminator (ST or BEL). */
+function findOsc8End(text: string, start: number): { end: number; terminated: boolean } {
+  for (let j = start + 4; j < text.length; j++) {
+    if (text[j] === "\x07") return { end: j + 1, terminated: true };
+    if (text[j] === "\x1b" && text[j + 1] === "\\") return { end: j + 2, terminated: true };
+  }
+  return { end: text.length, terminated: false };
+}
+
 // ─── Inline Formatting ──────────────────────────────────────────────────────
 
 /**
@@ -231,6 +494,7 @@ function terminalInlineFormat(
   theme: TerminalTheme,
   mode: LinkMode,
   links: NumberedLink[],
+  features: Osc8Features,
 ): string {
   let result = line;
 
@@ -244,7 +508,7 @@ function terminalInlineFormat(
   result = result.replace(
     /\[([^\]]+)\]\((cmd|go|item|npc|player|help):([^)]*)\)/g,
     (_m, display: string, scheme: string, target: string) =>
-      renderGameLink(display, scheme, target, mode, links, linkStyle, dim),
+      renderGameLink(display, scheme, target, mode, links, linkStyle, dim, features),
   );
 
   // External URLs — render as OSC 8 hyperlinks whenever an OSC 8 mode
@@ -296,6 +560,13 @@ interface TerminalRenderOptionsBase {
    * TODO: implement per-session theming.
    */
   colorLevel?: 0 | 1 | 2 | 3;
+  /**
+   * Optional OSC 8 `osc8-send` enrichments (tooltip, right-click menu).
+   * Only consulted when `linkMode === "osc8-send"`. Set fields based on
+   * the client's advertised NEW-ENVIRON capabilities
+   * (`OSC_HYPERLINKS_TOOLTIP`, `OSC_HYPERLINKS_MENU`).
+   */
+  osc8Features?: Osc8Features;
 }
 
 interface AnsiRenderOptions extends TerminalRenderOptionsBase {
@@ -320,10 +591,11 @@ function formatTableRows(
   links: NumberedLink[],
   styles: BlockStyles,
   ansi: boolean,
+  features: Osc8Features,
 ): string[] {
   // Format all cells (applying inline formatting)
   const formatted = rows.map(cells =>
-    cells.map(c => terminalInlineFormat(c, theme, linkMode, links)),
+    cells.map(c => terminalInlineFormat(c, theme, linkMode, links, features)),
   );
 
   // Calculate max visible width per column (ANSI-aware)
@@ -378,6 +650,7 @@ export function renderTerminal(
   const theme = options.ansi !== false ? (options.theme ?? darkTheme) : plainTheme;
   const cols = options.cols ?? 80;
   const linkMode = options.linkMode ?? "osc8";
+  const features: Osc8Features = options.osc8Features ?? {};
   const links: NumberedLink[] = [];
 
   // Detect block type from container fences
@@ -406,7 +679,7 @@ export function renderTerminal(
   function flushPara(): void {
     if (paraLines.length === 0) return;
     const joined = paraLines.join(" ");
-    const content = terminalInlineFormat(joined, theme, linkMode, links);
+    const content = terminalInlineFormat(joined, theme, linkMode, links, features);
     output.push(styles.body(content));
     paraLines = [];
   }
@@ -416,7 +689,7 @@ export function renderTerminal(
     const headingMatch = raw.match(/^(#{1,3}) (.+)/);
     if (headingMatch) {
       flushPara();
-      const content = terminalInlineFormat(headingMatch[2], theme, linkMode, links);
+      const content = terminalInlineFormat(headingMatch[2], theme, linkMode, links, features);
       const level = headingMatch[1].length;
       output.push(level === 1 ? styles.heading(content) : styles.subheading(content));
       continue;
@@ -425,7 +698,7 @@ export function renderTerminal(
     // List items
     if (raw.startsWith("- ")) {
       flushPara();
-      const content = terminalInlineFormat(raw.slice(2), theme, linkMode, links);
+      const content = terminalInlineFormat(raw.slice(2), theme, linkMode, links, features);
       output.push(`${styles.listBullet("•")} ${styles.listItem(content)}`);
       continue;
     }
@@ -433,7 +706,7 @@ export function renderTerminal(
     // Blockquotes
     if (raw.startsWith("> ")) {
       flushPara();
-      const content = terminalInlineFormat(raw.slice(2), theme, linkMode, links);
+      const content = terminalInlineFormat(raw.slice(2), theme, linkMode, links, features);
       const bar = ansi ? chalk.dim("│ ") : "| ";
       output.push(`${bar}${styles.body(content)}`);
       continue;
@@ -452,7 +725,7 @@ export function renderTerminal(
 
     // Flush any buffered table rows before non-table content
     if (tableRows.length > 0) {
-      output.push(...formatTableRows(tableRows, theme, linkMode, links, styles, ansi));
+      output.push(...formatTableRows(tableRows, theme, linkMode, links, styles, ansi, features));
       tableRows = [];
     }
 
@@ -470,7 +743,7 @@ export function renderTerminal(
   // Flush any remaining paragraph or table content
   flushPara();
   if (tableRows.length > 0) {
-    output.push(...formatTableRows(tableRows, theme, linkMode, links, styles, ansi));
+    output.push(...formatTableRows(tableRows, theme, linkMode, links, styles, ansi, features));
   }
 
   // Word-wrap each line individually

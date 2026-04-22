@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   renderTerminal,
   wordWrap,
@@ -35,6 +35,53 @@ describe("wordWrap", () => {
 
   it("handles zero column width gracefully", () => {
     expect(wordWrap("hello", 0)).toBe("hello");
+  });
+
+  it("does not split inside an OSC 8 hyperlink envelope", () => {
+    // URI contains a literal space (`send:talk crier`).  Without OSC 8
+    // awareness the wrapper would split between `talk` and `crier`,
+    // breaking the envelope and leaking a raw space into the URI.
+    const envelope = "\x1b]8;;send:talk crier\x1b\\town crier\x1b]8;;\x1b\\";
+    const input = `prefix ${envelope} suffix`;
+    const wrapped = wordWrap(input, 20);
+    // The envelope and its inner text must stay together on one line —
+    // no newline anywhere between the opener and its matching closer.
+    expect(wrapped).toContain(envelope);
+    // The URI must survive intact.
+    expect(wrapped).toContain("send:talk crier");
+    // And there must be no newline anywhere between the OSC 8 opener
+    // and its matching closer.
+    const openerIdx = wrapped.indexOf("\x1b]8;;send:");
+    const closerIdx = wrapped.indexOf("\x1b]8;;\x1b\\", openerIdx + 1);
+    expect(openerIdx).toBeGreaterThanOrEqual(0);
+    expect(closerIdx).toBeGreaterThan(openerIdx);
+    expect(wrapped.slice(openerIdx, closerIdx).includes("\n")).toBe(false);
+  });
+
+  it("treats a complete OSC 8 envelope as an atomic word", () => {
+    // A long envelope that exceeds the column width must wrap as a
+    // whole unit rather than being sliced mid-URI.
+    const envelope = "\x1b]8;;send:examine%20the%20very%20long%20target\x1b\\look\x1b]8;;\x1b\\";
+    const wrapped = wordWrap(`short ${envelope} tail`, 10);
+    expect(wrapped.split("\n").some(line => line.includes(envelope))).toBe(true);
+  });
+
+  it("does not crash on an unterminated OSC 8 opener", () => {
+    // No ST/BEL terminator — the opener runs to end-of-input. The
+    // wrapper must still return a string (we accept a long unbreakable
+    // line as the degraded outcome) and not throw.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const input = "pre \x1b]8;;send:go north\x1b\\north never closed";
+      expect(() => wordWrap(input, 10)).not.toThrow();
+      expect(warnSpy).not.toHaveBeenCalled(); // terminator IS present in the opener above
+      // Now a truly unterminated opener:
+      const broken = "pre \x1b]8;;send:go%20north and then more text";
+      expect(() => wordWrap(broken, 10)).not.toThrow();
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
 
@@ -311,6 +358,222 @@ describe("renderTerminal — link modes", () => {
     const input = `- [North](go:north)\n- [South](go:south)`;
     const { links } = renderTerminal(input, { ansi: false, linkMode: "osc8-send" });
     expect(links).toHaveLength(0);
+  });
+
+  // ─── osc8Features: tooltip + menu enrichments ─────────────────────────
+
+  it("osc8-send omits ?config when neither tooltip nor menu is enabled", () => {
+    const input = "- [North](go:north)";
+    const { text } = renderTerminal(input, { ansi: false, linkMode: "osc8-send" });
+    expect(text).toContain("\x1b]8;;send:go north\x1b\\");
+    expect(text).not.toContain("?config=");
+  });
+
+  it("osc8-send emits a tooltip-only ?config when only tooltip is enabled", () => {
+    const input = "- [North](go:north)";
+    const { text } = renderTerminal(input, {
+      ansi: false,
+      linkMode: "osc8-send",
+      osc8Features: { tooltip: true },
+    });
+    // Extract and decode the config
+    const m = text.match(/send:go north\?config=([^\x1b]+)/);
+    expect(m).not.toBeNull();
+    const cfg = JSON.parse(decodeURIComponent(m![1]));
+    expect(cfg).toEqual({ tooltip: "Go north" });
+  });
+
+  it("osc8-send emits a menu-only ?config when only menu is enabled", () => {
+    const input = "- A [rusty key](item:rusty-key) gleams.";
+    const { text } = renderTerminal(input, {
+      ansi: false,
+      linkMode: "osc8-send",
+      osc8Features: { menu: true },
+    });
+    const m = text.match(/send:examine rusty-key\?config=([^\x1b]+)/);
+    expect(m).not.toBeNull();
+    const cfg = JSON.parse(decodeURIComponent(m![1]));
+    expect(cfg.tooltip).toBeUndefined();
+    expect(cfg.menu).toEqual([
+      { Examine: "send:examine rusty-key" },
+      { Get: "send:get rusty-key" },
+      { Drop: "send:drop rusty-key" },
+    ]);
+  });
+
+  it("osc8-send emits both tooltip and menu when both are enabled for NPC links", () => {
+    const input = "- The [town crier](npc:crier) waves.";
+    const { text } = renderTerminal(input, {
+      ansi: false,
+      linkMode: "osc8-send",
+      osc8Features: { tooltip: true, menu: true },
+    });
+    const m = text.match(/send:talk crier\?config=([^\x1b]+)/);
+    expect(m).not.toBeNull();
+    const cfg = JSON.parse(decodeURIComponent(m![1]));
+    expect(cfg.tooltip).toBe("Talk to town crier");
+    expect(cfg.menu).toEqual([
+      { Talk: "send:talk crier" },
+      { Examine: "send:examine crier" },
+      "-",
+      { Attack: "send:attack crier" },
+    ]);
+  });
+
+  it("osc8-send player menu uses the display name, not the UUID, and includes a tell prompt", () => {
+    const input = "[@Kandawen](player:a781b366-54a3-4ee0-a230-d1b5fb32b2c0)";
+    const { text } = renderTerminal(input, {
+      ansi: false,
+      linkMode: "osc8-send",
+      osc8Features: { tooltip: true, menu: true },
+    });
+    const m = text.match(/send:look Kandawen\?config=([^\x1b]+)/);
+    expect(m).not.toBeNull();
+    const cfg = JSON.parse(decodeURIComponent(m![1]));
+    expect(cfg.tooltip).toBe("Look at Kandawen");
+    expect(cfg.menu).toEqual([
+      { Look: "send:look Kandawen" },
+      { Tell: "prompt:tell Kandawen " },
+    ]);
+    // UUID must never leak into the envelope
+    expect(text).not.toContain("a781b366");
+  });
+
+  it("osc8-send omits menu for help: and cmd: schemes (no meaningful related actions)", () => {
+    const input = "- [combat help](help:combat)\n- [look around](cmd:look)";
+    const { text } = renderTerminal(input, {
+      ansi: false,
+      linkMode: "osc8-send",
+      osc8Features: { tooltip: true, menu: true },
+    });
+    // help: — has tooltip but no menu
+    const helpMatch = text.match(/send:help combat\?config=([^\x1b]+)/);
+    expect(helpMatch).not.toBeNull();
+    const helpCfg = JSON.parse(decodeURIComponent(helpMatch![1]));
+    expect(helpCfg.tooltip).toBe("Help: combat");
+    expect(helpCfg.menu).toBeUndefined();
+    // cmd: — has tooltip but no menu
+    const cmdMatch = text.match(/send:look\?config=([^\x1b]+)/);
+    expect(cmdMatch).not.toBeNull();
+    const cmdCfg = JSON.parse(decodeURIComponent(cmdMatch![1]));
+    expect(cmdCfg.tooltip).toBe("look");
+    expect(cmdCfg.menu).toBeUndefined();
+  });
+
+  it("osc8-send config is percent-encoded (no raw control bytes or quotes in envelope)", () => {
+    const input = "- [North](go:north)";
+    const { text } = renderTerminal(input, {
+      ansi: false,
+      linkMode: "osc8-send",
+      osc8Features: { tooltip: true },
+    });
+    // No raw JSON characters should appear between send: and ST
+    const m = text.match(/\x1b\]8;;send:go north\?config=([^\x1b]+)\x1b\\/);
+    expect(m).not.toBeNull();
+    const encoded = m![1];
+    // Percent-encoded payload must not contain unescaped JSON structural chars
+    expect(encoded).not.toMatch(/[{}"]/);
+    // Must decode to valid JSON
+    expect(() => JSON.parse(decodeURIComponent(encoded))).not.toThrow();
+  });
+
+  it("osc8-send sanitizes control bytes from display text used in tooltips", () => {
+    // A hostile display name with C0/C1 bytes must not leak into the
+    // tooltip (which is JSON-encoded into the OSC 8 envelope).
+    const input = "- The [hostile\x1bname\x9c](npc:crier) looms.";
+    const { text } = renderTerminal(input, {
+      ansi: false,
+      linkMode: "osc8-send",
+      osc8Features: { tooltip: true },
+    });
+    const m = text.match(/\?config=([^\x1b]+)/);
+    expect(m).not.toBeNull();
+    const cfg = JSON.parse(decodeURIComponent(m![1]));
+    expect(cfg.tooltip).toBe("Talk to hostilename");
+    expect(cfg.tooltip).not.toContain("\x1b");
+    expect(cfg.tooltip).not.toContain("\x9c");
+  });
+
+  it("osc8 mode ignores osc8Features (only osc8-send honours tooltip/menu)", () => {
+    // osc8 (host-terminal) mode uses a dimmed text hint, not an actual
+    // send: URI, so there's nowhere to attach ?config=….
+    const input = "- [North](go:north)";
+    const { text } = renderTerminal(input, {
+      ansi: false,
+      linkMode: "osc8",
+      osc8Features: { tooltip: true, menu: true },
+    });
+    expect(text).not.toContain("?config=");
+    expect(text).not.toContain("send:");
+  });
+
+  it("osc8-send truncates oversized display text in tooltip at 200 chars", () => {
+    // Guards the 200-char cap in sanitizeConfigString so a pathological
+    // display name can't blow past Mudlet's 4096-byte URL limit.
+    const long = "A".repeat(500);
+    const input = `- The [${long}](npc:crier) waves.`;
+    const { text } = renderTerminal(input, {
+      ansi: false,
+      linkMode: "osc8-send",
+      osc8Features: { tooltip: true },
+    });
+    const m = text.match(/\?config=([^\x1b]+)/);
+    expect(m).not.toBeNull();
+    const cfg = JSON.parse(decodeURIComponent(m![1]));
+    // Per the "osc8-send truncates oversized display text in tooltip at
+    // 200 chars" contract: sanitizeConfigString caps the *entire*
+    // tooltip string at 200 characters, so cfg.tooltip.length must be
+    // <= 200 regardless of how long the source display name was.
+    expect(cfg.tooltip.length).toBeLessThanOrEqual(200);
+  });
+
+  it("osc8-send truncation does not split a UTF-16 surrogate pair", () => {
+    // Exactly 200 emoji (each a surrogate pair → 2 UTF-16 code units)
+    // appended to a prefix.  A naive `slice(0, 200)` on the UTF-16 view
+    // would cut mid-pair and leave an unpaired surrogate that makes
+    // `encodeURIComponent` throw `URIError` — which would either drop
+    // the entire ?config= payload or (pre-guard) crash rendering.
+    // Truncating by code points avoids that.
+    const emoji = "\u{1F600}"; // 😀 — a surrogate pair in UTF-16
+    const display = "X" + emoji.repeat(300);
+    const input = `- The [${display}](npc:crier) waves.`;
+    const { text } = renderTerminal(input, {
+      ansi: false,
+      linkMode: "osc8-send",
+      osc8Features: { tooltip: true },
+    });
+    const m = text.match(/\?config=([^\x1b]+)/);
+    expect(m).not.toBeNull();
+    // Must decode without URIError even though a naive byte-slice would
+    // have produced an unpaired surrogate.
+    expect(() => decodeURIComponent(m![1])).not.toThrow();
+    const cfg = JSON.parse(decodeURIComponent(m![1]));
+    // 200 code-point cap means at most 200 code points in tooltip,
+    // which is at most 400 UTF-16 units — never an orphan surrogate.
+    expect([...cfg.tooltip].length).toBeLessThanOrEqual(200);
+    // No lone high or low surrogate anywhere in the result.
+    expect(cfg.tooltip).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(cfg.tooltip).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+
+  it("osc8-send attaches config to links inside headings", () => {
+    const input = `# Welcome to [Northkeep](go:north)\n`;
+    const { text } = renderTerminal(input, {
+      ansi: false,
+      linkMode: "osc8-send",
+      osc8Features: { tooltip: true },
+    });
+    expect(text).toContain("?config=");
+  });
+
+  it("osc8-send attaches config to links inside blockquotes", () => {
+    const input = `> See [the notice](help:notice) for details.\n`;
+    const { text } = renderTerminal(input, {
+      ansi: false,
+      linkMode: "osc8-send",
+      osc8Features: { tooltip: true },
+    });
+    expect(text).toContain("?config=");
   });
 });
 

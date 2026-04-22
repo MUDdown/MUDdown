@@ -72,6 +72,20 @@ The web client in `apps/website/src/pages/play.astro` handles these links:
 - `npc:` → sends `talk <target>` command
 - `help:` → sends `help <topic>` command
 
+### Mapping to OSC 8 for Legacy MUD Clients
+
+The telnet bridge can translate these link schemes into OSC 8 hyperlinks that MUD clients implementing the Mudlet OSC 8 extensions (Mudlet, Fado, MudForge, …) render as native clickable links. The client must advertise the capability via NEW-ENVIRON USERVAR; the bridge then emits:
+
+```
+ESC]8;;send:<command>[?config=<percent-encoded-JSON>]ESC\<display text>ESC]8;;ESC\
+```
+
+- **`send:`** is Mudlet's URI scheme meaning "execute this command on click". Spaces inside the command are preserved literally (the renderer's word-wrap treats the whole envelope as atomic, so a raw space does not become a wrap point).
+- **`prompt:`** is the companion scheme meaning "insert this text into the input line but don't send". Used for `player:` menu entries (e.g. `prompt:tell Alice ` — the trailing space is intentional so the user can finish typing).
+- **`?config=<JSON>`** carries optional `tooltip` (string) and `menu` (array of `{ Label: "scheme:cmd" }` with `"-"` as separator). Per-scheme defaults live in `buildLinkMetadata` in `packages/client/src/terminal-renderer.ts`.
+
+When adding or modifying this mapping, follow the `osc8-bridge` skill — the pipeline spans telnet negotiation, renderer output, and word-wrap correctness, and every config string must be run through `sanitizeConfigString` (C0/C1 strip + 200 code-point cap) to stay inside Mudlet's 4096-byte URL limit and never emit an ESC inside the envelope.
+
 ## Wire Protocol
 
 All server→client messages are JSON envelopes:
