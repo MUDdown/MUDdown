@@ -146,8 +146,6 @@ function buildLinkMetadata(
   cleanTarget: string,
   displayText: string,
 ): { tooltip: string; menu: Array<Record<string, string> | "-"> } {
-  // Strip @ prefix from player display names for tooltip readability.
-  const displayClean = displayText.replace(/^@/, "");
   switch (scheme) {
     case "go":
       return {
@@ -159,7 +157,7 @@ function buildLinkMetadata(
       };
     case "npc":
       return {
-        tooltip: `Talk to ${displayClean}`,
+        tooltip: `Talk to ${displayText}`,
         menu: [
           { Talk: `send:talk ${cleanTarget}` },
           { Examine: `send:examine ${cleanTarget}` },
@@ -169,14 +167,17 @@ function buildLinkMetadata(
       };
     case "item":
       return {
-        tooltip: `Examine ${displayClean}`,
+        tooltip: `Examine ${displayText}`,
         menu: [
           { Examine: `send:examine ${cleanTarget}` },
           { Get: `send:get ${cleanTarget}` },
           { Drop: `send:drop ${cleanTarget}` },
         ],
       };
-    case "player":
+    case "player": {
+      // Strip a leading `@` from the player display name for tooltip readability
+      // (player links are authored as `[@Alice](player:alice)`).
+      const displayClean = displayText.replace(/^@/, "");
       // Defensive fallback: `renderGameLink()` currently calls
       // `resolveGameLink()` first and returns early for empty targets,
       // so this branch is not reached via the existing code path. We
@@ -194,6 +195,7 @@ function buildLinkMetadata(
           { Tell: `prompt:tell ${cleanTarget} ` },
         ],
       };
+    }
     case "help":
       return { tooltip: `Help: ${cleanTarget}`, menu: [] };
     case "cmd":
