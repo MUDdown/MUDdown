@@ -128,7 +128,7 @@ describe("buildTalkFillerMessages", () => {
     expect(messages[0]).toMatch(/^:::dialogue\{npc="crier" mood="thoughtful"\}/);
   });
 
-  it("returns [echo, ack] for an empty-string utterance (same as whitespace-only via the trim in echo)", () => {
+  it("suppresses the echo but still emits the acknowledgement for an empty-string utterance (same as whitespace-only via the trim in echo)", () => {
     const messages = buildTalkFillerMessages("crier", "Town Crier", "", rng);
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain("thoughtful");

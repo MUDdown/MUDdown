@@ -113,10 +113,13 @@ const NPC_ACKNOWLEDGEMENT_FALLBACK = "pauses before answering";
 
 /**
  * Build a `:::dialogue` block echoing the player's spoken message back to
- * them. Uses the same escaping as NPC speech so embedded quotes do not
- * break attribute parsing. Trims whitespace; returns an empty string if
- * the message is empty after trimming (callers should not send empty
- * echoes).
+ * them. The echo is **not verbatim** — surrounding whitespace is trimmed
+ * and embedded double-quotes are converted to single-quotes (via
+ * `escapeDialogueText`) so the text cannot break MUDdown attribute
+ * parsing. This matches the normalization the NPC's own reply will go
+ * through, keeping the two lines visually consistent. Returns an empty
+ * string if the message is empty after trimming (callers should not
+ * send empty echoes).
  */
 export function buildPlayerTalkEcho(
   npcId: string,
@@ -195,8 +198,6 @@ export function buildTalkFillerMessages(
   if (ack) messages.push(ack);
   return messages;
 }
-
-
 
 // ─── Markdown Link Escaping ──────────────────────────────────────────────────
 

@@ -129,9 +129,9 @@ cd apps/mobile && npm start                          # Start Expo dev server (mo
 
 Parser tests: `cd packages/parser && npm test` (56 tests via vitest).
 Server tests: `cd packages/server && npm test` (562 tests via vitest).
-Client tests: `cd packages/client && npm test` (130 tests via vitest).
+Client tests: `cd packages/client && npm test` (154 tests via vitest).
 MCP tests: `cd packages/mcp && npm test` (24 tests via vitest).
-Bridge tests: `cd packages/bridge && npm test` (66 tests via vitest).
+Bridge tests: `cd packages/bridge && npm test` (133 tests via vitest).
 
 ## Testing
 
