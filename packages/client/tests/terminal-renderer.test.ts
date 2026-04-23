@@ -224,6 +224,35 @@ describe("renderTerminal (ANSI)", () => {
     expect(text).toContain("\x1b[");
     expect(stripAnsi(text)).toContain("Town Crier");
   });
+
+  it("colors the table header separator rule with the same foreground as body rows", () => {
+    // Regression: previously the after-header rule was wrapped in
+    // `chalk.dim(...)` only, which emits `\x1b[2m` (faint) with no
+    // foreground color. Terminals then paint it in the default fg — a
+    // visibly different hue from the surrounding body rows (the
+    // `help` command table rendered via a :::system block was the
+    // visible case). The rule should now carry the body's foreground.
+    //
+    // Assert relative to an actual body row rather than a hardcoded
+    // color code so this stays valid if the theme palette changes.
+    const input =
+      `:::system{type="help"}\n` +
+      `| Command | Description |\n|---------|-------------|\n| look | Look around |\n:::`;
+    const { text } = renderTerminal(input, opts);
+    const lines = text.split("\n");
+    const ruleLine = lines.find((l) => l.includes("─┼─"));
+    const bodyLine = lines.find((l) => l.includes("look"));
+    expect(ruleLine, "expected a rule line containing ─┼─").toBeDefined();
+    expect(bodyLine, "expected a body row containing 'look'").toBeDefined();
+    // Extract the first SGR foreground-color sequence from the body row
+    // (\x1b[<30-37 or 90-97>m). The rule line must carry the same code.
+    const fgMatch = bodyLine!.match(/\x1b\[(3[0-7]|9[0-7])m/);
+    expect(fgMatch, "expected a foreground color code in the body row").not.toBeNull();
+    const fg = fgMatch![0];
+    expect(ruleLine!).toContain(fg);
+    // And it must also carry the faint (dim) attribute.
+    expect(ruleLine!).toContain("\x1b[2m");
+  });
 });
 
 // ─── Link modes ─────────────────────────────────────────────────────────────
