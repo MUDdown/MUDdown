@@ -12,6 +12,7 @@ import {
   getHelpEntry, helpEntries, buildHelpBlock, buildHelpTable, buildHintBlock, buildLoreBlock,
   isValidCommand, buildHintContext, extractNarrativeDescription,
   sanitizeRoomDescription, buildNarrativeImpression,
+  buildTalkFillerMessages,
 } from "./helpers.js";
 import { SqliteDatabase } from "./db/index.js";
 import type { GameDatabase } from "./db/types.js";
@@ -1114,6 +1115,20 @@ async function handleTalk(ws: WebSocket, session: PlayerSession, arg: string): P
       .map((id) => world.itemDefs.get(id)?.name ?? id)
       .filter(Boolean);
 
+    // Fill the perceptible LLM generation gap with an immediate echo of
+    // the player's message and a short non-verbal NPC acknowledgement.
+    // The pure helper handles the three cases (start greeting, normal
+    // utterance, whitespace-only utterance) so they stay unit-testable.
+    for (const muddown of buildTalkFillerMessages(npc.id, npc.name, playerMessage)) {
+      send(ws, {
+        v: 1,
+        id: randomUUID(),
+        type: "dialogue",
+        timestamp: new Date().toISOString(),
+        muddown,
+      });
+    }
+
     const result = await generateNpcDialogue(llmConfig, npc, {
       playerName: session.name,
       playerClass: session.characterClass,
@@ -1142,9 +1157,21 @@ async function handleTalk(ws: WebSocket, session: PlayerSession, arg: string): P
       }
       return;
     }
-    // LLM failed — clear stale history and inform player
+    // LLM failed — clear stale history and inform player. The player may
+    // already have seen an echo + acknowledgement pose for this turn, so
+    // the message needs to be coherent with "the NPC was about to speak"
+    // rather than "the NPC isn't paying attention".
+    console.warn(
+      `handleTalk: LLM returned null for NPC "${npc.id}" ` +
+      `(player="${session.name}", room="${session.currentRoom}") — clearing conversation history`,
+    );
     session.npcConversations.delete(npc.id);
-    send(ws, systemMessage(`${npc.name} seems distracted and doesn't respond.`));
+    send(
+      ws,
+      systemMessage(
+        `**${npc.name}** opens their mouth to reply, then seems to lose the thread of their thought.`,
+      ),
+    );
     return;
   }
 

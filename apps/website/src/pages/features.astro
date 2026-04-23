@@ -48,6 +48,9 @@ import Base from "../layouts/Base.astro";
             <strong>LLM-powered conversations</strong> — NPCs with backstories use an LLM to generate freeform, in-character dialogue. Dynamic speech, mood, narrative, and response suggestions — with automatic fallback to static dialogue trees when the LLM is unavailable.
           </li>
           <li>
+            <strong>Immediate talk feedback</strong> — When a player speaks to an NPC on the LLM path, the server immediately echoes the player's message back and emits a short non-verbal NPC acknowledgement (“pauses, considering your words…”) so the generation latency never feels like a dead channel.
+          </li>
+          <li>
             <strong>Turn-based combat</strong> — Attack NPCs, flee from danger. Shared NPC HP for players in the same room, defeat tracking, and 20-minute respawn timers.
           </li>
           <li>
@@ -180,7 +183,7 @@ import Base from "../layouts/Base.astro";
             <strong>Production deployment</strong> — Debian server with nginx, TLS via Let's Encrypt, systemd service, CI/CD via GitHub Actions.
           </li>
           <li>
-            <strong>Comprehensive test suite</strong> — 911 tests across parser, server, client, bridge, and MCP packages via vitest.
+            <strong>Comprehensive test suite</strong> — 929 tests across parser, server, client, bridge, and MCP packages via vitest.
           </li>
         </ul>
       </div>

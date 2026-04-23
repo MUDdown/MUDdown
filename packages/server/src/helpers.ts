@@ -80,6 +80,124 @@ export function escapeDialogueText(text: string): string {
   return text.replace(/"/g, "'");
 }
 
+// ─── Player-Talk Echo & NPC Acknowledgement ──────────────────────────────────
+//
+// When a player speaks to an NPC on the LLM dialogue path, there is a
+// perceptible generation delay. We fill that gap with two short messages
+// emitted before the LLM call returns:
+//
+//   1. `buildPlayerTalkEcho` — echoes the player's own message back so they
+//      can see what they said while the NPC "thinks". This matches the
+//      long-standing MUD convention of echoing spoken commands.
+//
+//   2. `buildNpcAcknowledgement` — a non-verbal pose ("NPC pauses,
+//      considering your words…") that signals the NPC heard the player
+//      and is about to respond. Randomized from a small pool so repeated
+//      interactions don't feel scripted.
+//
+// Both helpers return valid MUDdown container blocks. They are pure so the
+// call site can decide when to emit them.
+
+/** Non-verbal acknowledgement poses used while an NPC is composing a reply. */
+export const NPC_ACKNOWLEDGEMENT_POSES: readonly string[] = [
+  "pauses, considering your words",
+  "nods slowly, weighing what you have said",
+  "tilts their head thoughtfully",
+  "glances at you, taking a moment to think",
+  "strokes their chin, contemplating",
+  "meets your gaze and pauses before answering",
+] as const;
+
+/** Fallback pose used only if `NPC_ACKNOWLEDGEMENT_POSES` is ever emptied. */
+const NPC_ACKNOWLEDGEMENT_FALLBACK = "pauses before answering";
+
+/**
+ * Build a `:::dialogue` block echoing the player's spoken message back to
+ * them. Uses the same escaping as NPC speech so embedded quotes do not
+ * break attribute parsing. Trims whitespace; returns an empty string if
+ * the message is empty after trimming (callers should not send empty
+ * echoes).
+ */
+export function buildPlayerTalkEcho(
+  npcId: string,
+  npcName: string,
+  message: string,
+): string {
+  const trimmed = message.trim();
+  if (!trimmed) return "";
+  const safe = escapeDialogueText(trimmed);
+  return `:::dialogue{npc="${npcId}" mood="player-says"}\n> **You** say to **${npcName}**, "${safe}"\n:::`;
+}
+
+/**
+ * Build a `:::dialogue` block describing a brief non-verbal NPC
+ * acknowledgement. Selects a pose from `NPC_ACKNOWLEDGEMENT_POSES` using
+ * the supplied `rng` function (defaults to `Math.random`). Passing a
+ * seeded rng in tests gives reproducible output; otherwise the pose is
+ * random per call.
+ *
+ * Guaranteed to return a non-empty block: if the pose pool is somehow
+ * empty (e.g. a refactor accidentally clears it) a conservative fallback
+ * pose is used instead of letting `undefined` reach the wire.
+ */
+export function buildNpcAcknowledgement(
+  npcId: string,
+  npcName: string,
+  rng: () => number = Math.random,
+): string {
+  const poses = NPC_ACKNOWLEDGEMENT_POSES;
+
+  // Empty-pool guard: if the pose list is ever cleared by a refactor,
+  // use the fallback directly rather than computing an index into a
+  // zero-length array.
+  if (poses.length === 0) {
+    return `:::dialogue{npc="${npcId}" mood="thoughtful"}\n**${npcName}** ${NPC_ACKNOWLEDGEMENT_FALLBACK}.\n:::`;
+  }
+
+  // Math.random() returns a value in [0, 1), so Math.floor(rng() * N)
+  // normally produces an integer in [0, N-1]. Clamp against a hostile
+  // rng that returns NaN, Infinity, a negative, or a value >= 1.
+  let idx = Math.floor(rng() * poses.length);
+  if (!Number.isFinite(idx) || idx < 0) idx = 0;
+  else if (idx >= poses.length) idx = poses.length - 1;
+  const pose = poses[idx];
+  return `:::dialogue{npc="${npcId}" mood="thoughtful"}\n**${npcName}** ${pose}.\n:::`;
+}
+
+/**
+ * Compose the filler messages the game server should emit before awaiting
+ * the LLM dialogue call, given what the player just said.
+ *
+ * Returns an array of MUDdown blocks in display order (may be empty):
+ *
+ *   • `playerMessage === null`     → `[]` (the "start" greeting path has
+ *     no player utterance, so there is nothing to echo and no perceived
+ *     latency gap worth filling).
+ *   • whitespace-only utterance    → `[ack]` (echo is suppressed because
+ *     there is nothing meaningful to repeat, but the NPC acknowledgement
+ *     still communicates that the command was received).
+ *   • normal utterance             → `[echo, ack]`.
+ *
+ * Kept pure so the integration path in `handleTalk` stays covered by
+ * focused unit tests without mocking WebSockets.
+ */
+export function buildTalkFillerMessages(
+  npcId: string,
+  npcName: string,
+  playerMessage: string | null,
+  rng: () => number = Math.random,
+): string[] {
+  if (playerMessage === null) return [];
+  const messages: string[] = [];
+  const echo = buildPlayerTalkEcho(npcId, npcName, playerMessage);
+  if (echo) messages.push(echo);
+  const ack = buildNpcAcknowledgement(npcId, npcName, rng);
+  if (ack) messages.push(ack);
+  return messages;
+}
+
+
+
 // ─── Markdown Link Escaping ──────────────────────────────────────────────────
 
 export function escapeMarkdownLinkLabel(text: string): string {
