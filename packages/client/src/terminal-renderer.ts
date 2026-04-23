@@ -624,12 +624,19 @@ function formatTableRows(
       const paddedCell = pad > 0 ? cell + " ".repeat(pad) : cell;
       return isHeader && ansi ? chalk.bold(paddedCell) : paddedCell;
     });
+    // Route each row through `styles.body(...)` so cell content (and the
+    // header-rule below) carries the block's body foreground. Without
+    // this, `chalk.dim` alone emits only the faint attribute with no
+    // color and terminals paint those glyphs in the default foreground —
+    // a visibly different hue from the block's body color.
     output.push(styles.body(padded.join(sep)));
 
-    // Add separator line after header
+    // Add separator line after header, using the same body wrap so the
+    // rule matches the surrounding rows instead of defaulting to the
+    // terminal's default foreground.
     if (isHeader) {
       const rule = colWidths.map(w => "─".repeat(w)).join(ansi ? chalk.dim("─┼─") : "-+-");
-      output.push(ansi ? chalk.dim(rule) : rule);
+      output.push(ansi ? styles.body(chalk.dim(rule)) : rule);
     }
   }
 
