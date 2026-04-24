@@ -30,6 +30,51 @@ export function findItemByName(
   return undefined;
 }
 
+// ─── /stats Payload ──────────────────────────────────────────────────────────
+
+/**
+ * Build the JSON payload returned by `GET /stats`, which the telnet bridge
+ * polls to fill in MSSP variables advertised to MUD crawlers. `levels` is
+ * 0 until a level system ships (not a fallback "unknown" sentinel — the
+ * server authoritatively knows the current value).
+ */
+export function buildStatsPayload(input: {
+  players: number;
+  uptime: number;
+  rooms: Map<string, { attributes: Record<string, unknown> }>;
+  itemDefsSize: number;
+  npcDefsSize: number;
+  helpfilesCount: number;
+  classesCount: number;
+}): {
+  players: number;
+  uptime: number;
+  areas: number;
+  rooms: number;
+  objects: number;
+  mobiles: number;
+  helpfiles: number;
+  classes: number;
+  levels: number;
+} {
+  const regions = new Set<string>();
+  for (const room of input.rooms.values()) {
+    const region = room.attributes.region;
+    if (typeof region === "string" && region.length > 0) regions.add(region);
+  }
+  return {
+    players: input.players,
+    uptime: input.uptime,
+    areas: regions.size,
+    rooms: input.rooms.size,
+    objects: input.itemDefsSize,
+    mobiles: input.npcDefsSize,
+    helpfiles: input.helpfilesCount,
+    classes: input.classesCount,
+    levels: 0,
+  };
+}
+
 // ─── NPC Lookup ──────────────────────────────────────────────────────────────
 
 export function findNpcInRoom(

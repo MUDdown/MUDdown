@@ -11,8 +11,9 @@ import { IAC, SB, SE, OPT_MSSP, MSSP_VAR, MSSP_VAL } from "../src/telnet.js";
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
 const SAMPLE_CONFIG: MsspConfig = {
+  name: "MUDdown",
   hostname: "muddown.com",
-  contact: "support@stickmud.com",
+  contact: "support@muddown.com",
   website: "https://muddown.com",
   icon: "https://muddown.com/favicon.ico",
   discord: "https://discord.gg/mDFcMT3egK",

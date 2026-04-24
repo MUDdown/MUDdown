@@ -12,7 +12,7 @@ import {
   getHelpEntry, helpEntries, buildHelpBlock, buildHelpTable, buildHintBlock, buildLoreBlock,
   isValidCommand, buildHintContext, extractNarrativeDescription,
   sanitizeRoomDescription, buildNarrativeImpression,
-  buildTalkFillerMessages,
+  buildTalkFillerMessages, buildStatsPayload,
 } from "./helpers.js";
 import { SqliteDatabase } from "./db/index.js";
 import type { GameDatabase } from "./db/types.js";
@@ -301,22 +301,15 @@ const server = createServer((req, res) => {
     // MSSP variables advertised to crawlers). Counts are derived from
     // the loaded world; `levels` is 0 until a level system ships.
     if (req.url === "/stats") {
-      const regions = new Set<string>();
-      for (const room of world.rooms.values()) {
-        const region = room.attributes.region;
-        if (typeof region === "string" && region.length > 0) regions.add(region);
-      }
-      const payload = {
+      const payload = buildStatsPayload({
         players: sessions.size,
         uptime: SERVER_STARTED_AT,
-        areas: regions.size,
-        rooms: world.rooms.size,
-        objects: world.itemDefs.size,
-        mobiles: world.npcDefs.size,
-        helpfiles: Object.keys(helpEntries).length,
-        classes: CHARACTER_CLASSES.length,
-        levels: 0,
-      };
+        rooms: world.rooms,
+        itemDefsSize: world.itemDefs.size,
+        npcDefsSize: world.npcDefs.size,
+        helpfilesCount: Object.keys(helpEntries).length,
+        classesCount: CHARACTER_CLASSES.length,
+      });
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(payload));
       return;

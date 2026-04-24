@@ -18,6 +18,7 @@ import { iacSub, MSSP_VAR, MSSP_VAL, OPT_MSSP } from "./telnet.js";
  * world counts) come from {@link MsspStats}, not this record.
  */
 export interface MsspConfig {
+  name: string;
   hostname: string;
   contact: string;
   website: string;
@@ -74,8 +75,9 @@ export function loadConfig(): BridgeConfig {
     keepaliveMs: Number.isNaN(keepaliveMs) ? 30000 : keepaliveMs,
     serverName: process.env.BRIDGE_SERVER_NAME ?? "MUDdown",
     mssp: {
+      name: process.env.MSSP_NAME ?? process.env.BRIDGE_SERVER_NAME ?? "MUDdown",
       hostname: process.env.MSSP_HOSTNAME ?? "muddown.com",
-      contact: process.env.MSSP_CONTACT ?? "support@stickmud.com",
+      contact: process.env.MSSP_CONTACT ?? "support@muddown.com",
       website: process.env.MSSP_WEBSITE ?? "https://muddown.com",
       icon: process.env.MSSP_ICON ?? "https://muddown.com/favicon.ico",
       discord: process.env.MSSP_DISCORD ?? "https://discord.gg/mDFcMT3egK",
@@ -281,7 +283,9 @@ export const MSSP_STATS_UNKNOWN: MsspStats = {
  *
  * `bridgePort` is the telnet port the bridge itself listens on. MSSP expects
  * `PORT`, `TLS`, and `SSL` to all advertise that same value; `SSL` is a
- * legacy duplicate that Mudlet's example still carries.
+ * legacy duplicate that Mudlet's example still carries. This assumes the
+ * bridge is TLS-only (true today); if a plaintext listener is ever added,
+ * split `PORT` from `TLS`/`SSL` so crawlers see the correct protocol tier.
  *
  * `ip` is included only when non-empty so a failed DNS lookup at startup
  * doesn't advertise a bogus value. `RACES` and `SKILLS` are emitted as
@@ -294,7 +298,7 @@ export function buildMsspVars(
   ip: string,
 ): Record<string, string> {
   const vars: Record<string, string> = {
-    "NAME": "MUDdown",
+    "NAME": config.name,
     "PLAYERS": String(stats.players),
     "UPTIME": String(stats.uptime),
     "HOSTNAME": config.hostname,
@@ -354,9 +358,10 @@ export function buildMsspVars(
  *
  * Per https://tintin.mudhalla.net/protocols/mssp/, names and values are
  * ASCII strings and may not contain NUL, `MSSP_VAR` (0x01), or `MSSP_VAL`
- * (0x02). `IAC` (0xFF) escaping is handled by `iacSub`. Any caller-supplied
- * value containing a reserved byte throws rather than producing a malformed
- * payload that would desync a crawler's parser.
+ * (0x02) — any such byte desynchronises a crawler's parser, so callers that
+ * supply one trigger a `RangeError` rather than producing a malformed
+ * payload. IAC (0xFF) is handled differently: `iacSub` silently doubles it
+ * per RFC 854, so 0xFF in a value is safe and survives the wire round-trip.
  */
 export function buildMsspSubneg(vars: Record<string, string>): Buffer {
   const bytes: number[] = [];

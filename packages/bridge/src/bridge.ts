@@ -225,12 +225,16 @@ async function postCreateCharacter(
 // ─── MSSP state ──────────────────────────────────────────────────────────────
 
 /**
- * Unix seconds at bridge process start. Advertised as the MSSP `UPTIME`
- * variable (the time the MUD went live, per the MSSP spec).
+ * Unix seconds at bridge process start. Advertised as MSSP `UPTIME`.
+ * Reflects bridge startup, not game-server startup — restarting just the
+ * game server will not advance this value.
  */
 const BRIDGE_STARTED_AT = Math.floor(Date.now() / 1000);
 
+/** Minimum ms between `/stats` fetches when the previous one succeeded. */
 const MSSP_STATS_TTL_MS = 30_000;
+/** Minimum ms between `/stats` fetches when the previous one failed. */
+const MSSP_STATS_FAILURE_BACKOFF_MS = 5_000;
 
 let msspStatsCache: MsspStats = MSSP_STATS_UNKNOWN;
 let msspStatsFetchedAt = 0;
@@ -239,27 +243,42 @@ let msspResolvedIp = "";
 /**
  * Resolve the hostname to an IPv4 address once at startup so MSSP `IP`
  * carries a real value. A lookup failure leaves `msspResolvedIp` empty,
- * which causes `buildMsspVars` to omit the key entirely.
+ * which causes `buildMsspVars` to omit the key entirely. Not retried —
+ * operators should set `MSSP_IP` or verify DNS is reachable at boot.
  */
 export async function resolveMsspIp(hostname: string): Promise<void> {
   try {
     const { address } = await dnsLookup(hostname, { family: 4 });
     msspResolvedIp = address;
   } catch (err) {
-    console.warn(`[bridge] MSSP IP lookup for ${JSON.stringify(hostname)} failed; omitting IP:`, err);
+    console.error(`[bridge] MSSP IP lookup for ${JSON.stringify(hostname)} failed; omitting IP for this bridge lifetime:`, err);
     msspResolvedIp = "";
   }
 }
 
 /**
  * Fetch `/stats` from the game server with a short timeout and cache the
- * result for {@link MSSP_STATS_TTL_MS}. Returns the last successful
- * snapshot (or `MSSP_STATS_UNKNOWN` if none yet). `uptime` is overwritten
- * with the bridge process start time — `/stats` has no opinion on it.
+ * result. Returns the last successful snapshot (or `MSSP_STATS_UNKNOWN`
+ * if none yet).
+ *
+ * Cache policy:
+ * - On success, serve the snapshot for {@link MSSP_STATS_TTL_MS} (30s).
+ * - On failure, back off for {@link MSSP_STATS_FAILURE_BACKOFF_MS} (5s)
+ *   so a storm of crawler DO MSSP requests does not hammer a wedged
+ *   game server with concurrent 3-second fetches.
+ *
+ * `uptime` is overwritten with the bridge process start time — `/stats`
+ * has no opinion on it. Any field missing or of the wrong type in the
+ * response falls back to `-1` (MSSP's "unknown" sentinel), so a schema
+ * drift (e.g. field rename) advertises "unknown" rather than silently
+ * zeroing out.
  */
 export async function getMsspStats(httpBase: string): Promise<MsspStats> {
   const now = Date.now();
-  if (now - msspStatsFetchedAt < MSSP_STATS_TTL_MS && msspStatsFetchedAt > 0) {
+  const ttl = msspStatsFetchedAt > 0 && msspStatsCache !== MSSP_STATS_UNKNOWN
+    ? MSSP_STATS_TTL_MS
+    : MSSP_STATS_FAILURE_BACKOFF_MS;
+  if (msspStatsFetchedAt > 0 && now - msspStatsFetchedAt < ttl) {
     return msspStatsCache;
   }
   try {
@@ -275,14 +294,19 @@ export async function getMsspStats(httpBase: string): Promise<MsspStats> {
         mobiles: typeof data.mobiles === "number" ? data.mobiles : -1,
         helpfiles: typeof data.helpfiles === "number" ? data.helpfiles : -1,
         classes: typeof data.classes === "number" ? data.classes : -1,
-        levels: typeof data.levels === "number" ? data.levels : 0,
+        levels: typeof data.levels === "number" ? data.levels : -1,
       };
       msspStatsFetchedAt = now;
     } else {
       console.warn(`[bridge] /stats returned HTTP ${res.status}; using cached MSSP values`);
+      // Advance the clock so the backoff applies even to non-2xx responses.
+      msspStatsFetchedAt = now;
     }
   } catch (err) {
     console.warn("[bridge] /stats fetch failed; using cached MSSP values:", err);
+    // Advance the clock so concurrent crawler requests share the backoff
+    // window instead of each spawning a new 3-second fetch.
+    msspStatsFetchedAt = now;
   }
   return msspStatsCache;
 }
@@ -548,10 +572,16 @@ export class TelnetSession {
         const vars = buildMsspVars(this.config.mssp, stats, this.config.port, msspResolvedIp);
         this.write(buildMsspSubneg(vars));
       } catch (err) {
-        console.error(`[bridge] [${this.id}] buildMsspSubneg failed:`, err);
+        // buildMsspSubneg rejects reserved bytes in names/values. The client
+        // already saw IAC WILL MSSP and is waiting for the sub-negotiation,
+        // so emit IAC WONT MSSP to cleanly withdraw the offer instead of
+        // letting the crawler time out.
+        console.error(`[bridge] [${this.id}] buildMsspSubneg failed; sending WONT MSSP:`, err);
+        this.write(iacWont(OPT_MSSP));
       }
     }).catch((err) => {
       console.error(`[bridge] [${this.id}] sendMssp failed:`, err);
+      this.write(iacWont(OPT_MSSP));
     });
   }
 
