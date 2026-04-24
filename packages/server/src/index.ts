@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import type { ClientMessage, ServerMessage, EquipSlot, NpcDefinition, DialogueNode, CharacterRecord, CharacterClass } from "@muddown/shared";
-import { PLAYER_DEFAULTS, CLASS_STATS, WS_CLOSE_QUIT } from "@muddown/shared";
+import { PLAYER_DEFAULTS, CLASS_STATS, WS_CLOSE_QUIT, CHARACTER_CLASSES } from "@muddown/shared";
 import { loadWorld, type WorldMap } from "./world.js";
 import {
   dirAliases, findItemByName, findNpcInRoom, findUnclaimedIndex,
@@ -99,6 +99,7 @@ const npcHpMap = new Map<string, number>();
 // ─── Server ──────────────────────────────────────────────────────────────────
 
 const PORT = Number(process.env.PORT) || 3300;
+const SERVER_STARTED_AT = Math.floor(Date.now() / 1000);
 const world: WorldMap = loadWorld();
 const sessions = new Map<WebSocket, PlayerSession>();
 
@@ -293,6 +294,31 @@ const server = createServer((req, res) => {
     if (req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "ok", players: sessions.size }));
+      return;
+    }
+
+    // MSSP / listing stats (consumed by the telnet bridge to fill in
+    // MSSP variables advertised to crawlers). Counts are derived from
+    // the loaded world; `levels` is 0 until a level system ships.
+    if (req.url === "/stats") {
+      const regions = new Set<string>();
+      for (const room of world.rooms.values()) {
+        const region = room.attributes.region;
+        if (typeof region === "string" && region.length > 0) regions.add(region);
+      }
+      const payload = {
+        players: sessions.size,
+        uptime: SERVER_STARTED_AT,
+        areas: regions.size,
+        rooms: world.rooms.size,
+        objects: world.itemDefs.size,
+        mobiles: world.npcDefs.size,
+        helpfiles: Object.keys(helpEntries).length,
+        classes: CHARACTER_CLASSES.length,
+        levels: 0,
+      };
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(payload));
       return;
     }
 

@@ -8,6 +8,7 @@
  * - ECHO suppression — RFC 857
  * - SGA (Suppress Go Ahead) — RFC 858
  * - NEW-ENVIRON — RFC 1572 (Mudlet OSC 8 capability advertisement)
+ * - MSSP — MUD Server Status Protocol (https://tintin.mudhalla.net/protocols/mssp/)
  */
 
 // ─── IAC Command Bytes ───────────────────────────────────────────────────────
@@ -41,6 +42,15 @@ export const OPT_TTYPE = 24;
 export const OPT_NAWS = 31;
 /** NEW-ENVIRON — RFC 1572. Used by Mudlet to advertise OSC 8 support. */
 export const OPT_NEW_ENVIRON = 39;
+/**
+ * MUD Server Status Protocol — https://tintin.mudhalla.net/protocols/mssp/
+ *
+ * When the client sends `IAC DO MSSP`, the server responds with a single
+ * sub-negotiation carrying a set of `MSSP_VAR <name> MSSP_VAL <value>` pairs
+ * describing the MUD (name, uptime, player count, genre, etc.). Used by MUD
+ * listing crawlers and interactive clients to discover and categorise MUDs.
+ */
+export const OPT_MSSP = 70;
 
 // ─── Sub-negotiation constants ───────────────────────────────────────────────
 
@@ -74,6 +84,15 @@ export const NEW_ENVIRON_VALUE = 1;
 export const NEW_ENVIRON_ESC = 2;
 /** NEW-ENVIRON USERVAR — application-defined variable. Field-type byte. */
 export const NEW_ENVIRON_USERVAR = 3;
+
+// MSSP (MUD Server Status Protocol) sub-negotiation markers.
+// Inside a `IAC SB MSSP ... IAC SE` payload, variable names are prefixed with
+// MSSP_VAR and values with MSSP_VAL. Neither byte may appear inside a name
+// or value, and IAC (0xFF) must be escaped per RFC 854 (handled by iacSub).
+/** MSSP variable-name marker. */
+export const MSSP_VAR = 1;
+/** MSSP variable-value marker. */
+export const MSSP_VAL = 2;
 
 // ─── Command builders ────────────────────────────────────────────────────────
 
