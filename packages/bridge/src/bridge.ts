@@ -240,19 +240,40 @@ let msspStatsCache: MsspStats = MSSP_STATS_UNKNOWN;
 let msspStatsFetchedAt = 0;
 let msspResolvedIp = "";
 
+/** Maximum wall time to wait for the startup DNS lookup. */
+const MSSP_DNS_TIMEOUT_MS = 5_000;
+
 /**
  * Resolve the hostname to an IPv4 address once at startup so MSSP `IP`
- * carries a real value. A lookup failure leaves `msspResolvedIp` empty,
- * which causes `buildMsspVars` to omit the key entirely. Not retried —
- * operators should set `MSSP_IP` or verify DNS is reachable at boot.
+ * carries a real value. A lookup failure or timeout leaves `msspResolvedIp`
+ * empty, which causes `buildMsspVars` to omit the key entirely. Not
+ * retried — operators should set `MSSP_IP` or verify DNS is reachable at
+ * boot.
+ *
+ * `dns.promises.lookup` does not accept an `AbortSignal` (the underlying
+ * `getaddrinfo` is uncancellable), so we race the lookup against a timer
+ * to bound how long startup can stall on a wedged resolver. The orphaned
+ * lookup promise will eventually settle and is intentionally ignored.
  */
 export async function resolveMsspIp(hostname: string): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`DNS lookup timed out after ${MSSP_DNS_TIMEOUT_MS}ms`)),
+      MSSP_DNS_TIMEOUT_MS,
+    );
+  });
   try {
-    const { address } = await dnsLookup(hostname, { family: 4 });
+    const { address } = await Promise.race([
+      dnsLookup(hostname, { family: 4 }),
+      timeout,
+    ]);
     msspResolvedIp = address;
   } catch (err) {
     console.error(`[bridge] MSSP IP lookup for ${JSON.stringify(hostname)} failed; omitting IP for this bridge lifetime:`, err);
     msspResolvedIp = "";
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 

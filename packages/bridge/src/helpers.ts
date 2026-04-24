@@ -356,31 +356,38 @@ export function buildMsspVars(
  * Build the MSSP sub-negotiation payload:
  * `IAC SB MSSP (MSSP_VAR <name> MSSP_VAL <value>)* IAC SE`.
  *
- * Per https://tintin.mudhalla.net/protocols/mssp/, names and values are
- * ASCII strings and may not contain NUL, `MSSP_VAR` (0x01), or `MSSP_VAL`
- * (0x02) — any such byte desynchronises a crawler's parser, so callers that
- * supply one trigger a `RangeError` rather than producing a malformed
- * payload. IAC (0xFF) is handled differently: `iacSub` silently doubles it
- * per RFC 854, so 0xFF in a value is safe and survives the wire round-trip.
+ * Per https://tintin.mudhalla.net/protocols/mssp/, the spec describes names
+ * and values as ASCII. This implementation is more permissive: strings are
+ * Latin-1 encoded (Buffer.from(s, "latin1")), so bytes 0x80–0xFF are allowed
+ * to support extended-ASCII content. Strings may not contain NUL,
+ * `MSSP_VAR` (0x01), or `MSSP_VAL` (0x02) after latin1 encoding — any such
+ * byte desynchronises a crawler's parser, so callers that supply one trigger
+ * a `RangeError` rather than producing a malformed payload. (Note: code
+ * points ≥ 0x100 are truncated to their low byte by latin1 encoding, so
+ * validation runs on the encoded bytes, not the source code units.) IAC
+ * (0xFF) is handled differently: `iacSub` silently doubles it per RFC 854,
+ * so 0xFF in a value is safe and survives the wire round-trip.
  */
 export function buildMsspSubneg(vars: Record<string, string>): Buffer {
   const bytes: number[] = [];
   for (const [name, value] of Object.entries(vars)) {
-    for (const s of [name, value]) {
-      for (let i = 0; i < s.length; i++) {
-        const code = s.charCodeAt(i);
-        if (code === 0 || code === MSSP_VAR || code === MSSP_VAL) {
+    const nameBuf = Buffer.from(name, "latin1");
+    const valueBuf = Buffer.from(value, "latin1");
+    for (const [s, buf] of [[name, nameBuf], [value, valueBuf]] as const) {
+      for (let i = 0; i < buf.length; i++) {
+        const b = buf[i]!;
+        if (b === 0 || b === MSSP_VAR || b === MSSP_VAL) {
           throw new RangeError(
             `buildMsspSubneg: ${JSON.stringify(s)} contains reserved byte ` +
-            `0x${code.toString(16).padStart(2, "0")} at index ${i}`,
+            `0x${b.toString(16).padStart(2, "0")} at index ${i}`,
           );
         }
       }
     }
     bytes.push(MSSP_VAR);
-    for (const b of Buffer.from(name, "latin1")) bytes.push(b);
+    for (const b of nameBuf) bytes.push(b);
     bytes.push(MSSP_VAL);
-    for (const b of Buffer.from(value, "latin1")) bytes.push(b);
+    for (const b of valueBuf) bytes.push(b);
   }
   return iacSub(OPT_MSSP, ...bytes);
 }

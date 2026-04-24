@@ -192,6 +192,17 @@ describe("buildMsspSubneg", () => {
     expect(() => buildMsspSubneg({ "\x01": "v" })).toThrow(/reserved byte 0x01/);
   });
 
+  it("rejects high code points whose latin1 truncation lands on a reserved byte", () => {
+    // "\u0101" passes a UTF-16 charCodeAt check (257 != 0/1/2) but
+    // Buffer.from("\u0101", "latin1") emits byte 0x01 (MSSP_VAR), which
+    // would silently desynchronise a crawler's parser. Validation must
+    // run on the latin1-encoded bytes, not the source code units.
+    expect(() => buildMsspSubneg({ K: "\u0101" })).toThrow(/reserved byte 0x01/);
+    expect(() => buildMsspSubneg({ K: "\u0102" })).toThrow(/reserved byte 0x02/);
+    expect(() => buildMsspSubneg({ K: "\u0100" })).toThrow(/reserved byte 0x00/);
+    expect(() => buildMsspSubneg({ "\u0101": "v" })).toThrow(/reserved byte 0x01/);
+  });
+
   it("produces a parseable full StickMUD-style payload", () => {
     const vars = buildMsspVars(SAMPLE_CONFIG, SAMPLE_STATS, 2323, "198.51.100.42");
     const buf = buildMsspSubneg(vars);

@@ -27,10 +27,9 @@ describe("getMsspStats", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    vi.useRealTimers();
   });
 
-  it("returns MSSP_STATS_UNKNOWN until the first successful fetch completes", async () => {
+  it("returns parsed MSSP stats after the first successful fetch", async () => {
     mockFetch(async () => jsonResponse({
       players: 3, areas: 5, rooms: 47, objects: 120,
       mobiles: 23, helpfiles: 12, classes: 4, levels: 0,
@@ -94,7 +93,8 @@ describe("getMsspStats", () => {
     await getMsspStats("http://localhost:3300");
     await getMsspStats("http://localhost:3300");
     // A storm of crawler DO MSSP requests should share one in-flight
-    // fetch, not spawn three concurrent 3-second requests.
+    // fetch, not spawn three concurrent 3-second `fetchWithTimeout`
+    // calls. (3s = per-fetch timeout; 5s = backoff between retries.)
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -115,13 +115,19 @@ describe("getMsspStats", () => {
         mobiles: 1, helpfiles: 1, classes: 1, levels: 0,
       });
     });
-    await getMsspStats("http://localhost:3300");
-    // Advance wall clock past the 5-second backoff by resetting the cache
-    // (we don't have easy access to the module-level timestamp, so this
-    // stands in for "backoff window elapsed").
-    __resetMsspCacheForTesting();
-    const stats = await getMsspStats("http://localhost:3300");
-    expect(stats.players).toBe(2);
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    vi.useFakeTimers();
+    try {
+      await getMsspStats("http://localhost:3300");
+      // Within the backoff window: served from UNKNOWN cache, no refetch.
+      await getMsspStats("http://localhost:3300");
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      // Past the 5s backoff: should refetch and pick up the recovered server.
+      vi.advanceTimersByTime(5001);
+      const stats = await getMsspStats("http://localhost:3300");
+      expect(stats.players).toBe(2);
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
