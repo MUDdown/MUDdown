@@ -278,8 +278,10 @@ export const MSSP_STATS_UNKNOWN: MsspStats = {
 /**
  * Build the ordered MSSP variable set. The keyset matches the StickMUD
  * example documented on the Mudlet wiki
- * (https://wiki.mudlet.org/w/Manual:Supported_Protocols#MSSP) — no custom
- * keys beyond that list.
+ * (https://wiki.mudlet.org/w/Manual:Supported_Protocols#MSSP), plus the
+ * official MSSP spec's `XTERM TRUE COLORS` key
+ * (https://mudhalla.net/tintin/protocols/mssp/) since the bridge
+ * negotiates 24-bit color via TTYPE/COLORTERM. No other custom keys.
  *
  * `bridgePort` is the telnet port the bridge itself listens on. MSSP expects
  * `PORT`, `TLS`, and `SSL` to all advertise that same value; `SSL` is a
@@ -338,6 +340,7 @@ export function buildMsspVars(
     "UTF-8": "1",
     "VT100": "0",
     "XTERM 256 COLORS": "1",
+    "XTERM TRUE COLORS": "1",
     "MXP": "0",
     "MSP": "0",
     "MCP": "0",

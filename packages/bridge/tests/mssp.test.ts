@@ -41,16 +41,20 @@ const SAMPLE_STATS: MsspStats = {
 };
 
 // The canonical keyset from the Mudlet wiki's StickMUD example
-// (https://wiki.mudlet.org/w/Manual:Supported_Protocols#MSSP). `IP` is
-// excluded because it is only present when a DNS resolution succeeded.
-const STICKMUD_KEYS_WITHOUT_IP = [
+// (https://wiki.mudlet.org/w/Manual:Supported_Protocols#MSSP), plus
+// `XTERM TRUE COLORS` from the official MSSP spec
+// (https://mudhalla.net/tintin/protocols/mssp/) since the bridge
+// negotiates 24-bit color via TTYPE/COLORTERM. `IP` is excluded because
+// it is only present when a DNS resolution succeeded.
+const EXPECTED_KEYS_WITHOUT_IP = [
   "NAME", "PLAYERS", "UPTIME", "HOSTNAME", "PORT", "TLS", "SSL",
   "CONTACT", "WEBSITE", "ICON", "DISCORD", "LANGUAGE", "LOCATION",
   "CREATED", "CODEBASE", "FAMILY", "GAMESYSTEM", "GENRE", "SUBGENRE",
   "GAMEPLAY", "STATUS", "INTERMUD", "MINIMUM AGE", "PUEBLO",
   "AREAS", "ROOMS", "OBJECTS", "MOBILES", "HELPFILES", "CLASSES",
   "LEVELS", "RACES", "SKILLS",
-  "ANSI", "UTF-8", "VT100", "XTERM 256 COLORS", "MXP", "MSP", "MCP",
+  "ANSI", "UTF-8", "VT100", "XTERM 256 COLORS", "XTERM TRUE COLORS",
+  "MXP", "MSP", "MCP",
   "MCCP", "GMCP", "MSDP",
   "PAY TO PLAY", "PAY FOR PERKS", "HIRING BUILDERS", "HIRING CODERS",
 ];
@@ -58,16 +62,16 @@ const STICKMUD_KEYS_WITHOUT_IP = [
 // ─── buildMsspVars ───────────────────────────────────────────────────────────
 
 describe("buildMsspVars", () => {
-  it("emits exactly the StickMUD-example keys when no IP is provided", () => {
+  it("emits exactly the expected keys when no IP is provided", () => {
     const vars = buildMsspVars(SAMPLE_CONFIG, SAMPLE_STATS, 2323, "");
-    expect(Object.keys(vars).sort()).toEqual([...STICKMUD_KEYS_WITHOUT_IP].sort());
+    expect(Object.keys(vars).sort()).toEqual([...EXPECTED_KEYS_WITHOUT_IP].sort());
   });
 
   it("includes IP when a non-empty value is provided", () => {
     const vars = buildMsspVars(SAMPLE_CONFIG, SAMPLE_STATS, 2323, "198.51.100.42");
     expect(vars["IP"]).toBe("198.51.100.42");
     expect(Object.keys(vars).sort()).toEqual(
-      [...STICKMUD_KEYS_WITHOUT_IP, "IP"].sort(),
+      [...EXPECTED_KEYS_WITHOUT_IP, "IP"].sort(),
     );
   });
 
@@ -109,14 +113,19 @@ describe("buildMsspVars", () => {
     expect(vars["SKILLS"]).toBe("-1");
   });
 
-  it("does not invent keys outside the StickMUD example", () => {
+  it("does not invent keys outside the documented set", () => {
     const vars = buildMsspVars(SAMPLE_CONFIG, SAMPLE_STATS, 2323, "1.2.3.4");
     for (const key of Object.keys(vars)) {
-      expect([...STICKMUD_KEYS_WITHOUT_IP, "IP"]).toContain(key);
+      expect([...EXPECTED_KEYS_WITHOUT_IP, "IP"]).toContain(key);
     }
-    expect(vars).not.toHaveProperty("XTERM TRUE COLORS");
     expect(vars).not.toHaveProperty("CRAWL DELAY");
+    expect(vars).not.toHaveProperty("CHARSET");
     expect(vars).not.toHaveProperty("MSSP");
+  });
+
+  it("advertises XTERM TRUE COLORS=1 (24-bit color via TTYPE/COLORTERM)", () => {
+    const vars = buildMsspVars(SAMPLE_CONFIG, SAMPLE_STATS, 2323, "");
+    expect(vars["XTERM TRUE COLORS"]).toBe("1");
   });
 
   it("carries static categorisation fields through unchanged", () => {
