@@ -291,7 +291,7 @@ const server = createServer((req, res) => {
     if (await handleGamesRoute(req, res, db)) return;
 
     // Health check
-    if (req.url === "/health") {
+    if (url.pathname === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "ok", players: sessions.size }));
       return;
