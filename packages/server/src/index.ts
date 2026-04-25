@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import type { ClientMessage, ServerMessage, EquipSlot, NpcDefinition, DialogueNode, CharacterRecord, CharacterClass } from "@muddown/shared";
-import { PLAYER_DEFAULTS, CLASS_STATS, WS_CLOSE_QUIT } from "@muddown/shared";
+import { PLAYER_DEFAULTS, CLASS_STATS, WS_CLOSE_QUIT, CHARACTER_CLASSES } from "@muddown/shared";
 import { loadWorld, type WorldMap } from "./world.js";
 import {
   dirAliases, findItemByName, findNpcInRoom, findUnclaimedIndex,
@@ -12,7 +12,7 @@ import {
   getHelpEntry, helpEntries, buildHelpBlock, buildHelpTable, buildHintBlock, buildLoreBlock,
   isValidCommand, buildHintContext, extractNarrativeDescription,
   sanitizeRoomDescription, buildNarrativeImpression,
-  buildTalkFillerMessages,
+  buildTalkFillerMessages, buildStatsPayload,
 } from "./helpers.js";
 import { SqliteDatabase } from "./db/index.js";
 import type { GameDatabase } from "./db/types.js";
@@ -99,6 +99,7 @@ const npcHpMap = new Map<string, number>();
 // ─── Server ──────────────────────────────────────────────────────────────────
 
 const PORT = Number(process.env.PORT) || 3300;
+const SERVER_STARTED_AT = Math.floor(Date.now() / 1000);
 const world: WorldMap = loadWorld();
 const sessions = new Map<WebSocket, PlayerSession>();
 
@@ -290,9 +291,27 @@ const server = createServer((req, res) => {
     if (await handleGamesRoute(req, res, db)) return;
 
     // Health check
-    if (req.url === "/health") {
+    if (url.pathname === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "ok", players: sessions.size }));
+      return;
+    }
+
+    // MSSP / listing stats (consumed by the telnet bridge to fill in
+    // MSSP variables advertised to crawlers). Counts are derived from
+    // the loaded world; `levels` is 0 until a level system ships.
+    if (url.pathname === "/stats") {
+      const payload = buildStatsPayload({
+        players: sessions.size,
+        uptime: SERVER_STARTED_AT,
+        rooms: world.rooms,
+        itemDefsSize: world.itemDefs.size,
+        npcDefsSize: world.npcDefs.size,
+        helpfilesCount: Object.keys(helpEntries).length,
+        classesCount: CHARACTER_CLASSES.length,
+      });
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(payload));
       return;
     }
 

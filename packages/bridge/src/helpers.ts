@@ -5,7 +5,35 @@
  * the full bridge server (which starts TCP listeners).
  */
 import type { LinkMode } from "@muddown/client";
+import { iacSub, MSSP_VAR, MSSP_VAL, OPT_MSSP } from "./telnet.js";
 // ─── Configuration ───────────────────────────────────────────────────────────
+
+/**
+ * Static MSSP fields advertised to MUD listing crawlers and clients that
+ * support the MUD Server Status Protocol.
+ *
+ * The keyset mirrors the StickMUD example on the Mudlet wiki
+ * (https://wiki.mudlet.org/w/Manual:Supported_Protocols#MSSP) so that
+ * crawlers parse every field with no surprises. Live values (player count,
+ * world counts) come from {@link MsspStats}, not this record.
+ */
+export interface MsspConfig {
+  name: string;
+  hostname: string;
+  contact: string;
+  website: string;
+  icon: string;
+  discord: string;
+  language: string;
+  location: string;
+  created: string;
+  codebase: string;
+  genre: string;
+  subgenre: string;
+  gameplay: string;
+  status: string;
+  minimumAge: string;
+}
 
 export interface BridgeConfig {
   /** TLS listen port (default 2323). */
@@ -31,6 +59,8 @@ export interface BridgeConfig {
   keepaliveMs: number;
   /** Bridge server name shown in banner. */
   serverName: string;
+  /** Static fields advertised via MSSP sub-negotiation. */
+  mssp: MsspConfig;
 }
 
 export function loadConfig(): BridgeConfig {
@@ -44,6 +74,23 @@ export function loadConfig(): BridgeConfig {
     publicBaseUrl: process.env.PUBLIC_BASE_URL?.replace(/\/$/, "") || undefined,
     keepaliveMs: Number.isNaN(keepaliveMs) ? 30000 : keepaliveMs,
     serverName: process.env.BRIDGE_SERVER_NAME ?? "MUDdown",
+    mssp: {
+      name: process.env.MSSP_NAME ?? process.env.BRIDGE_SERVER_NAME ?? "MUDdown",
+      hostname: process.env.MSSP_HOSTNAME ?? "muddown.com",
+      contact: process.env.MSSP_CONTACT ?? "support@muddown.com",
+      website: process.env.MSSP_WEBSITE ?? "https://muddown.com",
+      icon: process.env.MSSP_ICON ?? "https://muddown.com/favicon.ico",
+      discord: process.env.MSSP_DISCORD ?? "https://discord.gg/mDFcMT3egK",
+      language: process.env.MSSP_LANGUAGE ?? "English",
+      location: process.env.MSSP_LOCATION ?? "United States of America",
+      created: process.env.MSSP_CREATED ?? "2026",
+      codebase: process.env.MSSP_CODEBASE ?? "MUDdown",
+      genre: process.env.MSSP_GENRE ?? "Fantasy",
+      subgenre: process.env.MSSP_SUBGENRE ?? "Medieval Fantasy",
+      gameplay: process.env.MSSP_GAMEPLAY ?? "Hack and Slash",
+      status: process.env.MSSP_STATUS ?? "Alpha",
+      minimumAge: process.env.MSSP_MINIMUM_AGE ?? "13",
+    },
   };
 }
 
@@ -191,4 +238,156 @@ export function nextLinkMode(
   if (current === "plain") return "numbered";
   if (current === "numbered") return canSend ? "osc8-send" : undefined;
   return undefined;
+}
+
+// ─── MSSP (MUD Server Status Protocol) ───────────────────────────────────────
+
+/**
+ * Live counters sourced from the game server via `GET /stats`. Each field
+ * becomes the value of the matching MSSP variable; `-1` signals "unknown"
+ * per the MSSP spec.
+ *
+ * `uptime` is the bridge process start time (unix seconds), not a game-server
+ * timestamp — the bridge captures it at module load and passes it through.
+ */
+export interface MsspStats {
+  players: number;
+  uptime: number;
+  areas: number;
+  rooms: number;
+  objects: number;
+  mobiles: number;
+  helpfiles: number;
+  classes: number;
+  levels: number;
+}
+
+/** Fallback stats used before the first `/stats` fetch completes. */
+export const MSSP_STATS_UNKNOWN: MsspStats = {
+  players: -1,
+  uptime: -1,
+  areas: -1,
+  rooms: -1,
+  objects: -1,
+  mobiles: -1,
+  helpfiles: -1,
+  classes: -1,
+  levels: -1,
+};
+
+/**
+ * Build the ordered MSSP variable set. The keyset matches the StickMUD
+ * example documented on the Mudlet wiki
+ * (https://wiki.mudlet.org/w/Manual:Supported_Protocols#MSSP) — no custom
+ * keys beyond that list.
+ *
+ * `bridgePort` is the telnet port the bridge itself listens on. MSSP expects
+ * `PORT`, `TLS`, and `SSL` to all advertise that same value; `SSL` is a
+ * legacy duplicate that Mudlet's example still carries. This assumes the
+ * bridge is TLS-only (true today); if a plaintext listener is ever added,
+ * split `PORT` from `TLS`/`SSL` so crawlers see the correct protocol tier.
+ *
+ * `ip` is included only when non-empty so a failed DNS lookup at startup
+ * doesn't advertise a bogus value. `RACES` and `SKILLS` are emitted as
+ * `-1` until those systems ship.
+ */
+export function buildMsspVars(
+  config: MsspConfig,
+  stats: MsspStats,
+  bridgePort: number,
+  ip: string,
+): Record<string, string> {
+  const vars: Record<string, string> = {
+    "NAME": config.name,
+    "PLAYERS": String(stats.players),
+    "UPTIME": String(stats.uptime),
+    "HOSTNAME": config.hostname,
+    "PORT": String(bridgePort),
+    "TLS": String(bridgePort),
+    "SSL": String(bridgePort),
+  };
+  if (ip) vars["IP"] = ip;
+  Object.assign(vars, {
+    "CONTACT": config.contact,
+    "WEBSITE": config.website,
+    "ICON": config.icon,
+    "DISCORD": config.discord,
+    "LANGUAGE": config.language,
+    "LOCATION": config.location,
+    "CREATED": config.created,
+    "CODEBASE": config.codebase,
+    "FAMILY": "Custom",
+    "GAMESYSTEM": "Custom",
+    "GENRE": config.genre,
+    "SUBGENRE": config.subgenre,
+    "GAMEPLAY": config.gameplay,
+    "STATUS": config.status,
+    "INTERMUD": "-1",
+    "MINIMUM AGE": config.minimumAge,
+    "PUEBLO": "0",
+    "AREAS": String(stats.areas),
+    "ROOMS": String(stats.rooms),
+    "OBJECTS": String(stats.objects),
+    "MOBILES": String(stats.mobiles),
+    "HELPFILES": String(stats.helpfiles),
+    "CLASSES": String(stats.classes),
+    "LEVELS": String(stats.levels),
+    "RACES": "-1",
+    "SKILLS": "-1",
+    "ANSI": "1",
+    "UTF-8": "1",
+    "VT100": "0",
+    "XTERM 256 COLORS": "1",
+    "MXP": "0",
+    "MSP": "0",
+    "MCP": "0",
+    "MCCP": "0",
+    "GMCP": "0",
+    "MSDP": "0",
+    "PAY TO PLAY": "0",
+    "PAY FOR PERKS": "0",
+    "HIRING BUILDERS": "0",
+    "HIRING CODERS": "0",
+  });
+  return vars;
+}
+
+/**
+ * Build the MSSP sub-negotiation payload:
+ * `IAC SB MSSP (MSSP_VAR <name> MSSP_VAL <value>)* IAC SE`.
+ *
+ * Per https://tintin.mudhalla.net/protocols/mssp/, the spec describes names
+ * and values as ASCII. This implementation is more permissive: strings are
+ * Latin-1 encoded (Buffer.from(s, "latin1")), so bytes 0x80–0xFF are allowed
+ * to support extended-ASCII content. Strings may not contain NUL,
+ * `MSSP_VAR` (0x01), or `MSSP_VAL` (0x02) after latin1 encoding — any such
+ * byte desynchronises a crawler's parser, so callers that supply one trigger
+ * a `RangeError` rather than producing a malformed payload. (Note: code
+ * points ≥ 0x100 are truncated to their low byte by latin1 encoding, so
+ * validation runs on the encoded bytes, not the source code units.) IAC
+ * (0xFF) is handled differently: `iacSub` silently doubles it per RFC 854,
+ * so 0xFF in a value is safe and survives the wire round-trip.
+ */
+export function buildMsspSubneg(vars: Record<string, string>): Buffer {
+  const bytes: number[] = [];
+  for (const [name, value] of Object.entries(vars)) {
+    const nameBuf = Buffer.from(name, "latin1");
+    const valueBuf = Buffer.from(value, "latin1");
+    for (const [s, buf] of [[name, nameBuf], [value, valueBuf]] as const) {
+      for (let i = 0; i < buf.length; i++) {
+        const b = buf[i]!;
+        if (b === 0 || b === MSSP_VAR || b === MSSP_VAL) {
+          throw new RangeError(
+            `buildMsspSubneg: ${JSON.stringify(s)} contains reserved byte ` +
+            `0x${b.toString(16).padStart(2, "0")} at index ${i}`,
+          );
+        }
+      }
+    }
+    bytes.push(MSSP_VAR);
+    for (const b of nameBuf) bytes.push(b);
+    bytes.push(MSSP_VAL);
+    for (const b of valueBuf) bytes.push(b);
+  }
+  return iacSub(OPT_MSSP, ...bytes);
 }

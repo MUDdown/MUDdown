@@ -19,6 +19,7 @@
 import { createServer as createTlsServer } from "node:tls";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { lookup as dnsLookup } from "node:dns/promises";
 import type { Socket } from "node:net";
 import type { TLSSocket } from "node:tls";
 
@@ -48,6 +49,7 @@ import {
   OPT_TTYPE,
   OPT_NAWS,
   OPT_NEW_ENVIRON,
+  OPT_MSSP,
 } from "./telnet.js";
 import type { IacEvent, ColorLevel } from "./telnet.js";
 
@@ -60,8 +62,11 @@ import {
   isCapabilityEnabled,
   deriveLinkMode,
   nextLinkMode,
+  buildMsspVars,
+  buildMsspSubneg,
+  MSSP_STATS_UNKNOWN,
 } from "./helpers.js";
-import type { BridgeConfig } from "./helpers.js";
+import type { BridgeConfig, MsspStats } from "./helpers.js";
 
 // @ts-expect-error — MUDdownConnection expects browser WebSocket global
 globalThis.WebSocket = WebSocket;
@@ -217,6 +222,144 @@ async function postCreateCharacter(
   }
 }
 
+// ─── MSSP state ──────────────────────────────────────────────────────────────
+
+/**
+ * Unix seconds at bridge process start. Advertised as MSSP `UPTIME`.
+ * Reflects bridge startup, not game-server startup — restarting just the
+ * game server will not advance this value.
+ */
+const BRIDGE_STARTED_AT = Math.floor(Date.now() / 1000);
+
+/** Minimum ms between `/stats` fetches when the previous one succeeded. */
+const MSSP_STATS_TTL_MS = 30_000;
+/** Minimum ms between `/stats` fetches when the previous one failed. */
+const MSSP_STATS_FAILURE_BACKOFF_MS = 5_000;
+
+let msspStatsCache: MsspStats = MSSP_STATS_UNKNOWN;
+let msspStatsFetchedAt = 0;
+/**
+ * Whether the most recent `/stats` fetch succeeded. Drives the TTL/backoff
+ * choice independently of the cache contents so that a successful fetch
+ * followed by a failure still applies the short backoff (rather than
+ * sticking with the 30s success TTL because the last-good snapshot is
+ * still in the cache).
+ */
+let msspLastFetchSucceeded = false;
+/**
+ * In-flight `/stats` fetch shared across concurrent callers. Without
+ * this, two `IAC DO MSSP` requests arriving in the same event-loop turn
+ * before the first fetch settles would each pass the TTL guard and spawn
+ * their own `fetchWithTimeout` call.
+ */
+let msspStatsInFlight: Promise<MsspStats> | undefined;
+let msspResolvedIp = "";
+
+/** Maximum wall time to wait for the startup DNS lookup. */
+const MSSP_DNS_TIMEOUT_MS = 5_000;
+
+/**
+ * Resolve the hostname to an IPv4 address once at startup so MSSP `IP`
+ * carries a real value. A lookup failure or timeout leaves `msspResolvedIp`
+ * empty, which causes `buildMsspVars` to omit the key entirely. Not
+ * retried — operators should verify DNS is reachable at boot.
+ *
+ * `dns.promises.lookup` does not accept an `AbortSignal` (the underlying
+ * `getaddrinfo` is uncancellable), so we race the lookup against a timer
+ * to bound how long startup can stall on a wedged resolver. The orphaned
+ * lookup promise will eventually settle and is intentionally ignored.
+ */
+export async function resolveMsspIp(hostname: string): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`DNS lookup timed out after ${MSSP_DNS_TIMEOUT_MS}ms`)),
+      MSSP_DNS_TIMEOUT_MS,
+    );
+  });
+  try {
+    const { address } = await Promise.race([
+      dnsLookup(hostname, { family: 4 }),
+      timeout,
+    ]);
+    msspResolvedIp = address;
+  } catch (err) {
+    console.error(`[bridge] MSSP IP lookup for ${JSON.stringify(hostname)} failed; omitting IP for this bridge lifetime:`, err);
+    msspResolvedIp = "";
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * Fetch `/stats` from the game server with a short timeout and cache the
+ * result. Returns the last successful snapshot (or `MSSP_STATS_UNKNOWN`
+ * if none yet).
+ *
+ * Cache policy:
+ * - On success, serve the snapshot for {@link MSSP_STATS_TTL_MS} (30s).
+ * - On failure, back off for {@link MSSP_STATS_FAILURE_BACKOFF_MS} (5s)
+ *   so a storm of crawler DO MSSP requests does not hammer a wedged
+ *   game server with concurrent 3-second fetches.
+ *
+ * `uptime` is overwritten with the bridge process start time — `/stats`
+ * has no opinion on it. Any field missing or of the wrong type in the
+ * response falls back to `-1` (MSSP's "unknown" sentinel), so a schema
+ * drift (e.g. field rename) advertises "unknown" rather than silently
+ * zeroing out.
+ */
+export async function getMsspStats(httpBase: string): Promise<MsspStats> {
+  const now = Date.now();
+  const ttl = msspLastFetchSucceeded ? MSSP_STATS_TTL_MS : MSSP_STATS_FAILURE_BACKOFF_MS;
+  if (msspStatsFetchedAt > 0 && now - msspStatsFetchedAt < ttl) {
+    return msspStatsCache;
+  }
+  // Share an in-flight fetch across concurrent callers so a burst of
+  // `IAC DO MSSP` requests during a cold cache (or just-expired window)
+  // collapses to a single `/stats` call.
+  if (msspStatsInFlight) return msspStatsInFlight;
+  msspStatsInFlight = (async () => {
+    try {
+      const res = await fetchWithTimeout(`${httpBase}/stats`, {}, 3000);
+      if (res.ok) {
+        const data = await res.json() as Partial<MsspStats>;
+        msspStatsCache = {
+          players: typeof data.players === "number" ? data.players : -1,
+          uptime: BRIDGE_STARTED_AT,
+          areas: typeof data.areas === "number" ? data.areas : -1,
+          rooms: typeof data.rooms === "number" ? data.rooms : -1,
+          objects: typeof data.objects === "number" ? data.objects : -1,
+          mobiles: typeof data.mobiles === "number" ? data.mobiles : -1,
+          helpfiles: typeof data.helpfiles === "number" ? data.helpfiles : -1,
+          classes: typeof data.classes === "number" ? data.classes : -1,
+          levels: typeof data.levels === "number" ? data.levels : -1,
+        };
+        msspLastFetchSucceeded = true;
+      } else {
+        console.warn(`[bridge] /stats returned HTTP ${res.status}; using cached MSSP values`);
+        msspLastFetchSucceeded = false;
+      }
+    } catch (err) {
+      console.warn("[bridge] /stats fetch failed; using cached MSSP values:", err);
+      msspLastFetchSucceeded = false;
+    } finally {
+      msspStatsFetchedAt = Date.now();
+      msspStatsInFlight = undefined;
+    }
+    return msspStatsCache;
+  })();
+  return msspStatsInFlight;
+}
+
+/** Hook for tests to reset the module-level MSSP cache. */
+export function __resetMsspCacheForTesting(): void {
+  msspStatsCache = MSSP_STATS_UNKNOWN;
+  msspStatsFetchedAt = 0;
+  msspLastFetchSucceeded = false;
+  msspStatsInFlight = undefined;
+  msspResolvedIp = "";
+}
+
 // ─── Telnet Session ──────────────────────────────────────────────────────────
 
 /**
@@ -309,7 +452,7 @@ export class TelnetSession {
   // ─── Telnet Negotiation ──────────────────────────────────────────────
 
   private negotiate(): void {
-    // Request NAWS, TTYPE, NEW-ENVIRON, and offer SGA.
+    // Request NAWS, TTYPE, NEW-ENVIRON, and offer SGA + MSSP.
     // Note: we do NOT send WILL ECHO — Mudlet treats that as password-masking
     // mode and shows asterisks instead of typed characters. The client handles
     // local echo, so the bridge must not echo input back.
@@ -317,6 +460,9 @@ export class TelnetSession {
     this.write(iacDo(OPT_TTYPE));
     this.write(iacDo(OPT_NEW_ENVIRON));
     this.write(iacWill(OPT_SGA));
+    // Offer MSSP so crawlers and listing clients can query server metadata.
+    // Responds on IAC DO MSSP with a single sub-negotiation — see handleDo.
+    this.write(iacWill(OPT_MSSP));
 
     // Give client 1.5s to respond to negotiation before proceeding
     this.negotiationTimer = setTimeout(() => {
@@ -440,6 +586,11 @@ export class TelnetSession {
         // We are NOT handling echo — client does local echo
         this.write(iacWont(OPT_ECHO));
         break;
+      case OPT_MSSP:
+        // Client requested MSSP variables; send one sub-negotiation then
+        // drop through. Crawlers typically disconnect right after parsing.
+        this.sendMssp();
+        break;
       default:
         this.write(iacWont(option));
         break;
@@ -451,6 +602,29 @@ export class TelnetSession {
     if (option === OPT_ECHO || option === OPT_SGA) {
       this.write(iacWont(option));
     }
+    // OPT_MSSP DONT is a benign no-op — there's no ongoing state to unwind.
+  }
+
+  /** Emit the MSSP sub-negotiation with the current cached stats snapshot. */
+  private sendMssp(): void {
+    const httpBase = wsToHttpBase(this.config.gameServerUrl);
+    getMsspStats(httpBase).then((stats) => {
+      if (this.disposed) return;
+      try {
+        const vars = buildMsspVars(this.config.mssp, stats, this.config.port, msspResolvedIp);
+        this.write(buildMsspSubneg(vars));
+      } catch (err) {
+        // buildMsspSubneg rejects reserved bytes in names/values. The client
+        // already saw IAC WILL MSSP and is waiting for the sub-negotiation,
+        // so emit IAC WONT MSSP to cleanly withdraw the offer instead of
+        // letting the crawler time out.
+        console.error(`[bridge] [${this.id}] buildMsspSubneg failed; sending WONT MSSP:`, err);
+        this.write(iacWont(OPT_MSSP));
+      }
+    }).catch((err) => {
+      console.error(`[bridge] [${this.id}] sendMssp failed:`, err);
+      this.write(iacWont(OPT_MSSP));
+    });
   }
 
   private handleSubneg(option: number, data: Buffer): void {
@@ -1021,6 +1195,11 @@ export function main(): void {
 
   const bridge = new BridgeServer(config);
   bridge.start();
+
+  // Resolve HOSTNAME to an IPv4 for MSSP `IP`. Fire-and-forget; if the lookup
+  // takes a moment to complete, the first MSSP response may omit the IP key
+  // and later ones will include it.
+  resolveMsspIp(config.mssp.hostname);
 
   // Graceful shutdown — use process.once to avoid duplicate handlers
   const shutdown = (): void => {
