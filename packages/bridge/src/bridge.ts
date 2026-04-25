@@ -238,6 +238,21 @@ const MSSP_STATS_FAILURE_BACKOFF_MS = 5_000;
 
 let msspStatsCache: MsspStats = MSSP_STATS_UNKNOWN;
 let msspStatsFetchedAt = 0;
+/**
+ * Whether the most recent `/stats` fetch succeeded. Drives the TTL/backoff
+ * choice independently of the cache contents so that a successful fetch
+ * followed by a failure still applies the short backoff (rather than
+ * sticking with the 30s success TTL because the last-good snapshot is
+ * still in the cache).
+ */
+let msspLastFetchSucceeded = false;
+/**
+ * In-flight `/stats` fetch shared across concurrent callers. Without
+ * this, two `IAC DO MSSP` requests arriving in the same event-loop turn
+ * before the first fetch settles would each pass the TTL guard and spawn
+ * their own `fetchWithTimeout` call.
+ */
+let msspStatsInFlight: Promise<MsspStats> | undefined;
 let msspResolvedIp = "";
 
 /** Maximum wall time to wait for the startup DNS lookup. */
@@ -247,8 +262,7 @@ const MSSP_DNS_TIMEOUT_MS = 5_000;
  * Resolve the hostname to an IPv4 address once at startup so MSSP `IP`
  * carries a real value. A lookup failure or timeout leaves `msspResolvedIp`
  * empty, which causes `buildMsspVars` to omit the key entirely. Not
- * retried — operators should set `MSSP_IP` or verify DNS is reachable at
- * boot.
+ * retried — operators should verify DNS is reachable at boot.
  *
  * `dns.promises.lookup` does not accept an `AbortSignal` (the underlying
  * `getaddrinfo` is uncancellable), so we race the lookup against a timer
@@ -296,46 +310,53 @@ export async function resolveMsspIp(hostname: string): Promise<void> {
  */
 export async function getMsspStats(httpBase: string): Promise<MsspStats> {
   const now = Date.now();
-  const ttl = msspStatsFetchedAt > 0 && msspStatsCache !== MSSP_STATS_UNKNOWN
-    ? MSSP_STATS_TTL_MS
-    : MSSP_STATS_FAILURE_BACKOFF_MS;
+  const ttl = msspLastFetchSucceeded ? MSSP_STATS_TTL_MS : MSSP_STATS_FAILURE_BACKOFF_MS;
   if (msspStatsFetchedAt > 0 && now - msspStatsFetchedAt < ttl) {
     return msspStatsCache;
   }
-  try {
-    const res = await fetchWithTimeout(`${httpBase}/stats`, {}, 3000);
-    if (res.ok) {
-      const data = await res.json() as Partial<MsspStats>;
-      msspStatsCache = {
-        players: typeof data.players === "number" ? data.players : -1,
-        uptime: BRIDGE_STARTED_AT,
-        areas: typeof data.areas === "number" ? data.areas : -1,
-        rooms: typeof data.rooms === "number" ? data.rooms : -1,
-        objects: typeof data.objects === "number" ? data.objects : -1,
-        mobiles: typeof data.mobiles === "number" ? data.mobiles : -1,
-        helpfiles: typeof data.helpfiles === "number" ? data.helpfiles : -1,
-        classes: typeof data.classes === "number" ? data.classes : -1,
-        levels: typeof data.levels === "number" ? data.levels : -1,
-      };
-      msspStatsFetchedAt = now;
-    } else {
-      console.warn(`[bridge] /stats returned HTTP ${res.status}; using cached MSSP values`);
-      // Advance the clock so the backoff applies even to non-2xx responses.
-      msspStatsFetchedAt = now;
+  // Share an in-flight fetch across concurrent callers so a burst of
+  // `IAC DO MSSP` requests during a cold cache (or just-expired window)
+  // collapses to a single `/stats` call.
+  if (msspStatsInFlight) return msspStatsInFlight;
+  msspStatsInFlight = (async () => {
+    try {
+      const res = await fetchWithTimeout(`${httpBase}/stats`, {}, 3000);
+      if (res.ok) {
+        const data = await res.json() as Partial<MsspStats>;
+        msspStatsCache = {
+          players: typeof data.players === "number" ? data.players : -1,
+          uptime: BRIDGE_STARTED_AT,
+          areas: typeof data.areas === "number" ? data.areas : -1,
+          rooms: typeof data.rooms === "number" ? data.rooms : -1,
+          objects: typeof data.objects === "number" ? data.objects : -1,
+          mobiles: typeof data.mobiles === "number" ? data.mobiles : -1,
+          helpfiles: typeof data.helpfiles === "number" ? data.helpfiles : -1,
+          classes: typeof data.classes === "number" ? data.classes : -1,
+          levels: typeof data.levels === "number" ? data.levels : -1,
+        };
+        msspLastFetchSucceeded = true;
+      } else {
+        console.warn(`[bridge] /stats returned HTTP ${res.status}; using cached MSSP values`);
+        msspLastFetchSucceeded = false;
+      }
+    } catch (err) {
+      console.warn("[bridge] /stats fetch failed; using cached MSSP values:", err);
+      msspLastFetchSucceeded = false;
+    } finally {
+      msspStatsFetchedAt = Date.now();
+      msspStatsInFlight = undefined;
     }
-  } catch (err) {
-    console.warn("[bridge] /stats fetch failed; using cached MSSP values:", err);
-    // Advance the clock so concurrent crawler requests share the backoff
-    // window instead of each spawning a new 3-second fetch.
-    msspStatsFetchedAt = now;
-  }
-  return msspStatsCache;
+    return msspStatsCache;
+  })();
+  return msspStatsInFlight;
 }
 
 /** Hook for tests to reset the module-level MSSP cache. */
 export function __resetMsspCacheForTesting(): void {
   msspStatsCache = MSSP_STATS_UNKNOWN;
   msspStatsFetchedAt = 0;
+  msspLastFetchSucceeded = false;
+  msspStatsInFlight = undefined;
   msspResolvedIp = "";
 }
 

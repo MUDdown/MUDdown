@@ -300,7 +300,7 @@ const server = createServer((req, res) => {
     // MSSP / listing stats (consumed by the telnet bridge to fill in
     // MSSP variables advertised to crawlers). Counts are derived from
     // the loaded world; `levels` is 0 until a level system ships.
-    if (req.url === "/stats") {
+    if (url.pathname === "/stats") {
       const payload = buildStatsPayload({
         players: sessions.size,
         uptime: SERVER_STARTED_AT,

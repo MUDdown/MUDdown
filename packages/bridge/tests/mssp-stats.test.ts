@@ -105,6 +105,75 @@ describe("getMsspStats", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("collapses concurrent callers to a single in-flight /stats fetch", async () => {
+    // Hold the response until we have queued up multiple concurrent
+    // callers, then resolve. Without the in-flight dedupe each caller
+    // would pass the TTL guard (msspStatsFetchedAt === 0) and spawn its
+    // own fetchWithTimeout call.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const fetchSpy = mockFetch(async () => {
+      await gate;
+      return jsonResponse({
+        players: 7, areas: 1, rooms: 1, objects: 1,
+        mobiles: 1, helpfiles: 1, classes: 1, levels: 0,
+      });
+    });
+    const a = getMsspStats("http://localhost:3300");
+    const b = getMsspStats("http://localhost:3300");
+    const c = getMsspStats("http://localhost:3300");
+    release();
+    const [sa, sb, sc] = await Promise.all([a, b, c]);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(sa.players).toBe(7);
+    expect(sb).toEqual(sa);
+    expect(sc).toEqual(sa);
+  });
+
+  it("applies the 5s failure backoff when a fetch fails after a previous success", async () => {
+    // Regression: TTL/backoff selection must depend on the *last fetch
+    // result*, not on whether the cache happens to equal MSSP_STATS_UNKNOWN.
+    // Otherwise a success-then-failure sequence would stick with the 30s
+    // success TTL because the last-good snapshot is still in the cache.
+    let call = 0;
+    const fetchSpy = mockFetch(async () => {
+      call += 1;
+      if (call === 1) {
+        return jsonResponse({
+          players: 1, areas: 1, rooms: 1, objects: 1,
+          mobiles: 1, helpfiles: 1, classes: 1, levels: 0,
+        });
+      }
+      throw new Error("boom");
+    });
+    vi.useFakeTimers();
+    try {
+      // First call succeeds.
+      const first = await getMsspStats("http://localhost:3300");
+      expect(first.players).toBe(1);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      // Past the 30s success TTL so the next call attempts a refetch.
+      vi.advanceTimersByTime(31_000);
+      // Second call fails; cache stays at the last-good snapshot but
+      // the *next* backoff should be the short 5s window, not 30s,
+      // because the last fetch result was a failure.
+      const second = await getMsspStats("http://localhost:3300");
+      expect(second.players).toBe(1); // last-good still served
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      // 4s after the failure: still within the 5s backoff -> no refetch.
+      vi.advanceTimersByTime(4_000);
+      await getMsspStats("http://localhost:3300");
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      // 6s after the failure: past the 5s backoff -> refetch.
+      // (If the bug were present, we'd have had to wait 30s here.)
+      vi.advanceTimersByTime(2_000);
+      await getMsspStats("http://localhost:3300");
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("retries after the failure backoff window expires", async () => {
     let call = 0;
     const fetchSpy = mockFetch(async () => {
