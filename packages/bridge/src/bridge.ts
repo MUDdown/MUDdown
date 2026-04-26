@@ -1078,7 +1078,7 @@ export class TelnetSession {
       // the caller's retry loop in `runStartupMenu` (which is gated on
       // !this.disposed) so the user doesn't see another menu over a
       // dead socket.
-      this.writeLine("\r\nLogin Provider:");
+      this.writeLine("Login Provider:");
       this.writeLine("");
       for (let i = 0; i < providers.length; i++) {
         const name = providers[i];
@@ -1136,7 +1136,7 @@ export class TelnetSession {
         // cancel the in-flight prompt.
         const pickAbort = new AbortController();
         const pickPromise: Promise<PickResult | undefined> = this.prompt(
-          "\r\nProvider: ",
+          "Provider: ",
           pickAbort.signal,
         ).then(
           (line): PickResult => ({ kind: "choice", line }),
