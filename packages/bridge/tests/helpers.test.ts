@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { loadConfig, getBanner, getStartupMenu, wsToHttpBase, buildLoginUrl, updateTtypeCycle, deriveLinkMode, nextLinkMode } from "../src/helpers.js";
+import { loadConfig, getBanner, getStartupMenu, wsToHttpBase, buildLoginUrl, displayProviderName, updateTtypeCycle, deriveLinkMode, nextLinkMode } from "../src/helpers.js";
 
 // ─── wsToHttpBase ────────────────────────────────────────────────────────────
 
@@ -207,6 +207,31 @@ describe("loadConfig", () => {
   it("falls back to defaults for non-numeric TELNET_KEEPALIVE_MS", () => {
     process.env.TELNET_KEEPALIVE_MS = "";
     expect(loadConfig().keepaliveMs).toBe(30000);
+  });
+});
+
+// ─── displayProviderName ─────────────────────────────────────────────────────
+
+describe("displayProviderName", () => {
+  it("returns canonical casing for known providers", () => {
+    expect(displayProviderName("discord")).toBe("Discord");
+    expect(displayProviderName("github")).toBe("GitHub");
+    expect(displayProviderName("microsoft")).toBe("Microsoft");
+    expect(displayProviderName("google")).toBe("Google");
+  });
+
+  it("is case-insensitive for known providers", () => {
+    expect(displayProviderName("GITHUB")).toBe("GitHub");
+    expect(displayProviderName("GitHub")).toBe("GitHub");
+  });
+
+  it("capitalises the first letter for unknown providers", () => {
+    expect(displayProviderName("apple")).toBe("Apple");
+    expect(displayProviderName("okta")).toBe("Okta");
+  });
+
+  it("returns empty string unchanged", () => {
+    expect(displayProviderName("")).toBe("");
   });
 });
 

@@ -59,6 +59,7 @@ import {
   getStartupMenu,
   wsToHttpBase,
   buildLoginUrl,
+  displayProviderName,
   updateTtypeCycle,
   buildOsc8Hyperlink,
   isCapabilityEnabled,
@@ -90,13 +91,22 @@ class SessionDisposedError extends Error {
 
 // ─── HTTP helpers (reused from terminal client pattern) ──────────────────────
 
-async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 5000): Promise<Response> {
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 5000, externalSignal?: AbortSignal): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // Forward an external abort (e.g. dispose / picker race) into the
+  // fetch's own signal so an in-flight HTTP request is cancelled
+  // immediately instead of running for the full timeout window.
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+  }
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", onExternalAbort);
   }
 }
 
@@ -112,12 +122,36 @@ async function fetchProviders(httpBase: string): Promise<string[]> {
   }
 }
 
-async function pollForToken(httpBase: string, nonce: string, maxAttempts: number, intervalMs: number): Promise<string | undefined> {
+async function pollForToken(httpBase: string, nonce: string, maxAttempts: number, intervalMs: number, signal?: AbortSignal): Promise<string | undefined> {
   for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(resolve => setTimeout(resolve, intervalMs));
+    if (signal?.aborted) return undefined;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) {
+          reject(new DOMException("Aborted", "AbortError"));
+          return;
+        }
+        const timer = setTimeout(() => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve();
+        }, intervalMs);
+        const onAbort = () => {
+          clearTimeout(timer);
+          reject(new DOMException("Aborted", "AbortError"));
+        };
+        signal?.addEventListener("abort", onAbort, { once: true });
+      });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return undefined;
+      throw err;
+    }
+    if (signal?.aborted) return undefined;
     try {
       const res = await fetchWithTimeout(
         `${httpBase}/auth/token-poll?nonce=${encodeURIComponent(nonce)}`,
+        {},
+        5000,
+        signal,
       );
       if (res.status === 200) {
         try {
@@ -132,10 +166,22 @@ async function pollForToken(httpBase: string, nonce: string, maxAttempts: number
     } catch (err: unknown) {
       const isAbort = (err instanceof DOMException && err.name === "AbortError") ||
         (err instanceof Error && err.name === "AbortError");
+      if (isAbort) {
+        // External abort (dispose / picker race) — exit cleanly. The
+        // per-request timeout also surfaces as AbortError, but in that
+        // case `signal?.aborted` is false; treat both as retryable
+        // network failures only when no external cancellation is in
+        // play.
+        if (signal?.aborted) return undefined;
+        // Per-request timeout: treat as a transient network error and
+        // retry on the next iteration.
+        continue;
+      }
 
       // Detect network errors by checking error properties rather than
-      // brittle message text.  Node's undici-based fetch throws TypeError
-      // with a `cause` carrying a system error code.
+      // brittle message text. Node's undici-based fetch throws TypeError
+      // with a `cause` carrying a system error code. Anything without a
+      // recognised code is non-retryable.
       let isNetworkError = false;
       if (err instanceof TypeError) {
         const cause = (err as { cause?: { code?: string } }).cause;
@@ -144,15 +190,10 @@ async function pollForToken(httpBase: string, nonce: string, maxAttempts: number
           // System-level connection failures (ECONNREFUSED, ECONNRESET,
           // ENOTFOUND, ETIMEDOUT, EPIPE, etc.)
           isNetworkError = /^(ECONNREFUSED|ECONNRESET|ENOTFOUND|ETIMEDOUT|EPIPE|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|UND_ERR)/.test(code);
-        } else {
-          // Fallback: TypeError from fetch with no code is still likely
-          // a network-level failure (e.g. "fetch failed") — check the
-          // message as a secondary guard before assuming retryable.
-          isNetworkError = /fetch|network|socket/i.test(err.message);
         }
       }
 
-      if (isAbort || isNetworkError) {
+      if (isNetworkError) {
         continue;
       }
       console.error("[bridge] pollForToken: non-retryable error:", err);
@@ -440,6 +481,11 @@ export class TelnetSession {
   // Interactive prompt state for multi-step flows (login, character creation)
   private promptHandler: ((line: string) => void) | null = null;
   private promptReject: ((err: Error) => void) | null = null;
+
+  // Aborts any in-flight pollForToken (provider picker race + retry-loop
+  // poll) so dispose() can promptly stop background HTTP traffic instead
+  // of letting it run for up to the full 2-minute poll window.
+  private loginAbort: AbortController | null = null;
 
   private disposed = false;
 
@@ -936,6 +982,9 @@ export class TelnetSession {
     let nonce = randomUUID();
 
     let provider: string;
+    // Track whether OAuth completed via a clicked picker hyperlink so we
+    // can skip the URL prompt + second poll inside the retry loop below.
+    let prePickedToken: string | undefined;
     if (providers.length === 1) {
       provider = providers[0];
     } else {
@@ -943,24 +992,87 @@ export class TelnetSession {
       for (let i = 0; i < providers.length; i++) {
         const name = providers[i];
         const url = buildLoginUrl(publicBase, name, nonce);
-        this.writeLine(`  [${i + 1}] ${buildOsc8Hyperlink(url, name, hyperlinkEnabled)}`);
+        const label = displayProviderName(name);
+        this.writeLine(`  [${i + 1}] ${buildOsc8Hyperlink(url, label, hyperlinkEnabled)}`);
       }
 
-      const choice = await this.prompt("\r\nProvider [1]: ");
-      const idx = choice === "" ? 1 : parseInt(choice, 10);
-      if (isNaN(idx) || idx < 1 || idx > providers.length) {
-        this.writeLine("Invalid choice, using first provider.\r\n");
+      // Race the picker prompt against an opportunistic poll for the
+      // shared nonce: if the user clicks any provider's OSC 8 hyperlink,
+      // OAuth completes against this nonce server-side and the poll
+      // resolves first — we can skip straight to character selection
+      // without a second prompt.
+      //
+      // pickAbort cancels the prompt; pollAbort cancels the background
+      // poll. pollAbort is also stored on the instance (this.loginAbort)
+      // so dispose() can stop the in-flight HTTP request immediately
+      // rather than waiting up to 2 minutes for the poll loop to finish.
+      const pickAbort = new AbortController();
+      const pollAbort = new AbortController();
+      this.loginAbort = pollAbort;
+      type PickResult =
+        | { kind: "choice"; line: string }
+        | { kind: "token"; token: string };
+      // .catch on both legs so the loser of the race doesn't bubble up
+      // as an unhandled rejection (which Node treats as a fatal error).
+      // Real failures are surfaced via the winner path or the explicit
+      // poll-error handling in the retry loop below.
+      const pickPromise: Promise<PickResult | undefined> = this.prompt(
+        "\r\nProvider [1]: ",
+        pickAbort.signal,
+      ).then(
+        (line): PickResult => ({ kind: "choice", line }),
+        () => undefined,
+      );
+      const pollPromise: Promise<PickResult | undefined> = pollForToken(
+        httpBase,
+        nonce,
+        60,
+        2000,
+        pollAbort.signal,
+      ).then(
+        (tok): PickResult | undefined => (tok ? { kind: "token", token: tok } : undefined),
+        () => undefined,
+      );
+
+      const winner = await Promise.race([pickPromise, pollPromise]);
+
+      if (winner && winner.kind === "token") {
+        // User clicked a picker link; OAuth completed against the shared
+        // nonce. Cancel the prompt so the user isn't left staring at it.
+        pickAbort.abort();
+        this.loginAbort = null;
+        prePickedToken = winner.token;
+        // Pick a placeholder provider so the rest of the function has a
+        // value; it's never actually used because prePickedToken
+        // short-circuits the retry loop.
         provider = providers[0];
+        this.writeLine("\r\nLogin completed.\r\n");
       } else {
-        provider = providers[idx - 1];
+        // Either the user typed a number (winner.kind === "choice") or
+        // the 2-minute poll exhausted with no token (winner ===
+        // undefined). In both cases cancel both legs so neither lingers:
+        // the prompt promise (if it hasn't already settled) is freed,
+        // and the background poll stops before the retry loop starts a
+        // fresh one.
+        pickAbort.abort();
+        pollAbort.abort();
+        this.loginAbort = null;
+        const choice = winner?.kind === "choice" ? winner.line : "";
+        const idx = choice === "" ? 1 : parseInt(choice, 10);
+        if (isNaN(idx) || idx < 1 || idx > providers.length) {
+          this.writeLine("Invalid choice, using first provider.\r\n");
+          provider = providers[0];
+        } else {
+          provider = providers[idx - 1];
+        }
       }
     }
 
     // Retry loop: timed-out logins regenerate the nonce + URL so an expired
     // 2-minute window is recoverable without restarting the startup menu.
-    let sessionToken: string | undefined;
+    let sessionToken: string | undefined = prePickedToken;
     let firstAttempt = true;
-    while (true) {
+    while (!sessionToken) {
       if (this.disposed) return false;
 
       const loginUrl = buildLoginUrl(publicBase, provider, nonce);
@@ -974,14 +1086,18 @@ export class TelnetSession {
 
       let token: string | undefined;
       let pollError = false;
+      const retryAbort = new AbortController();
+      this.loginAbort = retryAbort;
       try {
-        token = await pollForToken(httpBase, nonce, 60, 2000);
+        token = await pollForToken(httpBase, nonce, 60, 2000, retryAbort.signal);
       } catch (err) {
         pollError = true;
         console.error(`[bridge] [${this.id}] pollForToken error:`, err);
         if (!this.disposed) {
           this.writeLine("\r\nUnexpected error while waiting for login.\r\n");
         }
+      } finally {
+        if (this.loginAbort === retryAbort) this.loginAbort = null;
       }
       if (token) {
         sessionToken = token;
@@ -1116,13 +1232,28 @@ export class TelnetSession {
 
   // ─── Interactive prompt helper ───────────────────────────────────────
 
-  private prompt(text: string): Promise<string> {
+  private prompt(text: string, signal?: AbortSignal): Promise<string> {
     return new Promise<string>((resolve, reject) => {
+      // Handle a signal that was already aborted before we even got
+      // here. Don't install a handler — the race architecture means the
+      // caller treats a settled prompt-loser as cancelled regardless of
+      // its resolved value.
+      if (signal?.aborted) {
+        resolve("");
+        return;
+      }
       this.writeRaw(text);
       this.promptReject = reject;
+      const onAbort = () => {
+        this.promptHandler = null;
+        this.promptReject = null;
+        resolve("");
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
       this.promptHandler = (line: string) => {
         this.promptHandler = null;
         this.promptReject = null;
+        signal?.removeEventListener("abort", onAbort);
         resolve(line);
       };
     });
@@ -1285,6 +1416,11 @@ export class TelnetSession {
 
     clearTimeout(this.negotiationTimer);
     clearInterval(this.keepaliveTimer);
+
+    // Cancel any in-flight login poll so dispose() doesn't leak
+    // background HTTP requests for the rest of the 2-minute poll window.
+    this.loginAbort?.abort();
+    this.loginAbort = null;
 
     // Reject any pending prompt so the async chain doesn't hang forever
     if (this.promptHandler) {
