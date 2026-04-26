@@ -357,6 +357,15 @@ landed on that PR. Grouped by area; pick up in follow-up PRs.
   asymmetry explicitly.
 - [ ] **Countdown / progress hint while polling.** Update the "Waiting for
   login…" line every ~30s so users know the prompt is alive.
+- [ ] **Per-provider nonces in the picker.** All provider hyperlinks in
+  the picker currently share the initial nonce. If a user clicks
+  provider A's link (completing OAuth) but then types a different number
+  at the prompt, `pollForToken` resolves with provider A's token because
+  the server keys `completedLogins` by nonce alone. Either generate a
+  fresh nonce after provider selection (picker links become display-only
+  hints) or key the server-side completed-login map by
+  `(nonce, provider)` and reject mismatches at poll time. Flagged by
+  Greptile on PR #83.
 
 ### Bridge — tests
 

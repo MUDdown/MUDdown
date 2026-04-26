@@ -973,9 +973,11 @@ export class TelnetSession {
       firstAttempt = false;
 
       let token: string | undefined;
+      let pollError = false;
       try {
         token = await pollForToken(httpBase, nonce, 60, 2000);
       } catch (err) {
+        pollError = true;
         console.error(`[bridge] [${this.id}] pollForToken error:`, err);
         if (!this.disposed) {
           this.writeLine("\r\nUnexpected error while waiting for login.\r\n");
@@ -987,7 +989,9 @@ export class TelnetSession {
       }
 
       if (this.disposed) return false;
-      this.writeLine("\r\nLogin timed out.\r\n");
+      if (!pollError) {
+        this.writeLine("\r\nLogin timed out.\r\n");
+      }
       const retry = await this.prompt(
         "Press enter to try again, or type 'guest' to play as a guest: ",
       );
@@ -1048,8 +1052,13 @@ export class TelnetSession {
           }
           this.writeLine(`Playing as ${selected.name}\r\n`);
           characterReady = true;
-        } else {
+        } else if (idx === 0) {
           characterReady = await this.handleCharacterCreation(httpBase, sessionToken);
+        } else {
+          this.writeLine(
+            `Choice out of range. Pick 0-${characters.length}.\r\n`,
+          );
+          return false;
         }
       } else {
         this.writeLine("\r\nNo characters found. Let's create one!\r\n");
