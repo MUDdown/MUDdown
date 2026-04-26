@@ -51,9 +51,13 @@ describe("getBanner", () => {
     expect(banner).toContain("Welcome to TestServer");
   });
 
-  it("points users at the bridge help command", () => {
+  it("does not point users at bridge commands before login", () => {
+    // The 'help' bridge command isn't accepted during the startup menu
+    // (input is routed to the active prompt handler), so the banner must
+    // not advertise it — otherwise users try `help` at the menu and get
+    // it parsed as an invalid choice. See PR #87.
     const banner = getBanner("TestServer");
-    expect(banner).toContain("Type 'help'");
+    expect(banner).not.toContain("help");
   });
 });
 

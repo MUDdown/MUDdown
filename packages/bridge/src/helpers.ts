@@ -106,7 +106,6 @@ export function getBanner(serverName: string): string {
     " |_|  |_|\\___/|____/ \\__,_|\\___/ \\_/\\_/ |_| |_|",
     "",
     `  Welcome to ${serverName}!`,
-    "  Type 'help' for bridge commands.",
     "",
   ].join("\r\n");
 }

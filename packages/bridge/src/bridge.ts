@@ -940,16 +940,39 @@ export class TelnetSession {
         // hits the finally that clears promptHandler/promptReject
         // rather than leaving a stale handler from a prior iteration.
         this.writeLine(getStartupMenu());
-        const choice = await this.prompt("Choice [1]: ");
-        let idx = 1;
-        if (choice !== "") {
-          const parsed = /^\d+$/.test(choice) ? parseInt(choice, 10) : NaN;
-          if (isNaN(parsed) || parsed < 1 || parsed > 3) {
-            this.writeLine("Invalid choice — logging in to an existing character.\r\n");
-          } else {
-            idx = parsed;
+
+        // Inner re-prompt loop: invalid input keeps the user on the
+        // current menu rather than silently dispatching a default
+        // choice. Bounded by MAX_INVALID_INPUT so an abusive client
+        // can't sit on the menu indefinitely.
+        const MAX_INVALID_INPUT = 5;
+        let idx: number | undefined;
+        let invalidCount = 0;
+        while (idx === undefined && !this.disposed) {
+          const choice = await this.prompt("Choice [1]: ");
+          if (choice === "") {
+            idx = 1;
+            break;
           }
+          const parsed = /^\d+$/.test(choice) ? parseInt(choice, 10) : NaN;
+          if (!isNaN(parsed) && parsed >= 1 && parsed <= 3) {
+            idx = parsed;
+            break;
+          }
+          invalidCount++;
+          if (invalidCount >= MAX_INVALID_INPUT) {
+            if (!this.disposed) {
+              this.writeLine(
+                `\r\nToo many invalid choices. Disconnecting.\r\n`,
+              );
+              this.dispose();
+            }
+            return;
+          }
+          this.writeLine("Invalid choice. Please pick 1, 2, or 3.");
         }
+
+        if (this.disposed || idx === undefined) return;
 
         if (idx === 2) {
           this.loginInProgress = true;
@@ -1136,7 +1159,7 @@ export class TelnetSession {
         // cancel the in-flight prompt.
         const pickAbort = new AbortController();
         const pickPromise: Promise<PickResult | undefined> = this.prompt(
-          "Provider: ",
+          "Provider (or 'back'): ",
           pickAbort.signal,
         ).then(
           (line): PickResult => ({ kind: "choice", line }),
@@ -1180,6 +1203,17 @@ export class TelnetSession {
 
         // winner.kind === "choice": user typed something. Validate.
         const choice = winner.line.trim();
+
+        // 'back' returns to the main menu without consuming any
+        // login retries. The caller (`runStartupMenu`) re-shows the
+        // menu so the user can pick a different option.
+        if (choice.toLowerCase() === "back") {
+          pollAbort.abort();
+          this.loginAbort = null;
+          this.cancelCurrentLoginNonce();
+          return false;
+        }
+
         const idx = parseInt(choice, 10);
         if (choice !== "" && !isNaN(idx) && idx >= 1 && idx <= providers.length) {
           pickedProvider = providers[idx - 1];
@@ -1258,9 +1292,18 @@ export class TelnetSession {
         this.writeLine("\r\nLogin timed out.\r\n");
       }
       const retry = await this.prompt(
-        "Press enter to try again, or type 'guest' to play as a guest: ",
+        "Press enter to try again, type 'guest' to play as a guest, or 'back' to return to the menu: ",
       );
-      if (retry.trim().toLowerCase() === "guest") {
+      const retryLower = retry.trim().toLowerCase();
+      if (retryLower === "back") {
+        // User wants to bail to the main menu. Drop the unused
+        // server-side state so dispose() doesn't fire a stale
+        // login-cancel later, then bubble up false — runStartupMenu
+        // re-shows the menu.
+        this.cancelCurrentLoginNonce();
+        return false;
+      }
+      if (retryLower === "guest") {
         // User explicitly opted for guest play after a failed login.
         // Drop the unused server-side state and connect as guest here.
         // Clear any stale auth state on this session so a later
@@ -1333,7 +1376,12 @@ export class TelnetSession {
         );
         this.writeLine("");
 
-        const pick = await this.prompt("Character [1]: ");
+        const pick = await this.prompt("Character [1] (or 'back'): ");
+        const pickTrimmed = pick.trim().toLowerCase();
+        if (pickTrimmed === "back") {
+          // Bubble back to runStartupMenu, which re-shows the main menu.
+          return false;
+        }
         const idx = pick === "" ? 1 : parseInt(pick, 10);
 
         if (isNaN(idx)) {
@@ -1380,7 +1428,11 @@ export class TelnetSession {
   }
 
   private async handleCharacterCreation(httpBase: string, sessionToken: string): Promise<boolean> {
-    const name = await this.prompt("Character name: ");
+    const name = await this.prompt("Character name (or 'back'): ");
+    if (name.trim().toLowerCase() === "back") {
+      // Explicit back — return to the main menu without an error message.
+      return false;
+    }
     if (!name) {
       // Empty name aborts character creation. Don't fall through to
       // guest — returning false bubbles up to runStartupMenu, which
@@ -1402,7 +1454,10 @@ export class TelnetSession {
     }
     this.writeLine("");
 
-    const classChoice = await this.prompt("Class [1]: ");
+    const classChoice = await this.prompt("Class [1] (or 'back'): ");
+    if (classChoice.trim().toLowerCase() === "back") {
+      return false;
+    }
     const cidx = classChoice === "" ? 1 : parseInt(classChoice, 10);
     let characterClass: typeof CHARACTER_CLASSES[number];
     if (!isNaN(cidx) && cidx >= 1 && cidx <= CHARACTER_CLASSES.length) {
