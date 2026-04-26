@@ -122,9 +122,11 @@ export function getStartupMenu(): string {
   return [
     "",
     "What would you like to do?",
+    "",
     "  [1] Log in to an existing character",
     "  [2] Create a new character",
     "  [3] Play as a guest",
+    "",
     "",
   ].join("\r\n");
 }
