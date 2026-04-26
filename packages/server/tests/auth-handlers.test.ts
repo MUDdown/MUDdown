@@ -2209,8 +2209,8 @@ describe("handleAuthRoute — /auth/login-cancel", () => {
 
   it("returns 413 for an oversized request body", async () => {
     const res = mockRes();
-    // readJsonBody caps at 1 MiB; 2 MiB of padding is well over.
-    const huge = JSON.stringify({ nonce: randomUUID(), pad: "x".repeat(2 * 1024 * 1024) });
+    // readJsonBody currently caps bodies at 4 KiB; this payload is well over.
+    const huge = JSON.stringify({ nonce: randomUUID(), pad: "x".repeat(5 * 1024) });
     await handleAuthRoute(cancelReq({ rawBody: huge }), res, dummyConfig, db);
     expect(res.statusCode).toBe(413);
     expect(JSON.parse(res.body)).toEqual({ error: "Request body too large" });

@@ -984,10 +984,11 @@ export class TelnetSession {
    * 10-minute TTL — narrowing the window in which a fresh session
    * token sits in memory keyed by a nonce we no longer need.
    *
-   * Fire-and-forget: failure is non-fatal because the server-side TTL
-   * will eventually clean up. Caller is responsible for clearing
-   * `currentLoginNonce` BEFORE calling (we read once and clear) so
-   * concurrent disconnect paths don't double-cancel.
+   * Fire-and-forget: failure is non-fatal because the server-side
+   * TTL will eventually clean up. Snapshots
+   * `currentLoginHttpBase`/`currentLoginNonce`, then clears both
+   * fields before issuing the request so repeated disconnect/cleanup
+   * paths are best-effort one-shot and avoid double-cancelling.
    */
   private cancelCurrentLoginNonce(): void {
     const httpBase = this.currentLoginHttpBase;
