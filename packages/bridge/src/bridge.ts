@@ -98,15 +98,22 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutM
   // fetch's own signal so an in-flight HTTP request is cancelled
   // immediately instead of running for the full timeout window.
   const onExternalAbort = () => controller.abort();
+  let listenerAttached = false;
   if (externalSignal) {
-    if (externalSignal.aborted) controller.abort();
-    else externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+      listenerAttached = true;
+    }
   }
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     clearTimeout(timer);
-    externalSignal?.removeEventListener("abort", onExternalAbort);
+    if (listenerAttached) {
+      externalSignal?.removeEventListener("abort", onExternalAbort);
+    }
   }
 }
 
@@ -172,6 +179,12 @@ async function pollForToken(httpBase: string, nonce: string, maxAttempts: number
         // case `signal?.aborted` is false; treat both as retryable
         // network failures only when no external cancellation is in
         // play.
+        //
+        // Invariant: between the two `signal?.aborted` checks below
+        // (this one and the one at the top of the next iteration), no
+        // external abort can interleave because JavaScript is
+        // single-threaded — the abort handler can only run at the next
+        // microtask boundary, which we don't await here.
         if (signal?.aborted) return undefined;
         // Per-request timeout: treat as a transient network error and
         // retry on the next iteration.
@@ -486,6 +499,15 @@ export class TelnetSession {
   // poll) so dispose() can promptly stop background HTTP traffic instead
   // of letting it run for up to the full 2-minute poll window.
   private loginAbort: AbortController | null = null;
+
+  // Tracks the live OAuth nonce so disconnect paths (dispose, picker
+  // exhaustion, picker bailout, retry-loop guest fallback) can fire a
+  // best-effort POST /auth/login-cancel to drop the server-side
+  // completedLogins entry immediately rather than wait the 10-minute TTL.
+  // Cleared once the token has been consumed (no cancel needed) or once
+  // a cancel has been dispatched.
+  private currentLoginHttpBase: string | null = null;
+  private currentLoginNonce: string | null = null;
 
   private disposed = false;
 
@@ -956,6 +978,37 @@ export class TelnetSession {
   }
 
   /**
+   * Best-effort cancel of an in-flight OAuth login nonce. Fires a
+   * `POST /auth/login-cancel` so the server drops the
+   * `completedLogins` entry immediately rather than wait for the
+   * 10-minute TTL — narrowing the window in which a fresh session
+   * token sits in memory keyed by a nonce we no longer need.
+   *
+   * Fire-and-forget: failure is non-fatal because the server-side TTL
+   * will eventually clean up. Caller is responsible for clearing
+   * `currentLoginNonce` BEFORE calling (we read once and clear) so
+   * concurrent disconnect paths don't double-cancel.
+   */
+  private cancelCurrentLoginNonce(): void {
+    const httpBase = this.currentLoginHttpBase;
+    const nonce = this.currentLoginNonce;
+    if (!httpBase || !nonce) return;
+    this.currentLoginHttpBase = null;
+    this.currentLoginNonce = null;
+    fetchWithTimeout(
+      `${httpBase}/auth/login-cancel`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nonce }),
+      },
+      3000,
+    ).catch((err: unknown) => {
+      console.warn(`[bridge] [${this.id}] login-cancel failed:`, err);
+    });
+  }
+
+  /**
    * Run the OAuth login flow.
    *
    * @param mode "existing" jumps into the character picker afterwards;
@@ -980,6 +1033,11 @@ export class TelnetSession {
     // be used in both the provider-picker URLs (multi-provider case) and
     // the initial login URL inside the loop. On retry we regenerate.
     let nonce = randomUUID();
+    // Make the nonce visible to dispose() and other disconnect paths
+    // so they can fire a best-effort POST /auth/login-cancel rather
+    // than leave the server's completedLogins entry to age out.
+    this.currentLoginHttpBase = httpBase;
+    this.currentLoginNonce = nonce;
 
     let provider: string;
     // Track whether OAuth completed via a clicked picker hyperlink so we
@@ -988,6 +1046,16 @@ export class TelnetSession {
     if (providers.length === 1) {
       provider = providers[0];
     } else {
+      // Provider picker. We deliberately do NOT auto-select a default
+      // provider — the user's OAuth provider is personal and picking
+      // the wrong one just wastes another login round. On invalid /
+      // empty input we re-prompt up to MAX_PICKER_ATTEMPTS times so
+      // typos are recoverable; on poll exhaustion (no input AND no
+      // OSC 8 click for the full 2-minute window) we disconnect
+      // immediately because the user has effectively walked away.
+      // All disconnect paths fire a best-effort login-cancel and
+      // dispose the session — the caller's guest fallback is gated on
+      // !this.disposed, so dispose-then-return-false skips it.
       this.writeLine("\r\nLogin Provider:");
       for (let i = 0; i < providers.length; i++) {
         const name = providers[i];
@@ -997,32 +1065,25 @@ export class TelnetSession {
       }
 
       // Race the picker prompt against an opportunistic poll for the
-      // shared nonce: if the user clicks any provider's OSC 8 hyperlink,
-      // OAuth completes against this nonce server-side and the poll
-      // resolves first — we can skip straight to character selection
-      // without a second prompt.
+      // shared nonce: if the user clicks any provider's OSC 8
+      // hyperlink, OAuth completes against this nonce server-side and
+      // the poll resolves first — we can skip straight to character
+      // selection without a second prompt.
       //
-      // pickAbort cancels the prompt; pollAbort cancels the background
-      // poll. pollAbort is also stored on the instance (this.loginAbort)
-      // so dispose() can stop the in-flight HTTP request immediately
-      // rather than waiting up to 2 minutes for the poll loop to finish.
-      const pickAbort = new AbortController();
+      // pollAbort is shared across picker retries (the 2-minute poll
+      // budget is the user's overall window to act, not per-typo) and
+      // is also stored on the instance (this.loginAbort) so dispose()
+      // can stop the in-flight HTTP request immediately rather than
+      // wait up to 2 minutes for the poll loop to finish.
       const pollAbort = new AbortController();
       this.loginAbort = pollAbort;
       type PickResult =
         | { kind: "choice"; line: string }
         | { kind: "token"; token: string };
       // .catch on both legs so the loser of the race doesn't bubble up
-      // as an unhandled rejection (which Node treats as a fatal error).
-      // Real failures are surfaced via the winner path or the explicit
-      // poll-error handling in the retry loop below.
-      const pickPromise: Promise<PickResult | undefined> = this.prompt(
-        "\r\nProvider [1]: ",
-        pickAbort.signal,
-      ).then(
-        (line): PickResult => ({ kind: "choice", line }),
-        () => undefined,
-      );
+      // as an unhandled rejection (which Node treats as a fatal
+      // error). Real failures are surfaced via the winner path or the
+      // explicit poll-error handling in the retry loop below.
       const pollPromise: Promise<PickResult | undefined> = pollForToken(
         httpBase,
         nonce,
@@ -1034,38 +1095,96 @@ export class TelnetSession {
         () => undefined,
       );
 
-      const winner = await Promise.race([pickPromise, pollPromise]);
-
-      if (winner && winner.kind === "token") {
-        // User clicked a picker link; OAuth completed against the shared
-        // nonce. Cancel the prompt so the user isn't left staring at it.
-        pickAbort.abort();
-        this.loginAbort = null;
-        prePickedToken = winner.token;
-        // Pick a placeholder provider so the rest of the function has a
-        // value; it's never actually used because prePickedToken
-        // short-circuits the retry loop.
-        provider = providers[0];
-        this.writeLine("\r\nLogin completed.\r\n");
-      } else {
-        // Either the user typed a number (winner.kind === "choice") or
-        // the 2-minute poll exhausted with no token (winner ===
-        // undefined). In both cases cancel both legs so neither lingers:
-        // the prompt promise (if it hasn't already settled) is freed,
-        // and the background poll stops before the retry loop starts a
-        // fresh one.
-        pickAbort.abort();
-        pollAbort.abort();
-        this.loginAbort = null;
-        const choice = winner?.kind === "choice" ? winner.line : "";
-        const idx = choice === "" ? 1 : parseInt(choice, 10);
-        if (isNaN(idx) || idx < 1 || idx > providers.length) {
-          this.writeLine("Invalid choice, using first provider.\r\n");
-          provider = providers[0];
-        } else {
-          provider = providers[idx - 1];
+      const MAX_PICKER_ATTEMPTS = 3;
+      let pickedProvider: string | undefined;
+      let attempts = 0;
+      while (!pickedProvider && !prePickedToken) {
+        if (this.disposed) {
+          pollAbort.abort();
+          this.loginAbort = null;
+          return false;
         }
+
+        // Fresh pickAbort per iteration: the previous prompt has
+        // settled (with a value or a rejection) and pickAbort.abort()
+        // is a no-op once a controller has fired. We need a live
+        // controller so a token-win on a subsequent race can still
+        // cancel the in-flight prompt.
+        const pickAbort = new AbortController();
+        const pickPromise: Promise<PickResult | undefined> = this.prompt(
+          "\r\nProvider: ",
+          pickAbort.signal,
+        ).then(
+          (line): PickResult => ({ kind: "choice", line }),
+          () => undefined,
+        );
+
+        const winner = await Promise.race([pickPromise, pollPromise]);
+
+        if (winner && winner.kind === "token") {
+          // User clicked a picker link; OAuth completed against the
+          // shared nonce. Token is consumed by the poll's
+          // one-time-retrieval, so no cancel needed — just clear the
+          // tracking fields so dispose() doesn't fire a (now stale)
+          // login-cancel.
+          pickAbort.abort();
+          this.loginAbort = null;
+          this.currentLoginHttpBase = null;
+          this.currentLoginNonce = null;
+          prePickedToken = winner.token;
+          // Placeholder so the rest of the function has a provider
+          // value; never actually used because prePickedToken
+          // short-circuits the retry loop below.
+          pickedProvider = providers[0];
+          this.writeLine("\r\nLogin completed.\r\n");
+          break;
+        }
+
+        if (!winner) {
+          // Background poll exhausted its 60 attempts without a
+          // token AND the user never answered the prompt — they've
+          // walked away. Disconnect immediately.
+          pickAbort.abort();
+          this.loginAbort = null;
+          if (!this.disposed) {
+            this.writeLine("\r\nLogin session expired without a response. Disconnecting.\r\n");
+            this.cancelCurrentLoginNonce();
+            this.dispose();
+          }
+          return false;
+        }
+
+        // winner.kind === "choice": user typed something. Validate.
+        const choice = winner.line.trim();
+        const idx = parseInt(choice, 10);
+        if (choice !== "" && !isNaN(idx) && idx >= 1 && idx <= providers.length) {
+          pickedProvider = providers[idx - 1];
+          pollAbort.abort();
+          this.loginAbort = null;
+          break;
+        }
+
+        // Invalid input — re-prompt unless we've used up our budget.
+        attempts++;
+        if (attempts >= MAX_PICKER_ATTEMPTS) {
+          pollAbort.abort();
+          this.loginAbort = null;
+          if (!this.disposed) {
+            this.writeLine(
+              `\r\nNo valid provider selected after ${MAX_PICKER_ATTEMPTS} attempts. Disconnecting.\r\n`,
+            );
+            this.cancelCurrentLoginNonce();
+            this.dispose();
+          }
+          return false;
+        }
+        const remaining = MAX_PICKER_ATTEMPTS - attempts;
+        this.writeLine(
+          `Invalid choice — please enter a number from 1 to ${providers.length} or click one of the links above. (${remaining} attempt${remaining === 1 ? "" : "s"} remaining)`,
+        );
       }
+
+      provider = pickedProvider ?? providers[0];
     }
 
     // Retry loop: timed-out logins regenerate the nonce + URL so an expired
@@ -1101,6 +1220,10 @@ export class TelnetSession {
       }
       if (token) {
         sessionToken = token;
+        // Token consumed by the poll's one-time-retrieval — clear the
+        // tracking fields so dispose() doesn't fire a stale cancel.
+        this.currentLoginHttpBase = null;
+        this.currentLoginNonce = null;
         break;
       }
 
@@ -1112,10 +1235,18 @@ export class TelnetSession {
         "Press enter to try again, or type 'guest' to play as a guest: ",
       );
       if (retry.trim().toLowerCase() === "guest") {
+        // User opted out — drop the unused server-side state before
+        // returning so the caller's guest fallback runs against a
+        // clean slate.
+        this.cancelCurrentLoginNonce();
         return false;
       }
-      // Anything else (including empty) → regenerate the nonce and retry.
+      // Anything else (including empty) → cancel the old nonce
+      // server-side and regenerate so the user gets a fresh URL.
+      this.cancelCurrentLoginNonce();
       nonce = randomUUID();
+      this.currentLoginHttpBase = httpBase;
+      this.currentLoginNonce = nonce;
     }
 
     this.sessionToken = sessionToken;
@@ -1421,6 +1552,11 @@ export class TelnetSession {
     // background HTTP requests for the rest of the 2-minute poll window.
     this.loginAbort?.abort();
     this.loginAbort = null;
+
+    // Best-effort drop of the server-side login state (if any). No-op
+    // unless the session disposed mid-login with a live nonce that
+    // hadn't been consumed; safe to call unconditionally.
+    this.cancelCurrentLoginNonce();
 
     // Reject any pending prompt so the async chain doesn't hang forever
     if (this.promptHandler) {

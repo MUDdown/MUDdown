@@ -9,7 +9,7 @@ import type { GameDatabase, AuthSession } from "../src/db/types.js";
 import {
   extractSessionToken, extractBearerToken, resolveSession, resolveTicket, CHARACTER_NAME_RE, _insertTicket,
   handleAuthRoute, exchangeCodeForToken, fetchProviderUser, findOrCreateAccount,
-  _insertCompletedLogin, setCorsHeaders, handleCorsPreflightIfNeeded,
+  _insertCompletedLogin, _insertPendingOAuth, _hasPendingOAuth, setCorsHeaders, handleCorsPreflightIfNeeded,
 } from "../src/auth.js";
 import type { OAuthConfig } from "../src/auth.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -2118,6 +2118,258 @@ describe("handleAuthRoute — /auth/token-poll", () => {
     await handleAuthRoute(goodReq, good, dummyConfig, db);
     expect(good.statusCode).toBe(200);
     expect(JSON.parse(good.body)).toEqual({ token: "preserved-xff-token" });
+  });
+});
+
+// ─── /auth/login-cancel ──────────────────────────────────────────────────────
+
+describe("handleAuthRoute — /auth/login-cancel", () => {
+  const dummyConfig: OAuthConfig = {};
+
+  function cancelReq(opts: {
+    body?: unknown;
+    ip?: string;
+    xff?: string;
+    rawBody?: string;
+  } = {}): IncomingMessage {
+    const bodyStr =
+      opts.rawBody !== undefined
+        ? opts.rawBody
+        : opts.body !== undefined
+          ? JSON.stringify(opts.body)
+          : "";
+    const stream = new Readable({
+      read() {
+        this.push(bodyStr);
+        this.push(null);
+      },
+    });
+    Object.assign(stream, {
+      method: "POST",
+      url: "/auth/login-cancel",
+      headers: {
+        host: "localhost:3300",
+        "content-type": "application/json",
+        ...(opts.xff !== undefined ? { "x-forwarded-for": opts.xff } : {}),
+      },
+      socket: { remoteAddress: opts.ip ?? "127.0.0.1" },
+    });
+    return stream as unknown as IncomingMessage;
+  }
+
+  it("returns 400 when nonce is missing from the body", async () => {
+    const res = mockRes();
+    await handleAuthRoute(cancelReq({ body: {} }), res, dummyConfig, db);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: "Missing nonce parameter." });
+  });
+
+  it("returns 400 when body is not valid JSON", async () => {
+    const res = mockRes();
+    await handleAuthRoute(cancelReq({ rawBody: "not-json" }), res, dummyConfig, db);
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: "Request body must be valid JSON" });
+  });
+
+  it("returns 200 with cancelled=0 for an unknown nonce (idempotent)", async () => {
+    const res = mockRes();
+    await handleAuthRoute(
+      cancelReq({ body: { nonce: randomUUID() } }),
+      res,
+      dummyConfig,
+      db,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ cancelled: 0 });
+  });
+
+  it("returns 400 for a non-UUID nonce", async () => {
+    const res = mockRes();
+    await handleAuthRoute(
+      cancelReq({ body: { nonce: "not-a-uuid" } }),
+      res,
+      dummyConfig,
+      db,
+    );
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: "Invalid nonce format." });
+  });
+
+  it("returns 400 when nonce is not a string", async () => {
+    const res = mockRes();
+    await handleAuthRoute(
+      cancelReq({ body: { nonce: 12345 } }),
+      res,
+      dummyConfig,
+      db,
+    );
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toEqual({ error: "Missing nonce parameter." });
+  });
+
+  it("returns 413 for an oversized request body", async () => {
+    const res = mockRes();
+    // readJsonBody caps at 1 MiB; 2 MiB of padding is well over.
+    const huge = JSON.stringify({ nonce: randomUUID(), pad: "x".repeat(2 * 1024 * 1024) });
+    await handleAuthRoute(cancelReq({ rawBody: huge }), res, dummyConfig, db);
+    expect(res.statusCode).toBe(413);
+    expect(JSON.parse(res.body)).toEqual({ error: "Request body too large" });
+  });
+
+  it("deletes a completedLogins entry and reports cancelled=1", async () => {
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "to-be-cancelled");
+
+    const res = mockRes();
+    await handleAuthRoute(cancelReq({ body: { nonce } }), res, dummyConfig, db);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ cancelled: 1 });
+
+    // Subsequent token-poll for the same nonce should now report pending.
+    const pollRes = mockRes();
+    await handleAuthRoute(
+      {
+        method: "GET",
+        url: `/auth/token-poll?nonce=${encodeURIComponent(nonce)}`,
+        headers: { host: "localhost:3300" },
+        socket: { remoteAddress: "127.0.0.1" },
+      } as unknown as IncomingMessage,
+      pollRes,
+      dummyConfig,
+      db,
+    );
+    expect(pollRes.statusCode).toBe(202);
+  });
+
+  it("returns 403 when requester IP does not match completedLogins origin", async () => {
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "ip-bound", "10.0.0.1");
+
+    const res = mockRes();
+    await handleAuthRoute(
+      cancelReq({ body: { nonce }, ip: "192.168.1.99" }),
+      res,
+      dummyConfig,
+      db,
+    );
+    expect(res.statusCode).toBe(403);
+    expect(JSON.parse(res.body)).toEqual({ error: "Forbidden." });
+
+    // Entry must be preserved so the legitimate origin can still poll.
+    const pollRes = mockRes();
+    await handleAuthRoute(
+      {
+        method: "GET",
+        url: `/auth/token-poll?nonce=${encodeURIComponent(nonce)}`,
+        headers: { host: "localhost:3300" },
+        socket: { remoteAddress: "10.0.0.1" },
+      } as unknown as IncomingMessage,
+      pollRes,
+      dummyConfig,
+      db,
+    );
+    expect(pollRes.statusCode).toBe(200);
+    expect(JSON.parse(pollRes.body)).toEqual({ token: "ip-bound" });
+  });
+
+  it("trusts loopback requesters with no proxy headers (telnet bridge scenario)", async () => {
+    // Browser originates the login from a public IP; the bridge cancels
+    // from 127.0.0.1 directly. Without the loopback exemption the check
+    // would otherwise reject every bridge cancel.
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "bridge-token", "203.0.113.50");
+
+    const res = mockRes();
+    await handleAuthRoute(
+      cancelReq({ body: { nonce }, ip: "127.0.0.1" }),
+      res,
+      dummyConfig,
+      db,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ cancelled: 1 });
+  });
+
+  it("uses X-Forwarded-For when present (proxy scenario)", async () => {
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "proxy-cancel-token", "203.0.113.50");
+
+    const res = mockRes();
+    await handleAuthRoute(
+      cancelReq({ body: { nonce }, ip: "127.0.0.1", xff: "203.0.113.50" }),
+      res,
+      dummyConfig,
+      db,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ cancelled: 1 });
+  });
+
+  it("rejects loopback exemption when proxy headers are present even if empty", async () => {
+    const nonce = randomUUID();
+    _insertCompletedLogin(nonce, "no-spoof", "203.0.113.50");
+
+    const res = mockRes();
+    await handleAuthRoute(
+      cancelReq({ body: { nonce }, ip: "127.0.0.1", xff: "" }),
+      res,
+      dummyConfig,
+      db,
+    );
+    // XFF header present (even empty) → loopback exemption suppressed,
+    // resolved IP falls back to remoteAddress (127.0.0.1) which doesn't
+    // match originIp (203.0.113.50) → 403.
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("deletes a pendingOAuth entry whose loginNonce matches", async () => {
+    const nonce = randomUUID();
+    const state = randomUUID();
+    _insertPendingOAuth(state, "discord", nonce, "127.0.0.1");
+    expect(_hasPendingOAuth(state)).toBe(true);
+
+    const res = mockRes();
+    await handleAuthRoute(cancelReq({ body: { nonce } }), res, dummyConfig, db);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ cancelled: 1 });
+    expect(_hasPendingOAuth(state)).toBe(false);
+  });
+
+  it("cancels both completedLogins and pendingOAuth for the same nonce", async () => {
+    const nonce = randomUUID();
+    const state = randomUUID();
+    _insertCompletedLogin(nonce, "already-completed", "127.0.0.1");
+    _insertPendingOAuth(state, "github", nonce, "127.0.0.1");
+
+    const res = mockRes();
+    await handleAuthRoute(cancelReq({ body: { nonce } }), res, dummyConfig, db);
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ cancelled: 2 });
+    expect(_hasPendingOAuth(state)).toBe(false);
+  });
+
+  it("skips a pendingOAuth entry on IP mismatch but still cancels matching ones", async () => {
+    const nonce = randomUUID();
+    const stateMine = randomUUID();
+    const stateOther = randomUUID();
+    // Two pending entries with the same loginNonce, different originIps.
+    // The cancel request comes from 192.168.1.99: it owns stateMine but
+    // not stateOther. The mismatched one must be preserved (skipped, not
+    // 403'd) so the legitimate other-IP requester can still complete.
+    _insertPendingOAuth(stateMine, "discord", nonce, "192.168.1.99");
+    _insertPendingOAuth(stateOther, "github", nonce, "10.0.0.1");
+
+    const res = mockRes();
+    await handleAuthRoute(
+      cancelReq({ body: { nonce }, ip: "192.168.1.99" }),
+      res,
+      dummyConfig,
+      db,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ cancelled: 1 });
+    expect(_hasPendingOAuth(stateMine)).toBe(false);
+    expect(_hasPendingOAuth(stateOther)).toBe(true);
   });
 });
 
