@@ -132,6 +132,26 @@ export function getStartupMenu(): string {
 // ─── URL helpers ─────────────────────────────────────────────────────────────
 
 /**
+ * Canonical display casing for OAuth provider IDs returned by
+ * /auth/providers (which are lowercase: "discord", "github", "microsoft",
+ * "google"). Falls back to capitalising the first letter for unknown
+ * values so future providers render reasonably without a code change.
+ */
+const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
+  discord: "Discord",
+  github: "GitHub",
+  microsoft: "Microsoft",
+  google: "Google",
+};
+
+export function displayProviderName(provider: string): string {
+  const known = PROVIDER_DISPLAY_NAMES[provider.toLowerCase()];
+  if (known) return known;
+  if (provider.length === 0) return provider;
+  return provider[0].toUpperCase() + provider.slice(1);
+}
+
+/**
  * Build the public OAuth login URL the user opens (or clicks via OSC 8) to
  * authenticate with `provider`. The bridge generates `nonce` up front and
  * polls `/auth/token-poll` for the same value, so the same nonce must end

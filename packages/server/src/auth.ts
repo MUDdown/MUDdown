@@ -127,6 +127,21 @@ export function _insertCompletedLogin(nonce: string, token: string, originIp?: s
   completedLogins.set(nonce, { token, createdAt: Date.now(), originIp });
 }
 
+/** @internal — exposed for unit tests only */
+export function _insertPendingOAuth(
+  state: string,
+  provider: OAuthProvider,
+  loginNonce?: string,
+  loginOriginIp?: string,
+): void {
+  pendingOAuth.set(state, { provider, createdAt: Date.now(), loginNonce, loginOriginIp });
+}
+
+/** @internal — exposed for unit tests only */
+export function _hasPendingOAuth(state: string): boolean {
+  return pendingOAuth.has(state);
+}
+
 // ─── CORS ────────────────────────────────────────────────────────────────────
 
 const ALLOWED_ORIGINS: Set<string> = new Set(
@@ -271,6 +286,11 @@ export async function handleAuthRoute(
     return true;
   }
 
+  if (url.pathname === "/auth/login-cancel" && req.method === "POST") {
+    await handleLoginCancel(req, res);
+    return true;
+  }
+
   return false;
 }
 
@@ -309,6 +329,103 @@ function handleTokenPoll(url: URL, req: IncomingMessage, res: ServerResponse): v
     `[auth:token_retrieved] nonce=${truncatedNonce} pollerIp=${pollerIp ?? "unknown"} originIp=${entry.originIp ?? "none"} loopbackExempt=${loopbackExempt} at=${new Date().toISOString()}`,
   );
   sendJson(res, 200, { token: entry.token });
+}
+
+// ─── /auth/login-cancel → invalidate an unconsumed login nonce ──────────────
+
+/**
+ * Lets a client that initiated a login flow tell the server to drop the
+ * associated state immediately rather than wait for the 10-minute TTL.
+ * Two scenarios use this:
+ *   1. The client is about to disconnect (e.g. the telnet bridge when the
+ *      user fails to pick a provider, or `dispose()` mid-login).
+ *   2. The client is staying connected but is regenerating the nonce
+ *      (e.g. the bridge's retry loop after a 2-minute poll timeout).
+ * This shrinks the window in which a fresh session token sits in
+ * `completedLogins` keyed only by the nonce.
+ *
+ * Same security model as `/auth/token-poll`: the requester must come from
+ * either the IP that initiated the login or a trusted loopback (so on-host
+ * services like the bridge can cancel without the IP-binding check, which
+ * would otherwise fail because the browser's origin IP is the user's public
+ * address while the bridge connects from 127.0.0.1). A remote attacker who
+ * happened to learn the nonce could otherwise grief legitimate users by
+ * cancelling their pending login.
+ *
+ * Idempotent: returns 200 with `cancelled: 0` if the nonce has no live
+ * state. Always deletes both `completedLogins[nonce]` (a token already
+ * issued by the OAuth callback but not yet polled) and any `pendingOAuth`
+ * entry whose `loginNonce` matches (a CSRF-state row that's still mid-flow).
+ */
+async function handleLoginCancel(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const result = await readJsonBody<{ nonce?: string }>(req, "/auth/login-cancel");
+  if (!result.ok) {
+    if (result.reason === "oversized") {
+      sendJson(res, 413, { error: "Request body too large" });
+    } else if (result.reason === "error") {
+      sendJson(res, 500, { error: "Request read failed. Please try again." });
+    } else {
+      sendJson(res, 400, { error: "Request body must be valid JSON" });
+    }
+    return;
+  }
+
+  const nonce = result.data.nonce;
+  if (!nonce || typeof nonce !== "string") {
+    sendJson(res, 400, { error: "Missing nonce parameter." });
+    return;
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(nonce)) {
+    // UUID-shape check matches handleLogin's login_nonce validation.
+    // Without this, an attacker who guessed or scraped a short string
+    // could cancel any pending login that lacks an originIp binding.
+    sendJson(res, 400, { error: "Invalid nonce format." });
+    return;
+  }
+
+  const requesterIp = getClientIp(req);
+  const loopbackExempt = isTrustedLoopbackPoller(req);
+  const truncatedNonce = `${nonce.slice(0, 8)}…`;
+
+  // completedLogins: the high-value entry — a fresh session token
+  // keyed by the nonce.
+  let cancelled = 0;
+  const completed = completedLogins.get(nonce);
+  if (completed) {
+    if (completed.originIp && requesterIp !== completed.originIp && !loopbackExempt) {
+      console.warn(
+        `[auth:login_cancel_ip_mismatch] nonce=${truncatedNonce} requesterIp=${requesterIp ?? "unknown"} originIp=${completed.originIp} at=${new Date().toISOString()}`,
+      );
+      sendJson(res, 403, { error: "Forbidden." });
+      return;
+    }
+    completedLogins.delete(nonce);
+    cancelled++;
+  }
+
+  // pendingOAuth: keyed by `state`, but each entry carries the
+  // associated `loginNonce`. Scan and delete any matches; apply the
+  // same IP check using `loginOriginIp`.
+  for (const [state, entry] of pendingOAuth) {
+    if (entry.loginNonce !== nonce) continue;
+    if (entry.loginOriginIp && requesterIp !== entry.loginOriginIp && !loopbackExempt) {
+      // Don't 403 the whole request just because one stale pending
+      // entry has a mismatched origin — log and skip. The
+      // completedLogins check above is the authoritative one for
+      // ownership.
+      console.warn(
+        `[auth:login_cancel_pending_ip_mismatch] state=${state.slice(0, 8)}… nonce=${truncatedNonce} requesterIp=${requesterIp ?? "unknown"} originIp=${entry.loginOriginIp} at=${new Date().toISOString()}`,
+      );
+      continue;
+    }
+    pendingOAuth.delete(state);
+    cancelled++;
+  }
+
+  console.log(
+    `[auth:login_cancelled] nonce=${truncatedNonce} requesterIp=${requesterIp ?? "unknown"} loopbackExempt=${loopbackExempt} cancelled=${cancelled} at=${new Date().toISOString()}`,
+  );
+  sendJson(res, 200, { cancelled });
 }
 
 // ─── /auth/providers → list configured providers ────────────────────────────
@@ -1028,18 +1145,23 @@ async function handleSelectCharacter(req: IncomingMessage, res: ServerResponse, 
     return;
   }
 
-  const character = db.getCharacterById(result.data.characterId);
-  if (!character || character.accountId !== session.accountId) {
-    sendJson(res, 404, { error: "Character not found" });
-    return;
-  }
+  try {
+    const character = db.getCharacterById(result.data.characterId);
+    if (!character || character.accountId !== session.accountId) {
+      sendJson(res, 404, { error: "Character not found" });
+      return;
+    }
 
-  db.updateSessionCharacter(session.token, character.id);
-  sendJson(res, 200, {
-    id: character.id,
-    name: character.name,
-    characterClass: character.characterClass,
-  });
+    db.updateSessionCharacter(session.token, character.id);
+    sendJson(res, 200, {
+      id: character.id,
+      name: character.name,
+      characterClass: character.characterClass,
+    });
+  } catch (err) {
+    console.error("handleSelectCharacter: database error:", err);
+    sendJson(res, 500, { error: "Failed to select character. Please try again." });
+  }
 }
 
 // ─── /auth/create-character → create new character ───────────────────────────
@@ -1123,11 +1245,24 @@ async function handleCreateCharacter(req: IncomingMessage, res: ServerResponse, 
       sendJson(res, 409, { error: "A character with that name already exists." });
       return;
     }
-    throw err;
+    console.error("handleCreateCharacter: createCharacter failed:", err);
+    sendJson(res, 500, { error: "Failed to create character. Please try again." });
+    return;
   }
 
-  // Auto-select the new character
-  db.updateSessionCharacter(session.token, character.id);
+  // Auto-select the new character. If this throws (e.g. session row was
+  // deleted between resolveSession and here), the character has already
+  // been persisted — surface a 500 so the client knows the create
+  // succeeded but the active-character side-effect didn't.
+  try {
+    db.updateSessionCharacter(session.token, character.id);
+  } catch (err) {
+    console.error("handleCreateCharacter: updateSessionCharacter failed:", err);
+    sendJson(res, 500, {
+      error: "Character created but session update failed. Please log in again.",
+    });
+    return;
+  }
 
   sendJson(res, 201, {
     id: character.id,
