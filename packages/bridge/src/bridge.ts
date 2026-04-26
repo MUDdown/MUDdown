@@ -933,9 +933,13 @@ export class TelnetSession {
 
     while (!connected && !this.disposed && attempts < MAX_MENU_ATTEMPTS) {
       attempts++;
-      this.writeLine(getStartupMenu());
 
       try {
+        // Inside try so a synchronous writeLine failure (very unlikely
+        // — writeLine no-ops on disposed/non-writable sockets) still
+        // hits the finally that clears promptHandler/promptReject
+        // rather than leaving a stale handler from a prior iteration.
+        this.writeLine(getStartupMenu());
         const choice = await this.prompt("Choice [1]: ");
         let idx = 1;
         if (choice !== "") {
@@ -1259,6 +1263,10 @@ export class TelnetSession {
       if (retry.trim().toLowerCase() === "guest") {
         // User explicitly opted for guest play after a failed login.
         // Drop the unused server-side state and connect as guest here.
+        // Clear any stale auth state on this session so a later
+        // reconnect can't accidentally promote the guest socket back
+        // into an authenticated one via a leftover sessionToken or
+        // wsTicket from before the user typed `guest`.
         // The !this.disposed guard around connectToGame mirrors the
         // pattern in runStartupMenu — if the socket closed between the
         // retry prompt resolving and us getting here, connectToGame()
@@ -1266,6 +1274,8 @@ export class TelnetSession {
         // session, leaving runStartupMenu's retry loop with no signal
         // that the user is gone.
         this.cancelCurrentLoginNonce();
+        this.sessionToken = undefined;
+        this.wsTicket = undefined;
         if (this.disposed) return false;
         this.writeLine("\r\nPlaying as a guest.\r\n");
         this.connectToGame();
@@ -1291,7 +1301,9 @@ export class TelnetSession {
    *
    * @returns true if a character was selected/created AND a ws ticket was
    *          obtained AND `reconnectWithAuth` was called. false on any
-   *          failure — the caller is responsible for the guest fallback.
+   *          failure — the caller (`handleLogin` → `runStartupMenu`)
+   *          re-shows the main menu so the user can try again. Guest
+   *          play is never entered implicitly from this path.
    */
   private async handleCharacterSelection(
     httpBase: string,
