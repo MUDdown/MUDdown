@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { loadConfig, getBanner, wsToHttpBase, updateTtypeCycle, deriveLinkMode, nextLinkMode } from "../src/helpers.js";
+import { loadConfig, getBanner, getStartupMenu, wsToHttpBase, buildLoginUrl, updateTtypeCycle, deriveLinkMode, nextLinkMode } from "../src/helpers.js";
 
 // ─── wsToHttpBase ────────────────────────────────────────────────────────────
 
@@ -46,10 +46,71 @@ describe("getBanner", () => {
     expect(banner).not.toMatch(/[^\r]\n/);
   });
 
-  it("includes login instructions", () => {
+  it("includes the welcome message", () => {
     const banner = getBanner("TestServer");
-    expect(banner).toContain("login");
-    expect(banner).toContain("linkmode");
+    expect(banner).toContain("Welcome to TestServer");
+  });
+
+  it("points users at the bridge help command", () => {
+    const banner = getBanner("TestServer");
+    expect(banner).toContain("Type 'help'");
+  });
+});
+
+// ─── getStartupMenu ──────────────────────────────────────────────────────────
+
+describe("getStartupMenu", () => {
+  it("offers all three startup choices in stable order", () => {
+    const menu = getStartupMenu();
+    const idxLogin = menu.indexOf("[1] Log in to an existing character");
+    const idxCreate = menu.indexOf("[2] Create a new character");
+    const idxGuest = menu.indexOf("[3] Play as a guest");
+    expect(idxLogin).toBeGreaterThan(-1);
+    expect(idxCreate).toBeGreaterThan(idxLogin);
+    expect(idxGuest).toBeGreaterThan(idxCreate);
+  });
+
+  it("uses telnet line endings (\\r\\n)", () => {
+    const menu = getStartupMenu();
+    expect(menu).toContain("\r\n");
+    expect(menu).not.toMatch(/[^\r]\n/);
+  });
+});
+
+// ─── buildLoginUrl ───────────────────────────────────────────────────────────
+
+describe("buildLoginUrl", () => {
+  it("encodes provider and nonce as query parameters", () => {
+    const url = buildLoginUrl("https://muddown.com", "github", "abc-123");
+    expect(url).toBe("https://muddown.com/auth/login?provider=github&login_nonce=abc-123");
+  });
+
+  it("URL-encodes provider names with reserved characters", () => {
+    const url = buildLoginUrl("https://muddown.com", "name with space", "n");
+    // URLSearchParams uses application/x-www-form-urlencoded which
+    // encodes spaces as '+'. Servers decode '+' back to space, so this is
+    // wire-equivalent to %20.
+    expect(url).toContain("provider=name+with+space");
+  });
+
+  it("URL-encodes nonces with reserved characters", () => {
+    const url = buildLoginUrl("https://muddown.com", "github", "a&b=c");
+    expect(url).toContain("login_nonce=a%26b%3Dc");
+  });
+
+  it("collapses a trailing slash on publicBase", () => {
+    const url = buildLoginUrl("https://muddown.com/", "github", "n");
+    expect(url).toBe("https://muddown.com/auth/login?provider=github&login_nonce=n");
+  });
+
+  it("preserves a path prefix on publicBase", () => {
+    const url = buildLoginUrl("https://muddown.com/api", "github", "n");
+    expect(url).toBe("https://muddown.com/api/auth/login?provider=github&login_nonce=n");
+  });
+
+  it("preserves a path prefix with trailing slash on publicBase", () => {
+    const url = buildLoginUrl("https://muddown.com/api/", "github", "n");
+    expect(url).toBe("https://muddown.com/api/auth/login?provider=github&login_nonce=n");
   });
 });
 

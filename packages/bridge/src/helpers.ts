@@ -106,16 +106,48 @@ export function getBanner(serverName: string): string {
     " |_|  |_|\\___/|____/ \\__,_|\\___/ \\_/\\_/ |_| |_|",
     "",
     `  Welcome to ${serverName}!`,
+    "  Type 'help' for bridge commands.",
     "",
-    "  Type 'help' for commands, 'login' to authenticate,",
-    "  or just start playing as a guest.",
+  ].join("\r\n");
+}
+
+// ─── Startup menu ────────────────────────────────────────────────────────────
+
+/**
+ * The static menu text shown to every connecting telnet user before the
+ * bridge connects to the game server. The runtime dispatch on each choice
+ * lives in `TelnetSession.runStartupMenu`.
+ */
+export function getStartupMenu(): string {
+  return [
     "",
-    "  Type 'linkmode' to cycle link rendering: auto (capability-derived) → plain (TEXT command) → numbered (TEXT [N] shortcuts) → osc8-send (clickable for Mudlet/Fado/MudForge) → auto.",
+    "What would you like to do?",
+    "  [1] Log in to an existing character",
+    "  [2] Create a new character",
+    "  [3] Play as a guest",
     "",
   ].join("\r\n");
 }
 
 // ─── URL helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Build the public OAuth login URL the user opens (or clicks via OSC 8) to
+ * authenticate with `provider`. The bridge generates `nonce` up front and
+ * polls `/auth/token-poll` for the same value, so the same nonce must end
+ * up in the URL the user opens — that's what makes the click-to-login flow
+ * work in OSC 8-capable clients.
+ */
+export function buildLoginUrl(publicBase: string, provider: string, nonce: string): string {
+  const url = new URL(publicBase);
+  // Append /auth/login to any path prefix the operator configured (e.g.
+  // a reverse-proxy mount under /api). Strip a trailing slash on the
+  // base path first so we don't double up.
+  url.pathname = url.pathname.replace(/\/$/, "") + "/auth/login";
+  url.searchParams.set("provider", provider);
+  url.searchParams.set("login_nonce", nonce);
+  return url.toString();
+}
 
 export function wsToHttpBase(wsUrl: string): string {
   if (wsUrl.startsWith("wss://")) return "https://" + wsUrl.slice(6).replace(/\/ws$/, "");

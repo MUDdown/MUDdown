@@ -335,6 +335,53 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 
 ---
 
+## Backlog: Bridge Startup Menu Review (2026-04-26)
+
+Items surfaced during the `feat/bridge-startup-menu` review that were not
+landed on that PR. Grouped by area; pick up in follow-up PRs.
+
+### Bridge — login flow
+
+- [ ] **Distinguish transient vs. permanent provider failures.**
+  `fetchProviders` shows "No login providers available on this server" for
+  any failure including a 503 during a game-server restart. Treat 4xx as
+  "genuinely none" and 5xx / network errors as transient with a "try again
+  shortly" hint.
+- [ ] **Cancel orphaned login nonces server-side.**
+  When the bridge gives up on a poll (timeout or user picks `guest`),
+  optionally `POST /auth/cancel-login?nonce=…` so the entry is evicted
+  before the 10-minute server TTL. Marginal value — sweep already handles
+  it — but tightens the audit story.
+- [ ] **Align nonce TTLs.** Bridge polls for 2 minutes; server keeps
+  completed-login entries for 10 minutes. Pick one window or document the
+  asymmetry explicitly.
+- [ ] **Countdown / progress hint while polling.** Update the "Waiting for
+  login…" line every ~30s so users know the prompt is alive.
+
+### Bridge — tests
+
+- [ ] **Cover `runStartupMenu`** — choice routing for `[1]`/`[2]`/`[3]`,
+  invalid input handling, `loginInProgress` propagation, and the
+  guest-fallback path. Will need a small test-hook export (analogous to
+  `__resetMsspCacheForTesting`) plus mocked `fetchProviders` /
+  `pollForToken`.
+- [ ] **Cover `handleLogin`** — zero-providers short-circuit, single-vs-
+  multi provider rendering, OSC 8 hyperlink presence when capability is
+  set, retry loop including the `guest` escape, `pollForToken` exception
+  recovery, and `SessionDisposedError` propagation from inside the loop.
+- [ ] **Cover `handleCharacterSelection` / `handleCharacterCreation`
+  failure paths** — picker out-of-range, `postSelectCharacter` false,
+  `fetchWsTicket` null, `postCreateCharacter` false, and empty character
+  name. Each should return false and let the caller fall back to guest.
+
+### General — operator UX
+
+- [ ] **`npm run dev:tls` script for the bridge** that generates a
+  self-signed cert + starts the bridge in one step, so contributors can
+  smoke-test against Mudlet without hand-rolling `openssl` invocations.
+
+---
+
 ## Technical Stack Summary
 
 | Component | Technology |

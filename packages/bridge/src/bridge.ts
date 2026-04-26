@@ -56,7 +56,9 @@ import type { IacEvent, ColorLevel } from "./telnet.js";
 import {
   loadConfig,
   getBanner,
+  getStartupMenu,
   wsToHttpBase,
+  buildLoginUrl,
   updateTtypeCycle,
   buildOsc8Hyperlink,
   isCapabilityEnabled,
@@ -70,6 +72,21 @@ import type { BridgeConfig, MsspStats } from "./helpers.js";
 
 // @ts-expect-error — MUDdownConnection expects browser WebSocket global
 globalThis.WebSocket = WebSocket;
+
+// ─── Sentinel errors ─────────────────────────────────────────────────────────
+
+/**
+ * Thrown into a pending `prompt()` promise when the session is disposed
+ * (e.g. the user disconnected mid-flow). Callers in the startup menu /
+ * login flow check for this so a normal disconnect doesn't surface as an
+ * error in operator logs.
+ */
+class SessionDisposedError extends Error {
+  constructor() {
+    super("session disposed");
+    this.name = "SessionDisposedError";
+  }
+}
 
 // ─── HTTP helpers (reused from terminal client pattern) ──────────────────────
 
@@ -491,8 +508,9 @@ export class TelnetSession {
       if (!this.disposed) this.write(iacNop());
     }, this.config.keepaliveMs);
 
-    // Connect to game server as guest initially
-    this.connectToGame();
+    // Show the opening menu (login existing / create new / play as guest).
+    // The game-server connection is deferred until the user picks a path.
+    void this.runStartupMenu();
   }
 
   // ─── Data handling ───────────────────────────────────────────────────
@@ -746,6 +764,18 @@ export class TelnetSession {
       return;
     }
 
+    if (lower === "help") {
+      this.writeLine("");
+      this.writeLine("Bridge commands:");
+      this.writeLine("  help      \u2014 show this list");
+      this.writeLine("  login     \u2014 log in to your account (OAuth)");
+      this.writeLine("  linkmode  \u2014 cycle link rendering (plain / numbered / osc8-send / auto)");
+      this.writeLine("  legend    \u2014 list active numbered links");
+      this.writeLine("  quit      \u2014 disconnect");
+      this.writeLine("");
+      return;
+    }
+
     if (lower === "linkmode") {
       // Cycle explicit modes: plain → numbered → (osc8-send if capable) → auto.
       // "auto" clears the override and returns to capability-derived mode.
@@ -761,20 +791,36 @@ export class TelnetSession {
         return;
       }
       this.loginInProgress = true;
-      this.handleLogin()
+      this.handleLogin("existing")
+        .then((ok) => {
+          if (!ok && !this.disposed) {
+            this.writeLine("\r\nLogin did not complete.\r\n");
+          }
+        })
         .catch((err) => {
+          if (err instanceof SessionDisposedError) return;
           console.error(`[bridge] [${this.id}] login error:`, err);
-          this.writeLine("\r\nLogin failed unexpectedly.\r\n");
-          this.promptHandler = null;
-          this.promptReject = null;
+          if (!this.disposed) {
+            this.writeLine("\r\nLogin failed unexpectedly.\r\n");
+          }
         })
         .finally(() => {
+          this.promptHandler = null;
+          this.promptReject = null;
           this.loginInProgress = false;
         });
       return;
     }
 
-    if (lower === "legend" && this.effectiveLinkMode === "numbered" && this.activeLinks.length > 0) {
+    if (lower === "legend") {
+      if (this.effectiveLinkMode !== "numbered") {
+        this.writeLine("\r\nLegend is only available in numbered link mode. Use 'linkmode' to switch.\r\n");
+        return;
+      }
+      if (this.activeLinks.length === 0) {
+        this.writeLine("\r\nNo active numbered links.\r\n");
+        return;
+      }
       this.writeLine("");
       for (const link of this.activeLinks) {
         this.writeLine(`  [${link.index}] ${link.command}`);
@@ -801,26 +847,106 @@ export class TelnetSession {
 
   // ─── Auth flow ───────────────────────────────────────────────────────
 
-  private async handleLogin(): Promise<void> {
+  /**
+   * Show the opening menu and dispatch on the user's choice. Runs after
+   * telnet negotiation finishes and before the bridge connects to the game
+   * server. Falls back to guest play if login fails and the session is
+   * still active. Disposed sessions skip the fallback.
+   */
+  private async runStartupMenu(): Promise<void> {
+    if (this.disposed) return;
+    this.writeLine(getStartupMenu());
+
+    let connected = false;
+    try {
+      const choice = await this.prompt("Choice [1]: ");
+      let idx = 1;
+      if (choice !== "") {
+        const parsed = /^\d+$/.test(choice) ? parseInt(choice, 10) : NaN;
+        if (isNaN(parsed) || parsed < 1 || parsed > 3) {
+          this.writeLine("Invalid choice — logging in to an existing character.\r\n");
+        } else {
+          idx = parsed;
+        }
+      }
+
+      if (idx === 2) {
+        this.loginInProgress = true;
+        try {
+          connected = await this.handleLogin("create");
+        } finally {
+          this.loginInProgress = false;
+        }
+      } else if (idx === 3) {
+        this.writeLine("\r\nPlaying as a guest.\r\n");
+        this.connectToGame();
+        connected = true;
+      } else {
+        this.loginInProgress = true;
+        try {
+          connected = await this.handleLogin("existing");
+        } finally {
+          this.loginInProgress = false;
+        }
+      }
+    } catch (err) {
+      if (err instanceof SessionDisposedError) {
+        // Normal disconnect mid-prompt — not an error worth logging.
+        return;
+      }
+      console.error(`[bridge] [${this.id}] startup menu error:`, err);
+      if (!this.disposed) {
+        this.writeLine("\r\nAn error occurred during login. Please try again later.\r\n");
+      }
+    } finally {
+      this.promptHandler = null;
+      this.promptReject = null;
+    }
+
+    if (!connected && !this.disposed) {
+      this.writeLine("\r\nFalling back to guest play. Type 'login' to try again.\r\n");
+      this.connectToGame();
+    }
+  }
+
+  /**
+   * Run the OAuth login flow.
+   *
+   * @param mode "existing" jumps into the character picker afterwards;
+   *             "create" jumps straight into character creation.
+   * @returns true if OAuth completed and the bridge connected with an
+   *          auth ticket; false if any step failed, in which case the
+   *          caller should fall back to guest play.
+   */
+  private async handleLogin(mode: "existing" | "create"): Promise<boolean> {
     const httpBase = wsToHttpBase(this.config.gameServerUrl);
     const providers = await fetchProviders(httpBase);
 
     if (providers.length === 0) {
       this.writeLine("\r\nNo login providers available on this server.\r\n");
-      return;
+      return false;
     }
 
-    let provider = "github";
+    const publicBase = this.config.publicBaseUrl ?? httpBase;
+    const hyperlinkEnabled = this.capabilities.has("OSC_HYPERLINKS");
+
+    // First nonce is generated before the retry loop so the same value can
+    // be used in both the provider-picker URLs (multi-provider case) and
+    // the initial login URL inside the loop. On retry we regenerate.
+    let nonce = randomUUID();
+
+    let provider: string;
     if (providers.length === 1) {
       provider = providers[0];
     } else {
-      // Show provider picker
       this.writeLine("\r\nLogin Provider:");
       for (let i = 0; i < providers.length; i++) {
-        this.writeLine(`  [${i + 1}] ${providers[i]}`);
+        const name = providers[i];
+        const url = buildLoginUrl(publicBase, name, nonce);
+        this.writeLine(`  [${i + 1}] ${buildOsc8Hyperlink(url, name, hyperlinkEnabled)}`);
       }
 
-      const choice = await this.prompt(`\r\nProvider [1]: `);
+      const choice = await this.prompt("\r\nProvider [1]: ");
       const idx = choice === "" ? 1 : parseInt(choice, 10);
       if (isNaN(idx) || idx < 1 || idx > providers.length) {
         this.writeLine("Invalid choice, using first provider.\r\n");
@@ -830,80 +956,127 @@ export class TelnetSession {
       }
     }
 
-    const nonce = randomUUID();
-    const publicBase = this.config.publicBaseUrl ?? httpBase;
-    const loginUrl = `${publicBase}/auth/login?provider=${encodeURIComponent(provider)}&login_nonce=${encodeURIComponent(nonce)}`;
+    // Retry loop: timed-out logins regenerate the nonce + URL so an expired
+    // 2-minute window is recoverable without restarting the startup menu.
+    let sessionToken: string | undefined;
+    let firstAttempt = true;
+    while (true) {
+      if (this.disposed) return false;
 
-    // If the client advertises OSC 8 hyperlink support via NEW-ENVIRON,
-    // render the URL as a clickable hyperlink.  Clients without the cap
-    // see the bare URL (copy/paste friendly).
-    const hyperlinkEnabled = this.capabilities.has("OSC_HYPERLINKS");
-    this.writeLine("\r\nOpen this URL in your browser to log in:\r\n");
-    this.writeLine(`  ${buildOsc8Hyperlink(loginUrl, loginUrl, hyperlinkEnabled)}\r\n`);
-    this.writeLine("Waiting for login (up to 2 minutes)...");
+      const loginUrl = buildLoginUrl(publicBase, provider, nonce);
+      if (!firstAttempt) {
+        this.writeLine("\r\nGenerating a new login URL — the previous one is no longer valid.");
+      }
+      this.writeLine("\r\nOpen this URL in your browser to log in:\r\n");
+      this.writeLine(`  ${buildOsc8Hyperlink(loginUrl, loginUrl, hyperlinkEnabled)}\r\n`);
+      this.writeLine("Waiting for login (up to 2 minutes)...");
+      firstAttempt = false;
 
-    const sessionToken = await pollForToken(httpBase, nonce, 60, 2000);
-    if (!sessionToken) {
+      let token: string | undefined;
+      try {
+        token = await pollForToken(httpBase, nonce, 60, 2000);
+      } catch (err) {
+        console.error(`[bridge] [${this.id}] pollForToken error:`, err);
+        if (!this.disposed) {
+          this.writeLine("\r\nUnexpected error while waiting for login.\r\n");
+        }
+      }
+      if (token) {
+        sessionToken = token;
+        break;
+      }
+
+      if (this.disposed) return false;
       this.writeLine("\r\nLogin timed out.\r\n");
-      return;
+      const retry = await this.prompt(
+        "Press enter to try again, or type 'guest' to play as a guest: ",
+      );
+      if (retry.trim().toLowerCase() === "guest") {
+        return false;
+      }
+      // Anything else (including empty) → regenerate the nonce and retry.
+      nonce = randomUUID();
     }
 
     this.sessionToken = sessionToken;
     this.writeLine("\r\nLogged in! Selecting character...\r\n");
 
-    await this.handleCharacterSelection(httpBase, sessionToken);
+    return this.handleCharacterSelection(httpBase, sessionToken, mode);
   }
 
-  private async handleCharacterSelection(httpBase: string, sessionToken: string): Promise<void> {
-    const characters = await fetchCharacters(httpBase, sessionToken);
-
-    if (characters.length > 0) {
-      this.writeLine("\r\nCharacters:");
-      for (let i = 0; i < characters.length; i++) {
-        const ch = characters[i];
-        this.writeLine(`  [${i + 1}] ${ch.name} (${ch.characterClass})`);
-      }
-      this.writeLine("  [0] Create a new character\r\n");
-
-      const pick = await this.prompt("Character [1]: ");
-      const idx = pick === "" ? 1 : parseInt(pick, 10);
-
-      if (isNaN(idx)) {
-        this.writeLine("Invalid choice.\r\n");
-        return;
-      }
-
-      if (idx > 0 && idx <= characters.length) {
-        const selected = characters[idx - 1];
-        const ok = await postSelectCharacter(httpBase, sessionToken, selected.id);
-        if (!ok) {
-          this.writeLine("Failed to select character.\r\n");
-          return;
-        }
-        this.writeLine(`Playing as ${selected.name}\r\n`);
-      } else {
-        await this.handleCharacterCreation(httpBase, sessionToken);
-      }
+  /**
+   * Drive character selection or creation, then fetch the auth ticket and
+   * connect to the game server.
+   *
+   * @returns true if a character was selected/created AND a ws ticket was
+   *          obtained AND `reconnectWithAuth` was called. false on any
+   *          failure — the caller is responsible for the guest fallback.
+   */
+  private async handleCharacterSelection(
+    httpBase: string,
+    sessionToken: string,
+    mode: "existing" | "create",
+  ): Promise<boolean> {
+    let characterReady = false;
+    if (mode === "create") {
+      characterReady = await this.handleCharacterCreation(httpBase, sessionToken);
     } else {
-      this.writeLine("\r\nNo characters found. Let's create one!\r\n");
-      await this.handleCharacterCreation(httpBase, sessionToken);
+      const characters = await fetchCharacters(httpBase, sessionToken);
+
+      if (characters.length > 0) {
+        this.writeLine("\r\nCharacters:");
+        for (let i = 0; i < characters.length; i++) {
+          const ch = characters[i];
+          this.writeLine(`  [${i + 1}] ${ch.name} (${ch.characterClass})`);
+        }
+        this.writeLine("  [0] Create a new character\r\n");
+
+        const pick = await this.prompt("Character [1]: ");
+        const idx = pick === "" ? 1 : parseInt(pick, 10);
+
+        if (isNaN(idx)) {
+          this.writeLine("Invalid choice.\r\n");
+          return false;
+        }
+
+        if (idx > 0 && idx <= characters.length) {
+          const selected = characters[idx - 1];
+          const ok = await postSelectCharacter(httpBase, sessionToken, selected.id);
+          if (!ok) {
+            this.writeLine("Failed to select character.\r\n");
+            return false;
+          }
+          this.writeLine(`Playing as ${selected.name}\r\n`);
+          characterReady = true;
+        } else {
+          characterReady = await this.handleCharacterCreation(httpBase, sessionToken);
+        }
+      } else {
+        this.writeLine("\r\nNo characters found. Let's create one!\r\n");
+        characterReady = await this.handleCharacterCreation(httpBase, sessionToken);
+      }
+    }
+
+    if (!characterReady) {
+      return false;
     }
 
     // Reconnect with auth ticket
     const ticket = await fetchWsTicket(httpBase, sessionToken);
-    if (ticket) {
-      this.wsTicket = ticket;
-      this.reconnectWithAuth(ticket);
-    } else {
-      this.writeLine("Failed to get auth ticket. Continuing as guest.\r\n");
+    if (!ticket) {
+      this.writeLine("Failed to get auth ticket.\r\n");
+      return false;
     }
+    this.wsTicket = ticket;
+    this.reconnectWithAuth(ticket);
+    return true;
   }
 
-  private async handleCharacterCreation(httpBase: string, sessionToken: string): Promise<void> {
+  private async handleCharacterCreation(httpBase: string, sessionToken: string): Promise<boolean> {
     const name = await this.prompt("Character name: ");
     if (!name) {
       this.writeLine("Name cannot be empty.\r\n");
-      return;
+      return false;
     }
 
     this.writeLine("\r\nClass:");
@@ -914,17 +1087,22 @@ export class TelnetSession {
 
     const classChoice = await this.prompt("\r\nClass [1]: ");
     const cidx = classChoice === "" ? 1 : parseInt(classChoice, 10);
-    const characterClass = (!isNaN(cidx) && cidx >= 1 && cidx <= CHARACTER_CLASSES.length)
-      ? CHARACTER_CLASSES[cidx - 1]
-      : CHARACTER_CLASSES[0];
+    let characterClass: typeof CHARACTER_CLASSES[number];
+    if (!isNaN(cidx) && cidx >= 1 && cidx <= CHARACTER_CLASSES.length) {
+      characterClass = CHARACTER_CLASSES[cidx - 1];
+    } else {
+      characterClass = CHARACTER_CLASSES[0];
+      this.writeLine(`Invalid choice \u2014 using ${characterClass}.\r\n`);
+    }
 
     this.writeLine("Creating character...");
     const ok = await postCreateCharacter(httpBase, sessionToken, name, characterClass);
     if (ok) {
       this.writeLine(`Created ${name} the ${characterClass}!\r\n`);
-    } else {
-      this.writeLine("Failed to create character.\r\n");
+      return true;
     }
+    this.writeLine("Failed to create character.\r\n");
+    return false;
   }
 
   // ─── Interactive prompt helper ───────────────────────────────────────
@@ -1104,7 +1282,7 @@ export class TelnetSession {
       this.promptHandler = null;
     }
     if (this.promptReject) {
-      this.promptReject(new Error("session disposed"));
+      this.promptReject(new SessionDisposedError());
       this.promptReject = null;
     }
 
