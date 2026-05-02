@@ -241,11 +241,25 @@ const publishedAt = formatPublishedDate(release?.published_at);
             {macInstallers.length > 0 && (
               <div id="verify-macos">
                 <h4>macOS — notarization staple</h4>
-                <pre><code>spctl -a -t exec -vv /Applications/MUDdown.app
-xcrun stapler validate /Applications/MUDdown.app</code></pre>
+                <p>
+                  Run these against the downloaded <code>.dmg</code> before mounting it.
+                  This validates the notarization ticket Apple staples to the artifact
+                  itself — a stricter check than waiting for Gatekeeper to query Apple
+                  on first launch:
+                </p>
+                <pre><code>spctl -a -t open --context context:primary-signature -vv MUDdown_{version}_aarch64.dmg
+xcrun stapler validate MUDdown_{version}_aarch64.dmg</code></pre>
                 <p>
                   The first command should print <code>accepted</code> with the developer's
-                  Team ID. The second should print <code>The validate action worked!</code>.
+                  Team ID and source <em>Notarized Developer ID</em>. The second should
+                 
+                </p>
+                <pre><code>spctl -a -t open --context context:primary-signature -vv MUDdown_{version}_aarch64.dmg
+xcrun stapler validate MUDdown_{version}_aarch64.dmg</code></pre>
+                <p>
+                  The first command should print <code>accepted</code> with the developer's
+                  Team ID and source <em>Notarized Developer ID</em>. The second should
+                  print <code>The validate action worked!</code>.
                 </p>
               </div>
             )}
@@ -261,15 +275,23 @@ xcrun stapler validate /Applications/MUDdown.app</code></pre>
             )}
             {linuxInstallers.length > 0 && (
               <div id="verify-linux">
-                <h4>Linux — minisign signature</h4>
+                <h4>Linux — minisign signature</h4>\
+  -m MUDdown_{version}_amd64.AppImage \
+  -x MUDdown_{version}_amd64.AppImage.sig</code></pre>
                 <p>
+                  The <code>-x</code> flag is required because Tauri emits <code>.sig</code>
+                  sidecar files (not the <code>.minisig</code> name minisign defaults to).
                   Linux artifacts are not OS-signed, but the Tauri auto-updater publishes
                   per-asset <code>.sig</code> files alongside each installer (see the
                   <em>Updater artifacts</em> drawer above). Verify with
                   <a href="https://jedisct1.github.io/minisign/" target="_blank" rel="noopener noreferrer">minisign</a>:
                 </p>
-                <pre><code>minisign -V -P RWSW/Bkmg9q6wjcY6X2gv2IJHh8v/ZaRItohvJu9D+SEBSUvLXMIcEJ9 -m MUDdown_{version}_amd64.AppImage</code></pre>
+                <pre><code>minisign -V -P RWSW/Bkmg9q6wjcY6X2gv2IJHh8v/ZaRItohvJu9D+SEBSUvLXMIcEJ9 \
+  -m MUDdown_{version}_amd64.AppImage \
+  -x MUDdown_{version}_amd64.AppImage.sig</code></pre>
                 <p>
+                  The <code>-x</code> flag is required because Tauri emits <code>.sig</code>
+                  sidecar files (not the <code>.minisig</code> name minisign defaults to).
                   The public key above (<code>RWSW/Bkmg9q6…</code>) is the same Ed25519 key
                   bundled into the desktop app for auto-update verification — it lives in
                   <a href="https://github.com/MUDdown/MUDdown/blob/main/apps/desktop/src-tauri/tauri.conf.json" target="_blank" rel="noopener noreferrer"><code>apps/desktop/src-tauri/tauri.conf.json</code></a>
@@ -319,30 +341,34 @@ xcrun stapler validate /Applications/MUDdown.app</code></pre>
     // sends a Macintosh UA with no iPad token; real Macs report
     // navigator.maxTouchPoints === 0, so any positive touch-point count on a
     // "Mac" UA is a tablet/phone in disguise.
-    const looksMac = /Mac/.test(platform) || /Macintosh/.test(ua);
-    const touchOnMac = looksMac && (navigator.maxTouchPoints || 0) > 1;
-    const isMobile =
-      /iPhone|iPad|iPod|Android/i.test(platform) ||
-      /iPhone|iPad|iPod|Android/i.test(ua) ||
-      touchOnMac;
-    if (isMobile) {
-      msg.textContent = "Mobile devices: try the web client at /play, or open telnets://muddown.com:2323 in a telnet app.";
-      return;
-    }
-
-    // Pick a download link inside a section, optionally preferring a specific arch.
-    const findLink = (sectionHeading, preferArch) => {
+    const looksMac = /Mac/.test(platform) || /Macintosh/.requiring a specific arch.
+    // When `requireArch` is set we return null on miss — callers must show a
+    // generic fallback rather than a wrong-arch link mislabelled with the
+    // requested arch (e.g. an arm64 DMG advertised as "Download for macOS (Intel)").
+    const findLink = (sectionHeading, requireArch) => {
       const heads = Array.from(document.querySelectorAll(".downloads-platform h3"));
       const head = heads.find((h) => h.textContent.trim() === sectionHeading);
       if (!head) return null;
       const ul = head.parentElement && head.parentElement.querySelector(".downloads-asset-list");
       if (!ul) return null;
-      if (preferArch) {
-        const li = ul.querySelector(`li[data-arch="${preferArch}"]`);
-        if (li) {
-          const a = li.querySelector("a.downloads-asset-link");
-          if (a) return a.getAttribute("href");
-        }
+      if (requireArch) {
+        const li = ul.querySelector(`li[data-arch="${requireArch}"]`);
+        if (!li) return null;
+        const a = li.querySelector("a.downloads-asset-link");
+        return a ? a.getAttribute("href") : null;en `requireArch` is set we return null on miss — callers must show a
+    // generic fallback rather than a wrong-arch link mislabelled with the
+    // requested arch (e.g. an arm64 DMG advertised as "Download for macOS (Intel)").
+    const findLink = (sectionHeading, requireArch) => {
+      const heads = Array.from(document.querySelectorAll(".downloads-platform h3"));
+      const head = heads.find((h) => h.textContent.trim() === sectionHeading);
+      if (!head) return null;
+      const ul = head.parentElement && head.parentElement.querySelector(".downloads-asset-list");
+      if (!ul) return null;
+      if (requireArch) {
+        const li = ul.querySelector(`li[data-arch="${requireArch}"]`);
+        if (!li) return null;
+        const a = li.querySelector("a.downloads-asset-link");
+        return a ? a.getAttribute("href") : null;
       }
       const a = ul.querySelector("a.downloads-asset-link");
       return a ? a.getAttribute("href") : null;
@@ -359,26 +385,54 @@ xcrun stapler validate /Applications/MUDdown.app</code></pre>
       a.className = "primary";
       a.textContent = `Download for ${label}`;
       cta.appendChild(a);
-    };
-
-    // userAgentData.platform values: "macOS", "Windows", "Linux", "Android", "Chrome OS".
-    // Legacy navigator.platform values include "MacIntel", "Win32", "Linux x86_64", etc.
-    if (/^macOS$/i.test(platform) || /Mac/.test(platform) || /Macintosh/.test(ua)) {
-      // macOS arch detection: prefer UA-CH high-entropy hint, fall back to UA
-      // string heuristics. "Intel Mac OS X" is unambiguous; otherwise newer
+    };const fallbackArch = /Intel Mac OS X/i.test(ua) ? "x64" : "arm64";
+      if (uaData && typeof uaData.getHighEntropyValues === "function") {
+        var settled = false;
+        var settle = function (arch) {
+          if (settled) return;
+          settled = true;
+          finish(arch);
+        };
+        // 3s timeout: the UA-CH spec permits stub implementations to never
+        // settle the returned Promise, which would leave the visitor stuck on
+        // "Detecting your platform…" forever.
+        var timer = setTimeout(function () { settle(fallbackArch); }, 3000);
+        uaData.getHighEntropyValues(["architecture"]).then((hints) => {
+          clearTimeout(timer);
+          settle(hints && hints.architecture === "x86" ? "x64" : "arm64");
+        }).catch(() => {
+          clearTimeout(timer);
+          settle(fallbackArch);
+        });
+      } else {
+        finish(fallbackArch; otherwise newer
       // Safari hides the arch and we default to arm64 (the active product).
       const finish = (arch) => {
         const target = findLink("macOS", arch);
         if (target) renderCta(target, arch === "arm64" ? "macOS (Apple Silicon)" : "macOS (Intel)");
         else msg.textContent = "Pick the right installer for your operating system below.";
       };
+      const fallbackArch = /Intel Mac OS X/i.test(ua) ? "x64" : "arm64";
       if (uaData && typeof uaData.getHighEntropyValues === "function") {
-        uaData.getHighEntropyValues(["architecture"]).then((hints) => {
-          const arch = hints && hints.architecture === "x86" ? "x64" : "arm64";
+        var settled = false;
+        var settle = function (arch) {
+          if (settled) return;
+          settled = true;
           finish(arch);
-        }).catch(() => finish(/Intel Mac OS X/i.test(ua) ? "x64" : "arm64"));
+        };
+        // 3s timeout: the UA-CH spec permits stub implementations to never
+        // settle the returned Promise, which would leave the visitor stuck on
+        // "Detecting your platform…" forever.
+        var timer = setTimeout(function () { settle(fallbackArch); }, 3000);
+        uaData.getHighEntropyValues(["architecture"]).then((hints) => {
+          clearTimeout(timer);
+          settle(hints && hints.architecture === "x86" ? "x64" : "arm64");
+        }).catch(() => {
+          clearTimeout(timer);
+          settle(fallbackArch);
+        });
       } else {
-        finish(/Intel Mac OS X/i.test(ua) ? "x64" : "arm64");
+        finish(fallbackArch);
       }
       return;
     }

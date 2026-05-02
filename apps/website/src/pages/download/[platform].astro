@@ -83,19 +83,33 @@ if (release) {
   }
 }
 
-// Distinguish "release published but no asset for this platform" (release !== null
-// but resolution === null) from "couldn't reach GitHub" (fetchErrorRaw set and
-// release === null). The "no release published yet" case shares fallback copy
-// with the "couldn't reach GitHub" case but logs differently.
+// Distinguish three failure modes:
+// - "release pending": no public release tag exists yet (initial bootstrap).
+// - "API outage": helper couldn't reach GitHub.
+// - "asset missing for this platform": release exists but pickAsset() / pickMacosPair()
+//   returned nothing (e.g. partial release where one matrix leg failed). In
+//   this case `release !== null` but `resolution === null`.
 const isApiOutage = release === null && fetchErrorRaw !== null && fetchErrorRaw !== "No desktop release published yet.";
 const fetchError = isApiOutage ? fetchErrorRaw : null;
+const assetMissing = release !== null && resolution === null;
 
 const fallback = "/download";
 const singleTarget = resolution?.kind === "single" ? resolution.url : null;
 const macosArm64 = resolution?.kind === "macos-pair" ? resolution.arm64 : null;
 const macosX64 = resolution?.kind === "macos-pair" ? resolution.x64 : null;
 const hasTarget = singleTarget !== null || macosArm64 !== null || macosX64 !== null;
-const manualLink = singleTarget ?? macosArm64 ?? macosX64 ?? fallback;
+// For arch-specific slugs the manual fallback is a single URL. For the generic
+// /download/macos slug, point the manual link at /download itself — if JS is
+// disabled or the redirect script never runs, picking arbitrarily between the
+// arm64 and x64 candidates would silently mis-route half of macOS visitors.
+const manualLink = singleTarget ?? (resolution?.kind === "macos-pair" ? fallback : fallback)64 : null;
+const macosX64 = resolution?.kind === "macos-pair" ? resolution.x64 : null;
+const hasTarget = singleTarget !== null || macosArm64 !== null || macosX64 !== null;
+// For arch-specific slugs the manual fallback is a single URL. For the generic
+// /download/macos slug, point the manual link at /download itself — if JS is
+// disabled or the redirect script never runs, picking arbitrarily between the
+// arm64 and x64 candidates would silently mis-route half of macOS visitors.
+const manualLink = singleTarget ?? fallback;
 ---
 
 <Base title={`Download MUDdown — ${platform}`}>
@@ -105,20 +119,33 @@ const manualLink = singleTarget ?? macosArm64 ?? macosX64 ?? fallback;
       {hasTarget ? (
         <p>
           Your download should start automatically. If it doesn't,
-          <a href={manualLink}>click here</a>.
+          assetMissing ? (
+        <p>
+          The current release doesn't include an installer for <code>{platform}</code>.
+          This usually means a partial release where one build leg failed. Visit the
+          <a href={fallback}>Downloads page</a> to see what's available, or try again later.
+        </p>
+      ) : <a href={manualLink}>click here</a>.
         </p>
       ) : fetchError ? (
         <p>
           {fetchError} In the meantime, visit the <a href={fallback}>Downloads page</a>
           for status and other ways to play.
         </p>
+      ) : assetMissing ? (
+        <p>
+          The current release doesn't include an installer for <code>{platform}</code>.
+          This usually means a partial release where one build leg failed. Visit the
+          <a href={fallback}>Downloads page</a> to see what's available, or try again later.
+        </p>
       ) : (
         <p>
-          No desktop release is available yet. Visit the <a href={fallback}>Downloads page</a>
-          for status and other ways to play.
-        </p>
-      )}
-    </div>
+       Partial-release safety: if the requested arch isn't present we'd rather
+    // bounce the visitor back to /download than silently hand them an
+    // incompatible binary. Only auto-pick when both candidates exist or the
+    // detected arch matches the one that does.
+    if (arch === "x64") return macosX64 || (!macosArm64 ? fallback : fallback);
+    return macosArm64 || (!macosX64 ? fallback : fallback)
   </section>
 </Base>
 
@@ -127,11 +154,11 @@ const manualLink = singleTarget ?? macosArm64 ?? macosX64 ?? fallback;
   // slug we have both arm64 and x64 candidates and pick at runtime so Intel Macs
   // aren't sent the Apple Silicon DMG (and vice versa).
   function pickMacosTargetSync(arch) {
-    // Defensive guard: caller has already verified at least one candidate is
-    // non-null, but keep the fallback in case future changes break that
-    // invariant.
-    if (arch === "x64") return macosX64 || macosArm64 || fallback;
-    return macosArm64 || macosX64 || fallback;
+    // Partial-release safety: if the requested arch isn't present we'd rather
+    // bounce the visitor back to /download than silently hand them an
+    // incompatible binary. Cross-arch fallback would mis-route half the users.
+    if (arch === "x64") return macosX64 || fallback;
+    return macosArm64 || fallback;
   }
 
   function pickMacosTargetAsync(done) {

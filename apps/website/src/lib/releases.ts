@@ -35,10 +35,34 @@ export type FetchReleaseResult =
 
 const FETCH_TIMEOUT_MS = 10_000;
 
+// Memoize the fetch for the duration of a single Astro build. Without this,
+// /download plus the 8 generated /download/[platform] pages each trigger an
+// independent /releases call — 9 identical requests per build, which on an
+// unauthenticated runner burns through the 60 req/hr GitHub limit quickly.
+let inflight: Promise<FetchReleaseResult> | null = null;
+
 // Fetches the most recent public desktop release. Returns a discriminated
 // result so callers can distinguish "release pending" (error: "No desktop
 // release published yet.") from "build environment can't reach GitHub".
 export async function fetchLatestPublicRelease(context: string): Promise<FetchReleaseResult> {
+  if (inflight) return inflight;
+  inflight = doFetch(context);
+  return inflight;
+}
+
+async function doFetch req/hr GitHub limit quickly.
+let inflight: Promise<FetchReleaseResult> | null = null;
+
+// Fetches the most recent public desktop release. Returns a discriminated
+// result so callers can distinguish "release pending" (error: "No desktop
+// release published yet.") from "build environment can't reach GitHub".
+export async function fetchLatestPublicRelease(context: string): Promise<FetchReleaseResult> {
+  if (inflight) return inflight;
+  inflight = doFetch(context);
+  return inflight;
+}
+
+async function doFetch(context: string): Promise<FetchReleaseResult> {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
