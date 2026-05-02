@@ -146,10 +146,11 @@ jobs:
             exit 1
           fi
           tmp=$(mktemp) || { echo "::error::mktemp failed — /tmp may be full or unwritable" >&2; exit 1; }
-          orig_perms=$(stat -f "%Lp" "$cfg")
           jq 'del(.bundle.macOS.entitlements) | del(.bundle.macOS.signingIdentity) | del(.bundle.macOS.providerShortName)' "$cfg" > "$tmp"
-          chmod "$orig_perms" "$tmp"
-          mv "$tmp" "$cfg"
+          # Use cat to overwrite in place so the destination's mode/owner are preserved
+          # (avoids portability issues with `stat -f` format strings between BSD and GNU).
+          cat "$tmp" > "$cfg"
+          rm -f "$tmp"
           if jq -e '.bundle.macOS.entitlements // empty' "$cfg" > /dev/null 2>&1; then
             echo "::error::bundle.macOS.entitlements still present after strip — check key path in jq filter" >&2
             exit 1
@@ -252,19 +253,51 @@ jobs:
           "CODE_SIGNING_METADATA=$metadata" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           "SIGNTOOL_PATH=$signtool"         | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+      # Apple notarization env vars are only exported when MACOS_SIGNING_ACTIVE == '1'.
+      # Forwarding empty strings would cause tauri-bundler's Rust code to call
+      # `security import` with an empty certificate (env::var returns Ok("") for
+      # empty vars, which it doesn't treat as "unset"), producing the error
+      # 'security import: failed to import keychain certificate'. We export to
+      # GITHUB_ENV (rather than the step's `env:` block) so the vars are simply
+      # absent when inactive, and the bundler falls through to ad-hoc codesign.
+      - name: Export Apple signing env (signing active)
+        if: startsWith(matrix.platform, 'macos') && env.MACOS_SIGNING_ACTIVE == '1'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Apple notarization (macOS only)
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          # Use the heredoc form documented at
+          # https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#multiline-strings
+          # so that multi-line base64 certs survive without splitting.
+          write_var() {
+            local name="$1"
+            local value="$2"
+            local delim
+            delim="EOF_$(openssl rand -hex 8)"
+            {
+              echo "${name}<<${delim}"
+              printf '%s\n' "$value"
+              echo "${delim}"
+            } >> "$GITHUB_ENV"
+          }
+          write_var APPLE_CERTIFICATE          "$APPLE_CERTIFICATE"
+          write_var APPLE_CERTIFICATE_PASSWORD "$APPLE_CERTIFICATE_PASSWORD"
+          write_var APPLE_SIGNING_IDENTITY     "$APPLE_SIGNING_IDENTITY"
+          write_var APPLE_ID                   "$APPLE_ID"
+          write_var APPLE_PASSWORD             "$APPLE_PASSWORD"
+          write_var APPLE_TEAM_ID              "$APPLE_TEAM_ID"
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
           args: --target ${{ matrix.target }}
