@@ -171,8 +171,12 @@ jobs:
           $extractRoot     = Join-Path $env:RUNNER_TEMP "artifact-signing-client"
 
           $ProgressPreference = 'SilentlyContinue'
+          # Use the NuGet v3 flat-container URL: direct download, no
+          # redirect chain, and the canonical stable address for a
+          # specific package version (the v2 OData API is on a
+          # long-term deprecation path).
           Invoke-WebRequest `
-            -Uri "https://www.nuget.org/api/v2/package/Microsoft.ArtifactSigning.Client/$asClientVersion" `
+            -Uri "https://api.nuget.org/v3-flatcontainer/microsoft.artifactsigning.client/$asClientVersion/microsoft.artifactsigning.client.$asClientVersion.nupkg" `
             -OutFile $nupkg `
             -TimeoutSec 300
           $actualHash = (Get-FileHash $nupkg -Algorithm SHA256).Hash
