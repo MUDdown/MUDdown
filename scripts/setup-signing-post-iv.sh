@@ -27,10 +27,15 @@ az extension show --name artifact-signing >/dev/null 2>&1 \
   || az extension add --name artifact-signing >/dev/null
 
 echo "Identity validations on $ACCOUNT:"
+# IVs are not exposed as a queryable Azure resource type — Microsoft surfaces
+# them only through the Trusted Signing portal blade. The REST call below
+# may return 'ResourceTypeRegistrationNotFound'; treat any failure as
+# non-fatal and fall through to the manual GUID prompt.
 az rest --method get \
   --url "https://management.azure.com$ACCOUNT_ID/identityValidations?api-version=2024-02-05-preview" \
   --query "value[].{name:name,state:properties.identityValidationState,id:properties.identityValidationId}" \
-  -o table
+  -o table 2>/dev/null \
+  || echo "  (listing unavailable — copy the Completed validation's GUID from the Azure portal: Trusted Signing → $ACCOUNT → Identity Validation)"
 
 read -rp "Paste the 'id' GUID of the Completed validation: " IDENTITY_VALIDATION_ID
 [ -n "$IDENTITY_VALIDATION_ID" ] || { echo "ERROR: Empty input" >&2; exit 1; }
