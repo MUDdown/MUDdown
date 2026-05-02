@@ -126,10 +126,19 @@ const classified: ClassifiedAsset[] = (release?.assets ?? []).map((a) => ({
 }));
 
 const installers = classified.filter(
-  (a) => a.platform !== "other" && a.kind !== "signature" && a.kind !== "manifest" && a.kind !== "App archive (updater)",
+  (a) =>
+    a.platform !== "other" &&
+    a.kind !== "signature" &&
+    a.kind !== "manifest" &&
+    a.kind !== "App archive (updater)" &&
+    a.kind !== "AppImage archive (updater)",
 );
 const updaterArtifacts = classified.filter(
-  (a) => a.kind === "signature" || a.kind === "manifest" || a.kind === "App archive (updater)",
+  (a) =>
+    a.kind === "signature" ||
+    a.kind === "manifest" ||
+    a.kind === "App archive (updater)" ||
+    a.kind === "AppImage archive (updater)",
 );
 
 const macInstallers = installers.filter((a) => a.platform === "macos");

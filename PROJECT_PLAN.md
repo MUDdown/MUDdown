@@ -349,6 +349,13 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [ ] TestFlight beta distribution and internal testing
 - [ ] Google Play internal/closed testing track
 - [ ] App Store and Google Play submission
+- [ ] **Surface mobile apps on `/download`** once App Store / Play Store listings are live. The desktop machinery (Releases API, digests, `minisign` verify drawer, arch detection) does not apply to store-distributed apps; mobile sections are simpler:
+  - [ ] Add `iOS` and `Android` sections to `apps/website/src/pages/download.astro` with hard-coded App Store and Play Store badge links (Apple's marketing-tools-generated SVG badges; Google Play's official badge). Include screenshots and a one-line "installed and verified by the App Store / Play Store" note in place of the digest/verify UI.
+  - [ ] Extend the `Resolution` discriminated union in `apps/website/src/pages/download/[platform].astro` with `ios` and `android` cases that return a single store URL, so `/download/ios` and `/download/android` permalinks 302 to the store listings.
+  - [ ] Update the OS-detect script in `download.astro` to route `iPhone|iPad|iPod` and `Android` UAs to the matching store CTA instead of the current "use the web client at /play" fallback. Keep the web-client message as the secondary action.
+  - [ ] Add optional TestFlight public-link and Play Store internal-track callouts for pre-1.0 builds (gated on a flag/config, not on the Releases API).
+  - [ ] Update [apps/website/src/pages/features.astro](apps/website/src/pages/features.astro) to mention App Store / Play Store availability and remove any "coming soon" mobile copy.
+  - [ ] Update wiki Mobile-App page with install instructions and store links.
 
 ### Phase 7 — Federation & Social
 - [ ] Federation protocol design (realm discovery, portal linking)
