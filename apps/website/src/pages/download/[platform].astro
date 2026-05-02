@@ -1,0 +1,116 @@
+---
+// Per-platform redirect to the latest desktop installer asset.
+// Static SSG: at build time we look up the latest desktop release and resolve
+// the right asset for each platform. If no release exists yet, we render a
+// fallback that points at the Downloads page.
+import Base from "../../layouts/Base.astro";
+
+export async function getStaticPaths() {
+  return [
+    { params: { platform: "macos" } },
+    { params: { platform: "macos-arm64" } },
+    { params: { platform: "macos-x64" } },
+    { params: { platform: "windows" } },
+    { params: { platform: "linux" } },
+    { params: { platform: "linux-appimage" } },
+    { params: { platform: "linux-deb" } },
+    { params: { platform: "linux-rpm" } },
+  ];
+}
+
+const { platform } = Astro.params as { platform: string };
+
+const REPO = "MUDdown/MUDdown";
+const TAG_PREFIX = "desktop-v";
+
+type Asset = { name: string; browser_download_url: string };
+type Release = { tag_name: string; assets: Asset[] };
+
+function pickAsset(assets: Asset[], plat: string): Asset | null {
+  const by = (pred: (n: string) => boolean) =>
+    assets.find((a) => pred(a.name.toLowerCase())) ?? null;
+
+  switch (plat) {
+    case "macos":
+    case "macos-arm64":
+      return (
+        by((n) => n.endsWith(".dmg") && (n.includes("aarch64") || n.includes("arm64"))) ??
+        by((n) => n.endsWith(".dmg"))
+      );
+    case "macos-x64":
+      return (
+        by((n) => n.endsWith(".dmg") && (n.includes("x64") || n.includes("x86_64"))) ??
+        by((n) => n.endsWith(".dmg") && !n.includes("aarch64") && !n.includes("arm64"))
+      );
+    case "windows":
+      return by((n) => n.endsWith(".msi")) ?? by((n) => n.endsWith(".exe"));
+    case "linux":
+    case "linux-appimage":
+      return by((n) => n.endsWith(".appimage"));
+    case "linux-deb":
+      return by((n) => n.endsWith(".deb"));
+    case "linux-rpm":
+      return by((n) => n.endsWith(".rpm"));
+    default:
+      return null;
+  }
+}
+
+let target: string | null = null;
+
+try {
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) console.warn(`[download/${platform}] GITHUB_TOKEN not set; using unauthenticated API (60 req/hr limit).`);
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=100`, { headers });
+  if (res.ok) {
+    const data: unknown = await res.json();
+    if (!Array.isArray(data)) {
+      console.warn(`[download/${platform}] GitHub API returned non-array:`, JSON.stringify(data).slice(0, 200));
+    } else {
+      const release = (data as Release[]).find((r) => r.tag_name?.startsWith(TAG_PREFIX));
+      if (release) {
+        const assets = Array.isArray(release.assets) ? release.assets : [];
+        const asset = pickAsset(assets, platform);
+        if (asset) target = asset.browser_download_url;
+      }
+    }
+  } else {
+    const errorBody = await res.text().catch(() => "(unreadable)");
+    console.warn(`[download/${platform}] GitHub API returned ${res.status}:`, errorBody.slice(0, 500));
+  }
+} catch (err) {
+  console.warn(`[download/${platform}] GitHub API fetch failed; falling back to /download.`, err);
+}
+
+const fallback = "/download";
+const finalUrl = target ?? fallback;
+---
+
+<Base title={`Download MUDdown — ${platform}`}>
+  <section class="downloads-page">
+    <div class="container">
+      <h2>Redirecting…</h2>
+      {target ? (
+        <p>
+          Your download should start automatically. If it doesn't,
+          <a href={finalUrl}>click here</a>.
+        </p>
+      ) : (
+        <p>
+          No desktop release is available yet. Visit the <a href={fallback}>Downloads page</a>
+          for status and other ways to play.
+        </p>
+      )}
+    </div>
+  </section>
+</Base>
+
+<script is:inline define:vars={{ target }}>
+  if (target) window.location.replace(target);
+</script>

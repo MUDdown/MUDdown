@@ -1,0 +1,462 @@
+---
+import Base from "../layouts/Base.astro";
+
+// Build-time fetch of the latest desktop release. Gracefully degrades to
+// a "release pending" notice when no release exists yet (initial bootstrap)
+// or the API is unreachable.
+const REPO = "MUDdown/MUDdown";
+const TAG_PREFIX = "desktop-v";
+
+type Asset = {
+  name: string;
+  browser_download_url: string;
+  size: number;
+  digest?: string | null;
+};
+
+type Release = {
+  tag_name: string;
+  name: string;
+  published_at: string;
+  html_url: string;
+  body: string;
+  assets: Asset[];
+};
+
+type Platform = "macos" | "windows" | "linux";
+
+type ClassifiedAsset = Asset & {
+  platform: Platform | "other";
+  arch: string;
+  kind: string; // installer, archive, signature, manifest
+};
+
+function classify(name: string): { platform: Platform | "other"; arch: string; kind: string } {
+  const lower = name.toLowerCase();
+  const detectArch = (): "arm64" | "x64" =>
+    lower.includes("aarch64") || lower.includes("arm64") || lower.includes("armv8") || lower.includes("arm")
+      ? "arm64"
+      : "x64";
+  if (lower.endsWith(".sig")) return { platform: "other", arch: "", kind: "signature" };
+  if (lower === "latest.json") return { platform: "other", arch: "", kind: "manifest" };
+  if (lower.endsWith(".dmg")) {
+    const arch = detectArch() === "arm64" ? "arm64 (Apple Silicon)" : "x64 (Intel)";
+    return { platform: "macos", arch, kind: "DMG" };
+  }
+  if (lower.endsWith(".app.tar.gz")) {
+    return { platform: "macos", arch: detectArch(), kind: "App archive (updater)" };
+  }
+  if (lower.endsWith(".msi")) return { platform: "windows", arch: detectArch(), kind: "MSI installer" };
+  if (lower.endsWith(".exe")) return { platform: "windows", arch: detectArch(), kind: "EXE installer" };
+  if (lower.endsWith(".appimage")) return { platform: "linux", arch: detectArch(), kind: "AppImage" };
+  if (lower.endsWith(".deb")) return { platform: "linux", arch: detectArch(), kind: "Debian package" };
+  if (lower.endsWith(".rpm")) return { platform: "linux", arch: detectArch(), kind: "RPM package" };
+  return { platform: "other", arch: "", kind: name.split(".").pop() ?? "" };
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDigest(digest: string | null | undefined): string | null {
+  if (!digest) return null;
+  // GitHub returns digests like "sha256:abcdef..." — show short form for inline display.
+  // The full digest is available in the "Verify the signature" section.
+  const idx = digest.indexOf(":");
+  if (idx <= 0 || idx === digest.length - 1) return digest;
+  const algorithm = digest.slice(0, idx);
+  const hash = digest.slice(idx + 1);
+  return `${algorithm}:${hash.slice(0, 12)}…`;
+}
+
+let release: Release | null = null;
+let fetchError: string | null = null;
+
+try {
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) console.warn("[download] GITHUB_TOKEN not set; using unauthenticated API (60 req/hr limit).");
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  // Find the most recent desktop-v* release. Use list endpoint and filter by tag prefix
+  // because /releases/latest may return a non-desktop release if other release tracks exist.
+  const listRes = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=100`, {
+    headers,
+  });
+  if (listRes.ok) {
+    const data: unknown = await listRes.json();
+    if (!Array.isArray(data)) {
+      console.error("[download] GitHub API returned non-array body:", typeof data, JSON.stringify(data).slice(0, 200));
+      fetchError = "GitHub API returned an unexpected response format.";
+    } else {
+      release = (data as Release[]).find((r) => r.tag_name?.startsWith(TAG_PREFIX)) ?? null;
+      if (!release) fetchError = "No desktop release published yet.";
+    }
+  } else {
+    const errorBody = await listRes.text().catch(() => "(unreadable)");
+    console.warn("[download] GitHub API returned", listRes.status, errorBody.slice(0, 500));
+    fetchError = `GitHub API returned ${listRes.status}`;
+  }
+} catch (err) {
+  console.error("[download] Exception fetching GitHub releases:", err);
+  fetchError = "Could not reach the GitHub API. The release information will appear once the build environment can connect to GitHub.";
+}
+
+const classified: ClassifiedAsset[] = (release?.assets ?? []).map((a) => ({
+  ...a,
+  ...classify(a.name),
+}));
+
+const installers = classified.filter(
+  (a) => a.platform !== "other" && a.kind !== "signature" && a.kind !== "manifest" && a.kind !== "App archive (updater)",
+);
+const updaterArtifacts = classified.filter(
+  (a) => a.kind === "signature" || a.kind === "manifest" || a.kind === "App archive (updater)",
+);
+
+const macInstallers = installers.filter((a) => a.platform === "macos");
+const winInstallers = installers.filter((a) => a.platform === "windows");
+const linuxInstallers = installers.filter((a) => a.platform === "linux");
+
+const version = release?.tag_name?.replace(TAG_PREFIX, "") ?? null;
+const publishedAt = release?.published_at ? new Date(release.published_at).toISOString().slice(0, 10) : null;
+---
+
+<Base title="Download MUDdown Desktop">
+  <section class="downloads-page">
+    <div class="container">
+      <h2>Download MUDdown Desktop</h2>
+      <p class="downloads-intro">
+        Native desktop client for macOS, Windows, and Linux. Built with Tauri v2 — fast,
+        small, and packaged with the same MUDdown renderer as the web client. Auto-updates
+        from signed GitHub Releases.
+      </p>
+
+      {release ? (
+        <>
+          <div class="downloads-version" aria-live="polite">
+            <strong>Latest:</strong> {release.tag_name}
+            {publishedAt && <> &middot; published <time datetime={release.published_at}>{publishedAt}</time></>}
+            &middot; <a href={release.html_url} target="_blank" rel="noopener noreferrer">Release notes on GitHub</a>
+          </div>
+
+          <div class="downloads-detect" aria-live="polite">
+            <p class="downloads-detect-msg" id="os-detect-msg">Detecting your platform…</p>
+            <div class="downloads-detect-cta" id="os-detect-cta"></div>
+          </div>
+
+          {macInstallers.length > 0 && (
+            <div class="downloads-platform">
+              <h3>macOS</h3>
+              <ul class="downloads-asset-list">
+                {macInstallers.map((a) => (
+                  <li>
+                    <a href={a.browser_download_url} class="downloads-asset-link">{a.name}</a>
+                    <span class="downloads-asset-meta">
+                      {a.kind} &middot; {a.arch} &middot; {formatSize(a.size)}
+                      {formatDigest(a.digest) && <> &middot; <code>{formatDigest(a.digest)}</code></>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p class="downloads-platform-note">
+                On first launch, macOS may show a Gatekeeper prompt. Once the macOS distribution
+                is fully notarized, this prompt will disappear. See <a href="#verify-macos">Verify the signature</a> below.
+              </p>
+            </div>
+          )}
+
+          {winInstallers.length > 0 && (
+            <div class="downloads-platform">
+              <h3>Windows</h3>
+              <ul class="downloads-asset-list">
+                {winInstallers.map((a) => (
+                  <li>
+                    <a href={a.browser_download_url} class="downloads-asset-link">{a.name}</a>
+                    <span class="downloads-asset-meta">
+                      {a.kind} &middot; {a.arch} &middot; {formatSize(a.size)}
+                      {formatDigest(a.digest) && <> &middot; <code>{formatDigest(a.digest)}</code></>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p class="downloads-platform-note">
+                Signed via Microsoft Artifact Signing. SmartScreen reputation builds up over the
+                first weeks after a public release. See <a href="#verify-windows">Verify the signature</a> below.
+              </p>
+            </div>
+          )}
+
+          {linuxInstallers.length > 0 && (
+            <div class="downloads-platform">
+              <h3>Linux</h3>
+              <ul class="downloads-asset-list">
+                {linuxInstallers.map((a) => (
+                  <li>
+                    <a href={a.browser_download_url} class="downloads-asset-link">{a.name}</a>
+                    <span class="downloads-asset-meta">
+                      {a.kind} &middot; {a.arch} &middot; {formatSize(a.size)}
+                      {formatDigest(a.digest) && <> &middot; <code>{formatDigest(a.digest)}</code></>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {updaterArtifacts.length > 0 && (
+            <details class="downloads-updater">
+              <summary>Updater artifacts ({updaterArtifacts.length})</summary>
+              <p class="downloads-updater-intro">
+                These files power the in-app auto-updater. You don't need to download them
+                directly — Tauri verifies them against the bundled Ed25519 public key.
+              </p>
+              <ul class="downloads-asset-list">
+                {updaterArtifacts.map((a) => (
+                  <li>
+                    <a href={a.browser_download_url} class="downloads-asset-link">{a.name}</a>
+                    <span class="downloads-asset-meta">{a.kind} &middot; {formatSize(a.size)}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          <details class="downloads-verify" id="verify">
+            <summary>Verify the signature</summary>
+            <div id="verify-macos">
+              <h4>macOS — notarization staple</h4>
+              <pre><code>spctl -a -t exec -vv /Applications/MUDdown.app
+xcrun stapler validate /Applications/MUDdown.app</code></pre>
+              <p>
+                The first command should print <code>accepted</code> with the developer's
+                Team ID. The second should print <code>The validate action worked!</code>.
+              </p>
+            </div>
+            {winInstallers.length > 0 && (
+              <div id="verify-windows">
+                <h4>Windows — Authenticode signature</h4>
+                <pre><code>signtool verify /pa /v MUDdown_{version}_x64_en-US.msi</code></pre>
+                <p>
+                  The chain should terminate at <em>Microsoft ID Verified Code Signing PCA 2024</em>
+                  with the publisher listed as StickMUD Entertainment LLC.
+                </p>
+              </div>
+            )}
+            <div id="verify-linux">
+              <h4>Linux — checksum verification</h4>
+              <p>
+                Linux artifacts are not OS-signed; verify the SHA256 digest shown next to each
+                asset above against the value reported by GitHub on the release page.
+              </p>
+            </div>
+          </details>
+        </>
+      ) : (
+        <div class="downloads-pending" role="alert">
+          <h3>Release pending</h3>
+          <p>
+            {fetchError ?? "No desktop release has been published yet."} The first public
+            signed release will appear here automatically once it's tagged. In the meantime,
+            you can:
+          </p>
+          <ul>
+            <li>Play directly in your browser at <a href="/play">muddown.com/play</a>.</li>
+            <li>Connect with any telnet client to <code>telnets://muddown.com:2323</code>.</li>
+            <li>Build the desktop app from source — see the <a href="https://github.com/MUDdown/MUDdown/wiki/Desktop-App" target="_blank" rel="noopener noreferrer">Desktop-App wiki page</a>.</li>
+          </ul>
+        </div>
+      )}
+    </div>
+  </section>
+</Base>
+
+<script is:inline>
+  // Detect the visitor's OS and elevate the matching primary download.
+  (function () {
+    const msg = document.getElementById("os-detect-msg");
+    const cta = document.getElementById("os-detect-cta");
+    if (!msg || !cta) return;
+
+    const ua = navigator.userAgent || "";
+    // Prefer the modern UA-Client-Hints API (synchronous low-entropy `platform` hint),
+    // fall back to the deprecated `navigator.platform` for browsers that don't ship it yet.
+    const uaData = /** @type {{ platform?: string } | undefined} */ (navigator.userAgentData);
+    const platform = (uaData && typeof uaData.platform === "string" && uaData.platform) || navigator.platform || "";
+
+    let target = null;
+    let label = "your platform";
+
+    // Look for the first asset link matching the detected platform's section.
+    const findLink = (sectionHeading) => {
+      const heads = Array.from(document.querySelectorAll(".downloads-platform h3"));
+      const head = heads.find((h) => h.textContent.trim() === sectionHeading);
+      if (!head) return null;
+      const ul = head.parentElement?.querySelector(".downloads-asset-list");
+      const a = ul?.querySelector("a.downloads-asset-link");
+      return a ? a.getAttribute("href") : null;
+    };
+
+    // userAgentData.platform values: "macOS", "Windows", "Linux", "Android", "Chrome OS".
+    // Legacy navigator.platform values include "MacIntel", "Win32", "Linux x86_64", etc.
+    if (/^macOS$/i.test(platform) || /Mac|iPhone|iPad/.test(platform) || /Macintosh/.test(ua)) {
+      target = findLink("macOS");
+      label = "macOS";
+    } else if (/^Windows$/i.test(platform) || /Win/.test(platform)) {
+      target = findLink("Windows");
+      label = "Windows";
+    } else if (/Linux/i.test(platform)) {
+      target = findLink("Linux");
+      label = "Linux";
+    }
+
+    if (target) {
+      const strong = document.createElement("strong");
+      strong.textContent = label;
+      msg.textContent = "Detected ";
+      msg.appendChild(strong);
+      msg.appendChild(document.createTextNode("."));
+      const a = document.createElement("a");
+      a.href = target;
+      a.className = "primary";
+      a.textContent = `Download for ${label}`;
+      cta.appendChild(a);
+    } else {
+      msg.textContent = "Pick the right installer for your operating system below.";
+    }
+  })();
+</script>
+
+<style>
+  .downloads-page {
+    padding: 3rem 0;
+  }
+  .downloads-page h2 {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+  }
+  .downloads-intro {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    margin-bottom: 2rem;
+  }
+  .downloads-version {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    font-size: 0.95rem;
+    margin-bottom: 1.5rem;
+  }
+  .downloads-detect {
+    background: var(--bg-surface);
+    border: 1px solid var(--accent-dim);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    text-align: center;
+  }
+  .downloads-detect-msg {
+    margin: 0 0 1rem;
+    color: var(--text-dim);
+  }
+  .downloads-detect-cta a {
+    display: inline-block;
+    padding: 0.75rem 1.75rem;
+    border-radius: var(--radius);
+    font-weight: 600;
+    font-size: 1rem;
+    background: var(--accent);
+    color: var(--bg);
+    text-decoration: none;
+    transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  }
+  .downloads-detect-cta a:hover {
+    background: var(--accent-dim);
+    text-decoration: none;
+  }
+  .downloads-detect-cta a:focus-visible {
+    outline: 2px solid var(--text-bright);
+    outline-offset: 3px;
+    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.35);
+  }
+  .downloads-detect-cta a:active {
+    transform: translateY(1px);
+  }
+  .downloads-platform {
+    margin-bottom: 2rem;
+  }
+  .downloads-platform h3 {
+    font-size: 1.3rem;
+    margin-bottom: 0.75rem;
+    color: var(--accent);
+  }
+  .downloads-asset-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 1rem;
+  }
+  .downloads-asset-list li {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    align-items: baseline;
+  }
+  .downloads-asset-link {
+    font-family: var(--font-mono, monospace);
+    font-weight: 600;
+  }
+  .downloads-asset-meta {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+  .downloads-asset-meta code {
+    font-size: 0.8rem;
+    word-break: break-all;
+  }
+  .downloads-platform-note {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+  .downloads-updater,
+  .downloads-verify {
+    margin: 2rem 0;
+    padding: 1rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .downloads-updater summary,
+  .downloads-verify summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .downloads-verify h4 {
+    margin: 1rem 0 0.5rem;
+    color: var(--accent);
+  }
+  .downloads-verify pre {
+    background: var(--bg);
+    padding: 0.75rem;
+    border-radius: var(--radius);
+    overflow-x: auto;
+    font-size: 0.9rem;
+  }
+  .downloads-pending {
+    background: var(--bg-surface);
+    border: 1px solid var(--accent-dim);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+  }
+  .downloads-pending h3 {
+    color: var(--accent);
+    margin-bottom: 0.75rem;
+  }
+</style>
