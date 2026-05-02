@@ -1,0 +1,149 @@
+---
+// Per-platform redirect to the latest desktop installer asset.
+// Static SSG: at build time we look up the latest desktop release and resolve
+// the right asset for each platform. If no release exists yet, we render a
+// fallback that points at the Downloads page.
+import Base from "../../layouts/Base.astro";
+import { fetchLatestPublicRelease, ERROR_NO_RELEASE_YET } from "../../lib/releases.ts";
+import { pickAsset, pickMacosPair } from "../../lib/release-assets.ts";
+
+export async function getStaticPaths() {
+  return [
+    { params: { platform: "macos" } },
+    { params: { platform: "macos-arm64" } },
+    { params: { platform: "macos-x64" } },
+    { params: { platform: "windows" } },
+    { params: { platform: "linux" } },
+    { params: { platform: "linux-appimage" } },
+    { params: { platform: "linux-deb" } },
+    { params: { platform: "linux-rpm" } },
+  ];
+}
+
+const { platform } = Astro.params as { platform: string };
+
+// Two return values: a single asset for arch-specific slugs, or a pair for the
+// generic /download/macos slug (so the redirect page can pick at runtime).
+type Resolution =
+  | { kind: "single"; url: string }
+  | { kind: "macos-pair"; arm64: string | null; x64: string | null };
+
+let resolution: Resolution | null = null;
+
+const { release, error: fetchErrorRaw } = await fetchLatestPublicRelease(`download/${platform}`);
+if (release) {
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  if (platform === "macos") {
+    const pair = pickMacosPair(assets);
+    if (pair.arm64 || pair.x64) resolution = { kind: "macos-pair", ...pair };
+  } else {
+    const asset = pickAsset(assets, platform);
+    if (asset) resolution = { kind: "single", url: asset.browser_download_url };
+  }
+}
+
+// Distinguish three failure modes:
+// - "release pending": no public release tag exists yet (initial bootstrap).
+// - "API outage": helper couldn't reach GitHub.
+// - "asset missing for this platform": release exists but pickAsset() / pickMacosPair()
+//   returned nothing (e.g. partial release where one matrix leg failed). In
+//   this case `release !== null` but `resolution === null`.
+const isApiOutage = release === null && fetchErrorRaw !== null && fetchErrorRaw !== ERROR_NO_RELEASE_YET;
+const fetchError = isApiOutage ? fetchErrorRaw : null;
+const assetMissing = release !== null && resolution === null;
+
+const fallback = "/download";
+const singleTarget = resolution?.kind === "single" ? resolution.url : null;
+const macosArm64 = resolution?.kind === "macos-pair" ? resolution.arm64 : null;
+const macosX64 = resolution?.kind === "macos-pair" ? resolution.x64 : null;
+const hasTarget = singleTarget !== null || macosArm64 !== null || macosX64 !== null;
+// For arch-specific slugs the manual fallback is a single URL. For the generic
+// /download/macos slug, point the manual link at /download itself — if JS is
+// disabled or the redirect script never runs, picking arbitrarily between the
+// arm64 and x64 candidates would silently mis-route half of macOS visitors.
+const manualLink = singleTarget ?? fallback;
+---
+
+<Base title={`Download MUDdown — ${platform}`}>
+  <section class="downloads-page">
+    <div class="container">
+      <h2>Redirecting…</h2>
+      {hasTarget ? (
+        <p>
+          Your download should start automatically. If it doesn't,
+          <a href={manualLink}>click here</a>.
+        </p>
+      ) : fetchError ? (
+        <p>
+          {fetchError} In the meantime, visit the <a href={fallback}>Downloads page</a>
+          for status and other ways to play.
+        </p>
+      ) : assetMissing ? (
+        <p>
+          The current release doesn't include an installer for <code>{platform}</code>.
+          This usually means a partial release where one build leg failed. Visit the
+          <a href={fallback}>Downloads page</a> to see what's available, or try again later.
+        </p>
+      ) : (
+        <p>
+          No desktop release is available yet. Visit the <a href={fallback}>Downloads page</a>
+          for status and other ways to play.
+        </p>
+      )}
+    </div>
+  </section>
+</Base>
+
+<script is:inline define:vars={{ singleTarget, macosArm64, macosX64, fallback }}>
+  // For arch-specific slugs we have a single URL. For the generic /download/macos
+  // slug we have both arm64 and x64 candidates and pick at runtime so Intel Macs
+  // aren't sent the Apple Silicon DMG (and vice versa).
+  function pickMacosTargetSync(arch) {
+    // Partial-release safety: if the requested arch isn't present we'd rather
+    // bounce the visitor back to /download than silently hand them an
+    // incompatible binary. Cross-arch fallback would mis-route half the users.
+    if (arch === "x64") return macosX64 || fallback;
+    return macosArm64 || fallback;
+  }
+
+  function pickMacosTargetAsync(done) {
+    var ua = navigator.userAgent || "";
+    var uaData = navigator.userAgentData;
+    var fallbackArch = /Intel Mac OS X/i.test(ua) ? "x64" : "arm64";
+    if (uaData && typeof uaData.getHighEntropyValues === "function") {
+      var settled = false;
+      var resolveOnce = function (arch) {
+        if (settled) return;
+        settled = true;
+        done(pickMacosTargetSync(arch));
+      };
+      // Wrap the UA-CH Promise in a 3s timeout. The spec permits stub
+      // implementations to never settle, which would otherwise leave the
+      // page stuck at "Redirecting…" indefinitely.
+      var timer = setTimeout(function () { resolveOnce(fallbackArch); }, 3000);
+      uaData.getHighEntropyValues(["architecture"]).then(function (hints) {
+        clearTimeout(timer);
+        var arch = hints && hints.architecture === "x86" ? "x64" : "arm64";
+        resolveOnce(arch);
+      }).catch(function () {
+        clearTimeout(timer);
+        resolveOnce(fallbackArch);
+      });
+      return;
+    }
+    done(pickMacosTargetSync(fallbackArch));
+  }
+
+  if (singleTarget) {
+    window.location.replace(singleTarget);
+  } else if (macosArm64 || macosX64) {
+    pickMacosTargetAsync(function (target) { window.location.replace(target); });
+  }
+</script>
+
+<style>
+  .downloads-page {
+    padding: 3rem 0;
+  }
+</style>
+

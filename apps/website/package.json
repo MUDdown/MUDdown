@@ -7,12 +7,17 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "clean": "rm -rf dist .astro"
   },
   "dependencies": {
     "@muddown/client": "*",
     "astro": "^6.1.1",
     "marked": "^12.0.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.2"
   },
   "license": "MIT"
 }

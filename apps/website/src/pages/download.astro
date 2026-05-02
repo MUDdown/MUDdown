@@ -1,0 +1,505 @@
+---
+import Base from "../layouts/Base.astro";
+import {
+  fetchLatestPublicRelease,
+  formatPublishedDate,
+  DESKTOP_TAG_PREFIX,
+  type Release,
+  type ReleaseAsset as Asset,
+} from "../lib/releases.ts";
+import {
+  classify,
+  formatSize,
+  formatDigestShort,
+  type Platform,
+  type ArchToken,
+} from "../lib/release-assets.ts";
+
+// Build-time fetch of the latest desktop release. Gracefully degrades to
+// a "release pending" notice when no release exists yet (initial bootstrap)
+// or the API is unreachable.
+
+type ClassifiedAsset = Asset & {
+  platform: Platform | "other";
+  arch: string;
+  archToken: ArchToken | null; // machine-readable arch (independent of display label)
+  kind: string; // installer, archive, signature, manifest
+};
+
+const { release, error: fetchError } = await fetchLatestPublicRelease("download");
+
+const classified: ClassifiedAsset[] = (release?.assets ?? []).map((a) => ({
+  ...a,
+  ...classify(a.name),
+}));
+
+const installers = classified.filter(
+  (a) =>
+    a.platform !== "other" &&
+    a.kind !== "signature" &&
+    a.kind !== "manifest" &&
+    a.kind !== "App archive (updater)" &&
+    a.kind !== "AppImage archive (updater)",
+);
+const updaterArtifacts = classified.filter(
+  (a) =>
+    a.kind === "signature" ||
+    a.kind === "manifest" ||
+    a.kind === "App archive (updater)" ||
+    a.kind === "AppImage archive (updater)",
+);
+
+const macInstallers = installers.filter((a) => a.platform === "macos");
+const winInstallers = installers.filter((a) => a.platform === "windows");
+const linuxInstallers = installers.filter((a) => a.platform === "linux");
+
+const version = release?.tag_name?.replace(DESKTOP_TAG_PREFIX, "") ?? null;
+const publishedAt = formatPublishedDate(release?.published_at);
+---
+
+<Base title="Download MUDdown Desktop">
+  <section class="downloads-page">
+    <div class="container">
+      <h2>Download MUDdown Desktop</h2>
+      <p class="downloads-intro">
+        Native desktop client for macOS, Windows, and Linux. Built with Tauri v2 — fast,
+        small, and packaged with the same MUDdown renderer as the web client. Auto-updates
+        from signed GitHub Releases.
+      </p>
+
+      {release ? (
+        <>
+          <div class="downloads-version" aria-live="polite">
+            <strong>Latest:</strong> {release.tag_name}
+            {publishedAt && <> &middot; published <time datetime={release.published_at}>{publishedAt}</time></>}
+            &middot; <a href={release.html_url} target="_blank" rel="noopener noreferrer">Release notes on GitHub</a>
+          </div>
+
+          <div class="downloads-detect" aria-live="polite">
+            <p class="downloads-detect-msg" id="os-detect-msg">Detecting your platform…</p>
+            <div class="downloads-detect-cta" id="os-detect-cta"></div>
+          </div>
+
+          {macInstallers.length > 0 && (
+            <div class="downloads-platform" data-platform="macos">
+              <h3>macOS</h3>
+              <ul class="downloads-asset-list">
+                {macInstallers.map((a) => {
+                  const shortDigest = formatDigestShort(a.digest);
+                  return (
+                  <li data-arch={a.archToken ?? "x64"}>
+                    <a href={a.browser_download_url} class="downloads-asset-link">{a.name}</a>
+                    <span class="downloads-asset-meta">
+                      {a.kind} &middot; {a.arch} &middot; {formatSize(a.size)}
+                      {shortDigest && <> &middot; <code title={a.digest ?? undefined}>{shortDigest}</code></>}
+                    </span>
+                    {a.digest && <div class="downloads-asset-digest"><code>{a.digest}</code></div>}
+                  </li>
+                  );
+                })}
+              </ul>
+              <p class="downloads-platform-note">
+                On first launch, macOS may show a Gatekeeper prompt. Once the macOS distribution
+                is fully notarized, this prompt will disappear. See <a href="#verify-macos">Verify the signature</a> below.
+              </p>
+            </div>
+          )}
+
+          {winInstallers.length > 0 && (
+            <div class="downloads-platform" data-platform="windows">
+              <h3>Windows</h3>
+              <ul class="downloads-asset-list">
+                {winInstallers.map((a) => {
+                  const shortDigest = formatDigestShort(a.digest);
+                  return (
+                  <li data-arch={a.archToken ?? "x64"}>
+                    <a href={a.browser_download_url} class="downloads-asset-link">{a.name}</a>
+                    <span class="downloads-asset-meta">
+                      {a.kind} &middot; {a.arch} &middot; {formatSize(a.size)}
+                      {shortDigest && <> &middot; <code title={a.digest ?? undefined}>{shortDigest}</code></>}
+                    </span>
+                    {a.digest && <div class="downloads-asset-digest"><code>{a.digest}</code></div>}
+                  </li>
+                  );
+                })}
+              </ul>
+              <p class="downloads-platform-note">
+                Signed via Microsoft Artifact Signing. SmartScreen reputation builds up over the
+                first weeks after a public release. See <a href="#verify-windows">Verify the signature</a> below.
+              </p>
+            </div>
+          )}
+
+          {linuxInstallers.length > 0 && (
+            <div class="downloads-platform" data-platform="linux">
+              <h3>Linux</h3>
+              <p class="downloads-platform-note">
+                Linux ships in three formats. <strong>AppImage</strong> runs on most distros
+                without installation; <strong>.deb</strong> is for Debian/Ubuntu; <strong>.rpm</strong>
+                is for Fedora/RHEL/openSUSE. Pick the one that matches your package manager.
+              </p>
+              <ul class="downloads-asset-list">
+                {linuxInstallers.map((a) => {
+                  const shortDigest = formatDigestShort(a.digest);
+                  return (
+                  <li data-arch={a.archToken ?? "x64"}>
+                    <a href={a.browser_download_url} class="downloads-asset-link">{a.name}</a>
+                    <span class="downloads-asset-meta">
+                      {a.kind} &middot; {a.arch} &middot; {formatSize(a.size)}
+                      {shortDigest && <> &middot; <code title={a.digest ?? undefined}>{shortDigest}</code></>}
+                    </span>
+                    {a.digest && <div class="downloads-asset-digest"><code>{a.digest}</code></div>}
+                  </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
+          {updaterArtifacts.length > 0 && (
+            <details class="downloads-updater">
+              <summary>Updater artifacts ({updaterArtifacts.length})</summary>
+              <p class="downloads-updater-intro">
+                These files power the in-app auto-updater. You don't need to download them
+                directly — Tauri verifies them against the bundled Ed25519 public key.
+              </p>
+              <ul class="downloads-asset-list">
+                {updaterArtifacts.map((a) => (
+                  <li>
+                    <a href={a.browser_download_url} class="downloads-asset-link">{a.name}</a>
+                    <span class="downloads-asset-meta">{a.kind} &middot; {formatSize(a.size)}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          <details class="downloads-verify" id="verify">
+            <summary>Verify the signature</summary>
+            {macInstallers.length > 0 && (
+              <div id="verify-macos">
+                <h4>macOS — notarization staple</h4>
+                <p>
+                  Run these against the downloaded <code>.dmg</code> before mounting it.
+                  This validates the notarization ticket Apple staples to the artifact
+                  itself — a stricter check than waiting for Gatekeeper to query Apple
+                  on first launch:
+                </p>
+                <pre><code>spctl -a -t open --context context:primary-signature -vv MUDdown_{version}_aarch64.dmg
+xcrun stapler validate MUDdown_{version}_aarch64.dmg</code></pre>
+                <p>
+                  The first command should print <code>accepted</code> with the developer's
+                  Team ID and source <em>Notarized Developer ID</em>. The second should
+                  print <code>The validate action worked!</code>.
+                </p>
+              </div>
+            )}
+            {winInstallers.length > 0 && (
+              <div id="verify-windows">
+                <h4>Windows — Authenticode signature</h4>
+                <pre><code>signtool verify /pa /v MUDdown_{version}_x64_en-US.msi</code></pre>
+                <p>
+                  The chain should terminate at <em>Microsoft ID Verified Code Signing PCA 2024</em>
+                  with the publisher listed as StickMUD Entertainment LLC.
+                </p>
+              </div>
+            )}
+            {linuxInstallers.length > 0 && (
+              <div id="verify-linux">
+                <h4>Linux — minisign signature</h4>
+                <p>
+                  Linux artifacts are not OS-signed, but the Tauri auto-updater publishes
+                  per-asset <code>.sig</code> files alongside each installer (see the
+                  <em>Updater artifacts</em> drawer above). Verify with
+                  <a href="https://jedisct1.github.io/minisign/" target="_blank" rel="noopener noreferrer">minisign</a>:
+                </p>
+                <pre><code>minisign -V -P RWSW/Bkmg9q6wjcY6X2gv2IJHh8v/ZaRItohvJu9D+SEBSUvLXMIcEJ9 \
+  -m MUDdown_{version}_amd64.AppImage \
+  -x MUDdown_{version}_amd64.AppImage.sig</code></pre>
+                <p>
+                  The <code>-x</code> flag is required because Tauri emits <code>.sig</code>
+                  sidecar files (not the <code>.minisig</code> name minisign defaults to).
+                  The public key above (<code>RWSW/Bkmg9q6…</code>) is the same Ed25519 key
+                  bundled into the desktop app for auto-update verification — it lives in
+                  <a href="https://github.com/MUDdown/MUDdown/blob/main/apps/desktop/src-tauri/tauri.conf.json" target="_blank" rel="noopener noreferrer"><code>apps/desktop/src-tauri/tauri.conf.json</code></a>
+                  (under <code>plugins.updater.pubkey</code>, base64-encoded). See
+                  <a href="https://github.com/MUDdown/MUDdown/blob/main/apps/desktop/UPDATER_KEYS.md" target="_blank" rel="noopener noreferrer">UPDATER_KEYS.md</a>
+                  for the rotation process.
+                </p>
+              </div>
+            )}
+          </details>
+        </>
+      ) : (
+        <div class="downloads-pending" role="alert">
+          <h3>Release pending</h3>
+          <p>
+            {fetchError ?? "No desktop release has been published yet."} The first public
+            signed release will appear here automatically once it's tagged. In the meantime,
+            you can:
+          </p>
+          <ul>
+            <li>Play directly in your browser at <a href="/play">muddown.com/play</a>.</li>
+            <li>Connect with any telnet client to <code>telnets://muddown.com:2323</code>.</li>
+            <li>Build the desktop app from source — see the <a href="https://github.com/MUDdown/MUDdown/wiki/Desktop-App" target="_blank" rel="noopener noreferrer">Desktop-App wiki page</a>.</li>
+          </ul>
+        </div>
+      )}
+    </div>
+  </section>
+</Base>
+
+<script is:inline>
+  // Detect the visitor's OS (and macOS architecture) and elevate the matching
+  // primary download. iOS/iPadOS are explicitly excluded from the macOS branch
+  // because a DMG is not installable on iOS — those visitors fall through to
+  // the "pick an installer below" fallback, which still shows web/telnet links.
+  (function () {
+    const msg = document.getElementById("os-detect-msg");
+    const cta = document.getElementById("os-detect-cta");
+    if (!msg || !cta) return;
+
+    const ua = navigator.userAgent || "";
+    const uaData = /** @type {{ platform?: string, getHighEntropyValues?: (h: string[]) => Promise<{ architecture?: string }> } | undefined} */ (navigator.userAgentData);
+    const platform = (uaData && typeof uaData.platform === "string" && uaData.platform) || navigator.platform || "";
+
+    // Exclude mobile platforms — neither the macOS DMG nor any other artifact
+    // installs on iOS/iPadOS/Android. iPadOS in "Request Desktop Site" mode
+    // sends a Macintosh UA with no iPad token; real Macs report
+    // navigator.maxTouchPoints === 0, so any positive touch-point count on a
+    // "Mac" UA is a tablet/phone in disguise.
+    const looksMac = /Mac/.test(platform) || /Macintosh/.test(ua);
+    const touchOnMac = looksMac && (navigator.maxTouchPoints || 0) > 1;
+    const isMobile =
+      /iPhone|iPad|iPod|Android/i.test(platform) ||
+      /iPhone|iPad|iPod|Android/i.test(ua) ||
+      touchOnMac;
+    if (isMobile) {
+      msg.textContent = "Mobile devices: try the web client at /play, or open telnets://muddown.com:2323 in a telnet app.";
+      return;
+    }
+
+    // Pick a download link inside a section, optionally requiring a specific arch.
+    // When `requireArch` is set we return null on miss — callers must show a
+    // generic fallback rather than a wrong-arch link mislabelled with the
+    // requested arch (e.g. an arm64 DMG advertised as "Download for macOS (Intel)").
+    const findLink = (sectionHeading, requireArch) => {
+      const heads = Array.from(document.querySelectorAll(".downloads-platform h3"));
+      const head = heads.find((h) => h.textContent.trim() === sectionHeading);
+      if (!head) return null;
+      const ul = head.parentElement && head.parentElement.querySelector(".downloads-asset-list");
+      if (!ul) return null;
+      if (requireArch) {
+        const li = ul.querySelector(`li[data-arch="${requireArch}"]`);
+        if (!li) return null;
+        const a = li.querySelector("a.downloads-asset-link");
+        return a ? a.getAttribute("href") : null;
+      }
+      const a = ul.querySelector("a.downloads-asset-link");
+      return a ? a.getAttribute("href") : null;
+    };
+
+    const renderCta = (target, label) => {
+      const strong = document.createElement("strong");
+      strong.textContent = label;
+      msg.textContent = "Detected ";
+      msg.appendChild(strong);
+      msg.appendChild(document.createTextNode("."));
+      const a = document.createElement("a");
+      a.href = target;
+      a.className = "primary";
+      a.textContent = `Download for ${label}`;
+      cta.appendChild(a);
+    };
+
+    // userAgentData.platform values: "macOS", "Windows", "Linux", "Android", "Chrome OS".
+    // Legacy navigator.platform values include "MacIntel", "Win32", "Linux x86_64", etc.
+    if (/^macOS$/i.test(platform) || /Mac/.test(platform) || /Macintosh/.test(ua)) {
+      // macOS arch detection: prefer UA-CH high-entropy hint, fall back to UA
+      // string heuristics. "Intel Mac OS X" is unambiguous; otherwise newer
+      // Safari hides the arch and we default to arm64 (the active product).
+      const finish = (arch) => {
+        const target = findLink("macOS", arch);
+        if (target) renderCta(target, arch === "arm64" ? "macOS (Apple Silicon)" : "macOS (Intel)");
+        else msg.textContent = "Pick the right installer for your operating system below.";
+      };
+      const fallbackArch = /Intel Mac OS X/i.test(ua) ? "x64" : "arm64";
+      if (uaData && typeof uaData.getHighEntropyValues === "function") {
+        var settled = false;
+        var settle = function (arch) {
+          if (settled) return;
+          settled = true;
+          finish(arch);
+        };
+        // 3s timeout: the UA-CH spec permits stub implementations to never
+        // settle the returned Promise, which would leave the visitor stuck on
+        // "Detecting your platform…" forever.
+        var timer = setTimeout(function () { settle(fallbackArch); }, 3000);
+        uaData.getHighEntropyValues(["architecture"]).then((hints) => {
+          clearTimeout(timer);
+          settle(hints && hints.architecture === "x86" ? "x64" : "arm64");
+        }).catch(() => {
+          clearTimeout(timer);
+          settle(fallbackArch);
+        });
+      } else {
+        finish(fallbackArch);
+      }
+      return;
+    }
+    if (/^Windows$/i.test(platform) || /Win/.test(platform)) {
+      const target = findLink("Windows");
+      if (target) renderCta(target, "Windows");
+      else msg.textContent = "Pick the right installer for your operating system below.";
+      return;
+    }
+    if (/Linux/i.test(platform)) {
+      // Linux ships three incompatible package formats. Browser detection can't
+      // reliably pick the right one, so we point at the section instead of
+      // auto-selecting a single artifact.
+      msg.textContent = "Detected Linux. Pick the package format that matches your distro below — AppImage runs almost anywhere.";
+      return;
+    }
+    msg.textContent = "Pick the right installer for your operating system below.";
+  })();
+</script>
+
+<style>
+  .downloads-page {
+    padding: 3rem 0;
+  }
+  .downloads-page h2 {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+  }
+  .downloads-intro {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    margin-bottom: 2rem;
+  }
+  .downloads-version {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    font-size: 0.95rem;
+    margin-bottom: 1.5rem;
+  }
+  .downloads-detect {
+    background: var(--bg-surface);
+    border: 1px solid var(--accent-dim);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    text-align: center;
+  }
+  .downloads-detect-msg {
+    margin: 0 0 1rem;
+    color: var(--text-dim);
+  }
+  .downloads-detect-cta a {
+    display: inline-block;
+    padding: 0.75rem 1.75rem;
+    border-radius: var(--radius);
+    font-weight: 600;
+    font-size: 1rem;
+    background: var(--accent);
+    color: var(--bg);
+    text-decoration: none;
+    transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  }
+  .downloads-detect-cta a:hover {
+    background: var(--accent-dim);
+    text-decoration: none;
+  }
+  .downloads-detect-cta a:focus-visible {
+    outline: 2px solid var(--text-bright);
+    outline-offset: 3px;
+    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.35);
+  }
+  .downloads-detect-cta a:active {
+    transform: translateY(1px);
+  }
+  .downloads-platform {
+    margin-bottom: 2rem;
+  }
+  .downloads-platform h3 {
+    font-size: 1.3rem;
+    margin-bottom: 0.75rem;
+    color: var(--accent);
+  }
+  .downloads-asset-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 1rem;
+  }
+  .downloads-asset-list li {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    align-items: baseline;
+  }
+  .downloads-asset-link {
+    font-family: var(--font-mono, monospace);
+    font-weight: 600;
+  }
+  .downloads-asset-meta {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+  .downloads-asset-meta code {
+    font-size: 0.8rem;
+    word-break: break-all;
+  }
+  .downloads-asset-digest {
+    flex-basis: 100%;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    margin-top: 0.15rem;
+  }
+  .downloads-asset-digest code {
+    font-family: var(--font-mono, monospace);
+    word-break: break-all;
+    user-select: all;
+  }
+  .downloads-platform-note {
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+  .downloads-updater,
+  .downloads-verify {
+    margin: 2rem 0;
+    padding: 1rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .downloads-updater summary,
+  .downloads-verify summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .downloads-verify h4 {
+    margin: 1rem 0 0.5rem;
+    color: var(--accent);
+  }
+  .downloads-verify pre {
+    background: var(--bg);
+    padding: 0.75rem;
+    border-radius: var(--radius);
+    overflow-x: auto;
+    font-size: 0.9rem;
+  }
+  .downloads-pending {
+    background: var(--bg-surface);
+    border: 1px solid var(--accent-dim);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+  }
+  .downloads-pending h3 {
+    color: var(--accent);
+    margin-bottom: 0.75rem;
+  }
+</style>

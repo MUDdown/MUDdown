@@ -174,6 +174,9 @@ import Base from "../layouts/Base.astro";
             <strong>Tauri desktop app</strong> — Native desktop client for macOS, Windows, and Linux via Tauri v2. Includes native menu bar, system tray with connection status, OS notifications, keyboard shortcuts, persistent window state, auto-updater with signed releases, and Apple notarization support for macOS distribution (pending enrollment).
           </li>
           <li>
+            <strong>Signed desktop downloads</strong> — Tauri builds publish to GitHub Releases when changes land in <code>apps/desktop</code>, the shared client packages, or the desktop build workflow itself, with Authenticode-signed Windows MSIs (via Microsoft Artifact Signing); macOS notarization is in progress. The <a href="/download">Downloads page</a> auto-detects the visitor's OS and architecture and links directly to the right installer; a stable <code>/download/[platform]</code> redirect provides permalink-style URLs that always resolve to the latest public release.
+          </li>
+          <li>
             <strong>Terminal client</strong> — Full-featured CLI client with ink-based UI, startup wizard, browser-based OAuth, character creation, shell mode, and MUDdown rendering.
           </li>
           <li>
@@ -183,7 +186,7 @@ import Base from "../layouts/Base.astro";
             <strong>Production deployment</strong> — Debian server with nginx, TLS via Let's Encrypt, systemd service, CI/CD via GitHub Actions.
           </li>
           <li>
-            <strong>Comprehensive test suite</strong> — 991 tests across parser, server, client, bridge, and MCP packages via vitest.
+            <strong>Comprehensive test suite</strong> — 1034 tests across parser, server, client, bridge, MCP, and website packages via vitest.
           </li>
         </ul>
       </div>
