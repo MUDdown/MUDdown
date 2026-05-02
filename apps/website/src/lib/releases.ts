@@ -121,9 +121,21 @@ async function doFetch(context: string): Promise<FetchReleaseResult> {
         error: "GitHub API returned an unexpected response format.",
       };
     }
-    const release = (data as (Release | null)[]).find(
-      (r): r is Release => r !== null && typeof r === "object" && isPublicDesktopTag(r.tag_name),
-    );
+    // Validate the shape of each candidate beyond the tag check before
+    // narrowing to Release. download.astro reads release.assets and
+    // release.html_url directly; a malformed entry that passed only the
+    // tag-name predicate would crash the page build with an unhelpful
+    // "Cannot read properties of undefined" trace.
+    const release = (data as unknown[]).find((r): r is Release => {
+      if (r === null || typeof r !== "object") return false;
+      const candidate = r as Partial<Release>;
+      return (
+        typeof candidate.tag_name === "string" &&
+        isPublicDesktopTag(candidate.tag_name) &&
+        typeof candidate.html_url === "string" &&
+        Array.isArray(candidate.assets)
+      );
+    });
     if (!release) {
       return { release: null, error: ERROR_NO_RELEASE_YET };
     }

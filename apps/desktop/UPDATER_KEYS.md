@@ -33,9 +33,10 @@ This produces:
 
 1. Generate a new key pair (see above).
 2. Update `tauri.conf.json` → `plugins.updater.pubkey` with the new public key.
-3. Update the `TAURI_SIGNING_PRIVATE_KEY` secret in GitHub Actions with the contents of `~/.tauri/muddown.key`.
-4. Update the `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret if a password was set.
-5. Create a new signed release. Previous releases signed with the old key will no longer be accepted by clients running the new version.
+3. Update the **"Current public key"** block at the top of this document with the new raw key and Key ID so the in-repo reference doesn't go stale.
+4. Update the `TAURI_SIGNING_PRIVATE_KEY` secret in GitHub Actions with the contents of `~/.tauri/muddown.key`.
+5. Update the `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secret if a password was set.
+6. Create a new signed release. Previous releases signed with the old key will no longer be accepted by clients running the new version.
 
 > **Note:** The CI signature verification step reads the public key dynamically from `tauri.conf.json`, so no workflow file update is needed during rotation.
 

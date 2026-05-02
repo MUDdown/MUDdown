@@ -58,17 +58,21 @@ describe("formatPublishedDate", () => {
 describe("fetchLatestPublicRelease", () => {
   const originalFetch = globalThis.fetch;
   // Suppress the helper's intentional console.error/warn output in test runs.
-  const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-  const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  // Spies are created in beforeEach and restored in afterEach so they don't
+  // leak past this describe block and silence diagnostics in later suites.
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  let warnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     __resetMemoForTesting();
-    errorSpy.mockClear();
-    warnSpy.mockClear();
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    errorSpy.mockRestore();
+    warnSpy.mockRestore();
   });
 
   const ok = (body: unknown): Response =>
@@ -77,11 +81,22 @@ describe("fetchLatestPublicRelease", () => {
       headers: { "Content-Type": "application/json" },
     });
 
+  // Helper for the minimum valid Release shape — fetchLatestPublicRelease
+  // requires tag_name, html_url, and assets[] before it accepts a candidate.
+  const release = (overrides: { tag_name: string; assets?: unknown[]; name?: string }) => ({
+    tag_name: overrides.tag_name,
+    name: overrides.name ?? overrides.tag_name,
+    html_url: `https://github.com/MUDdown/MUDdown/releases/tag/${overrides.tag_name}`,
+    published_at: "2026-05-02T18:36:21Z",
+    body: "",
+    assets: overrides.assets ?? [],
+  });
+
   it("returns the first release whose tag passes isPublicDesktopTag", async () => {
     globalThis.fetch = vi.fn(async () =>
       ok([
-        { tag_name: "desktop-v0.5.0", name: "internal", assets: [] },
-        { tag_name: "desktop-v1.0.0", name: "public", assets: [] },
+        release({ tag_name: "desktop-v0.5.0", name: "internal" }),
+        release({ tag_name: "desktop-v1.0.0", name: "public" }),
       ]),
     ) as typeof fetch;
     const result = await fetchLatestPublicRelease("test");
@@ -91,7 +106,7 @@ describe("fetchLatestPublicRelease", () => {
 
   it("returns the 'release pending' error when no v1+ tag is published", async () => {
     globalThis.fetch = vi.fn(async () =>
-      ok([{ tag_name: "desktop-v0.1.0", name: "internal", assets: [] }]),
+      ok([release({ tag_name: "desktop-v0.1.0", name: "internal" })]),
     ) as typeof fetch;
     const result = await fetchLatestPublicRelease("test");
     expect(result.release).toBeNull();
@@ -100,11 +115,40 @@ describe("fetchLatestPublicRelease", () => {
 
   it("skips null entries in the API array without throwing", async () => {
     globalThis.fetch = vi.fn(async () =>
-      ok([null, { tag_name: "desktop-v1.0.0", assets: [] }]),
+      ok([null, release({ tag_name: "desktop-v1.0.0" })]),
     ) as typeof fetch;
     const result = await fetchLatestPublicRelease("test");
     expect(result.error).toBeNull();
     expect(result.release?.tag_name).toBe("desktop-v1.0.0");
+  });
+
+  it("skips entries missing required fields (html_url, assets) without throwing", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      ok([
+        // Passes the tag-name predicate but lacks html_url / assets — must not be
+        // returned, since download.astro would crash reading those fields.
+        { tag_name: "desktop-v1.0.0", name: "malformed" },
+        release({ tag_name: "desktop-v1.0.1", name: "valid" }),
+      ]),
+    ) as typeof fetch;
+    const result = await fetchLatestPublicRelease("test");
+    expect(result.error).toBeNull();
+    expect(result.release?.tag_name).toBe("desktop-v1.0.1");
+  });
+
+  it("rejects entries where assets is not an array", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      ok([
+        {
+          tag_name: "desktop-v1.0.0",
+          html_url: "https://example/r",
+          assets: "not-an-array",
+        },
+      ]),
+    ) as typeof fetch;
+    const result = await fetchLatestPublicRelease("test");
+    expect(result.release).toBeNull();
+    expect(result.error).toBe(ERROR_NO_RELEASE_YET);
   });
 
   it("surfaces a distinct error when the API returns non-OK", async () => {
@@ -155,7 +199,7 @@ describe("fetchLatestPublicRelease", () => {
   });
 
   it("memoizes the fetch so concurrent callers share a single request", async () => {
-    const fetchSpy = vi.fn(async () => ok([{ tag_name: "desktop-v1.0.0", assets: [] }])) as unknown as typeof fetch;
+    const fetchSpy = vi.fn(async () => ok([release({ tag_name: "desktop-v1.0.0" })])) as unknown as typeof fetch;
     globalThis.fetch = fetchSpy;
     const [a, b, c] = await Promise.all([
       fetchLatestPublicRelease("a"),
@@ -169,7 +213,7 @@ describe("fetchLatestPublicRelease", () => {
   });
 
   it("memoization is reset between tests via __resetMemoForTesting", async () => {
-    const fetchSpy = vi.fn(async () => ok([{ tag_name: "desktop-v1.0.0", assets: [] }])) as unknown as typeof fetch;
+    const fetchSpy = vi.fn(async () => ok([release({ tag_name: "desktop-v1.0.0" })])) as unknown as typeof fetch;
     globalThis.fetch = fetchSpy;
     await fetchLatestPublicRelease("first");
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -183,7 +227,7 @@ describe("fetchLatestPublicRelease", () => {
     const fetchSpy = vi.fn(async () => {
       callCount++;
       if (callCount === 1) throw new Error("ENOTFOUND");
-      return ok([{ tag_name: "desktop-v1.0.0", assets: [] }]);
+      return ok([release({ tag_name: "desktop-v1.0.0" })]);
     }) as unknown as typeof fetch;
     globalThis.fetch = fetchSpy;
     const first = await fetchLatestPublicRelease("first");
@@ -200,8 +244,8 @@ describe("fetchLatestPublicRelease", () => {
     const fetchSpy = vi.fn(async () => {
       callCount++;
       return callCount === 1
-        ? ok([{ tag_name: "desktop-v0.1.0", assets: [] }])
-        : ok([{ tag_name: "desktop-v1.0.0", assets: [] }]);
+        ? ok([release({ tag_name: "desktop-v0.1.0" })])
+        : ok([release({ tag_name: "desktop-v1.0.0" })]);
     }) as unknown as typeof fetch;
     globalThis.fetch = fetchSpy;
     const first = await fetchLatestPublicRelease("first");

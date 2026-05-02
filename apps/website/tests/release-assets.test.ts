@@ -3,6 +3,7 @@ import {
   classify,
   pickAsset,
   pickMacosPair,
+  isUpdaterArtifact,
   formatSize,
   formatDigestShort,
 } from "../src/lib/release-assets.ts";
@@ -165,11 +166,57 @@ describe("pickMacosPair", () => {
   });
 });
 
+describe("isUpdaterArtifact", () => {
+  it("matches every kind classify() emits for updater-track files", () => {
+    expect(isUpdaterArtifact(classify("MUDdown_1.0.0_aarch64.dmg.sig"))).toBe(true);
+    expect(isUpdaterArtifact(classify("latest.json"))).toBe(true);
+    expect(isUpdaterArtifact(classify("MUDdown_1.0.0_aarch64.app.tar.gz"))).toBe(true);
+    expect(isUpdaterArtifact(classify("MUDdown_1.0.0_amd64.AppImage.tar.gz"))).toBe(true);
+  });
+
+  it("rejects user-facing installer kinds", () => {
+    expect(isUpdaterArtifact(classify("MUDdown_1.0.0_aarch64.dmg"))).toBe(false);
+    expect(isUpdaterArtifact(classify("MUDdown_1.0.0_x64_en-US.msi"))).toBe(false);
+    expect(isUpdaterArtifact(classify("MUDdown_1.0.0_x64-setup.exe"))).toBe(false);
+    expect(isUpdaterArtifact(classify("MUDdown_1.0.0_amd64.AppImage"))).toBe(false);
+    expect(isUpdaterArtifact(classify("muddown_1.0.0_amd64.deb"))).toBe(false);
+    expect(isUpdaterArtifact(classify("muddown-1.0.0-1.x86_64.rpm"))).toBe(false);
+  });
+});
+
 describe("formatSize", () => {
-  it("formats bytes, KB, and MB", () => {
+  it("formats zero as '0 B'", () => {
+    expect(formatSize(0)).toBe("0 B");
+  });
+
+  it("formats sub-KB byte counts without a suffix conversion", () => {
+    expect(formatSize(1)).toBe("1 B");
     expect(formatSize(512)).toBe("512 B");
+    expect(formatSize(1023)).toBe("1023 B");
+  });
+
+  it("transitions from B to KB at exactly 1024", () => {
+    expect(formatSize(1024)).toBe("1.0 KB");
+    expect(formatSize(1025)).toBe("1.0 KB");
     expect(formatSize(1500)).toBe("1.5 KB");
+  });
+
+  it("transitions from KB to MB at exactly 1024 * 1024", () => {
+    // The KB branch covers up to (but not including) 1024 * 1024,
+    // so 1048575 still renders as KB and 1048576 flips to MB.
+    expect(formatSize(1024 * 1024 - 1)).toBe("1024.0 KB");
+    expect(formatSize(1024 * 1024)).toBe("1.0 MB");
+  });
+
+  it("formats MB-range sizes", () => {
     expect(formatSize(2_500_000)).toBe("2.4 MB");
+    expect(formatSize(50 * 1024 * 1024)).toBe("50.0 MB");
+  });
+
+  it("does not introduce a GB tier — very large values stay in MB", () => {
+    // Desktop installers are MB-scale; the helper intentionally caps at MB
+    // so unexpectedly large inputs surface as a plainly large MB number.
+    expect(formatSize(3_000_000_000)).toBe("2861.0 MB");
   });
 });
 
