@@ -58,17 +58,21 @@ describe("formatPublishedDate", () => {
 describe("fetchLatestPublicRelease", () => {
   const originalFetch = globalThis.fetch;
   // Suppress the helper's intentional console.error/warn output in test runs.
-  const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-  const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  // Spies are created in beforeEach and restored in afterEach so they don't
+  // leak past this describe block and silence diagnostics in later suites.
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  let warnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     __resetMemoForTesting();
-    errorSpy.mockClear();
-    warnSpy.mockClear();
+    errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    errorSpy.mockRestore();
+    warnSpy.mockRestore();
   });
 
   const ok = (body: unknown): Response =>
