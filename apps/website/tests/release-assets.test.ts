@@ -3,6 +3,7 @@ import {
   classify,
   pickAsset,
   pickMacosPair,
+  isUpdaterArtifact,
   formatSize,
   formatDigestShort,
 } from "../src/lib/release-assets.ts";
@@ -162,6 +163,24 @@ describe("pickMacosPair", () => {
       arm64: null,
       x64: null,
     });
+  });
+});
+
+describe("isUpdaterArtifact", () => {
+  it("matches every kind classify() emits for updater-track files", () => {
+    expect(isUpdaterArtifact(classify("MUDdown_1.0.0_aarch64.dmg.sig"))).toBe(true);
+    expect(isUpdaterArtifact(classify("latest.json"))).toBe(true);
+    expect(isUpdaterArtifact(classify("MUDdown_1.0.0_aarch64.app.tar.gz"))).toBe(true);
+    expect(isUpdaterArtifact(classify("MUDdown_1.0.0_amd64.AppImage.tar.gz"))).toBe(true);
+  });
+
+  it("rejects user-facing installer kinds", () => {
+    expect(isUpdaterArtifact(classify("MUDdown_1.0.0_aarch64.dmg"))).toBe(false);
+    expect(isUpdaterArtifact(classify("MUDdown_1.0.0_x64_en-US.msi"))).toBe(false);
+    expect(isUpdaterArtifact(classify("MUDdown_1.0.0_x64-setup.exe"))).toBe(false);
+    expect(isUpdaterArtifact(classify("MUDdown_1.0.0_amd64.AppImage"))).toBe(false);
+    expect(isUpdaterArtifact(classify("muddown_1.0.0_amd64.deb"))).toBe(false);
+    expect(isUpdaterArtifact(classify("muddown-1.0.0-1.x86_64.rpm"))).toBe(false);
   });
 });
 

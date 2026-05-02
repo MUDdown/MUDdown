@@ -269,9 +269,13 @@ jobs:
           # with absolute paths.
           $cfg  = "apps/desktop/src-tauri/tauri.conf.json"
           $json = Get-Content $cfg -Raw | ConvertFrom-Json
-          # Use single-quoted JSON-style strings so embedded backslashes
-          # survive ConvertTo-Json without re-escaping. The placeholder %1
-          # is the file path and is substituted by tauri-bundler at sign time.
+          # Use PowerShell single-quoted strings to build the command — they
+          # are literal (no variable or escape interpretation), so the
+          # backslashes in the resolved Windows paths pass through verbatim.
+          # ConvertTo-Json will then escape them as JSON requires (\\), and
+          # tauri-bundler decodes that back to single backslashes when it
+          # reads the config. The placeholder %1 is the file path and is
+          # substituted by tauri-bundler at sign time.
           $resolved = '"' + $signtool + '" sign /v /fd SHA256 /tr http://timestamp.acs.microsoft.com /td SHA256 /dlib "' + $dlib + '" /dmdf "' + $metadata + '" "%1"'
           $json.bundle.windows.signCommand = $resolved
           $json | ConvertTo-Json -Depth 32 | Set-Content $cfg -Encoding utf8

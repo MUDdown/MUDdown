@@ -65,20 +65,47 @@ export function classify(name: string): AssetClassification {
   return { platform: "other", arch: "", archToken: null, kind: name.split(".").pop() ?? "" };
 }
 
+// Predicate for the auxiliary artifacts attached to every release: the
+// signature files, the updater manifest, and the per-platform updater
+// archives. download.astro lists these separately from the user-facing
+// installers. Keeping the membership test alongside classify() ensures the
+// two stay in sync — adding a new updater kind only requires extending
+// this function.
+export function isUpdaterArtifact(c: { kind: string }): boolean {
+  return (
+    c.kind === "signature" ||
+    c.kind === "manifest" ||
+    c.kind === "App archive (updater)" ||
+    c.kind === "AppImage archive (updater)"
+  );
+}
+
 // Pick the asset that matches the /download/[platform] slug. Returns null
 // when no asset matches (e.g. partial release where one matrix leg failed).
+//
+// macOS DMG matching is shared with pickMacosPair via the predicates below
+// so /download/macos, /download/macos-arm64, and /download/macos-x64 can
+// never disagree about which DMG belongs to which arch.
+const isArm64MacosDmg = (n: string): boolean =>
+  n.endsWith(".dmg") && (n.includes("aarch64") || n.includes("arm64"));
+const isExplicitX64MacosDmg = (n: string): boolean =>
+  n.endsWith(".dmg") && (n.includes("x64") || n.includes("x86_64"));
+const isFallbackX64MacosDmg = (n: string): boolean =>
+  n.endsWith(".dmg") && !n.includes("aarch64") && !n.includes("arm64");
+
+const findByPredicate = (
+  assets: ReleaseAsset[],
+  pred: (lowerName: string) => boolean,
+): ReleaseAsset | null => assets.find((a) => pred(a.name.toLowerCase())) ?? null;
+
 export function pickAsset(assets: ReleaseAsset[], plat: string): ReleaseAsset | null {
-  const by = (pred: (n: string) => boolean): ReleaseAsset | null =>
-    assets.find((a) => pred(a.name.toLowerCase())) ?? null;
+  const by = (pred: (n: string) => boolean) => findByPredicate(assets, pred);
 
   switch (plat) {
     case "macos-arm64":
-      return by((n) => n.endsWith(".dmg") && (n.includes("aarch64") || n.includes("arm64")));
+      return by(isArm64MacosDmg);
     case "macos-x64":
-      return (
-        by((n) => n.endsWith(".dmg") && (n.includes("x64") || n.includes("x86_64"))) ??
-        by((n) => n.endsWith(".dmg") && !n.includes("aarch64") && !n.includes("arm64"))
-      );
+      return by(isExplicitX64MacosDmg) ?? by(isFallbackX64MacosDmg);
     case "windows":
       return by((n) => n.endsWith(".msi")) ?? by((n) => n.endsWith(".exe"));
     case "linux":
@@ -94,16 +121,13 @@ export function pickAsset(assets: ReleaseAsset[], plat: string): ReleaseAsset | 
 }
 
 // Pick the (arm64, x64) macOS DMG pair for the generic /download/macos slug.
-// Either side may be null if the corresponding matrix leg failed. Mirrors
-// pickAsset's macos-x64 logic so /download/macos and /download/macos-x64
-// stay consistent.
+// Either side may be null if the corresponding matrix leg failed. Shares
+// the macOS DMG predicates with pickAsset so the two helpers cannot drift.
 export function pickMacosPair(assets: ReleaseAsset[]): { arm64: string | null; x64: string | null } {
-  const by = (pred: (n: string) => boolean) =>
-    assets.find((a) => pred(a.name.toLowerCase())) ?? null;
-  const arm = by((n) => n.endsWith(".dmg") && (n.includes("aarch64") || n.includes("arm64")));
+  const arm = findByPredicate(assets, isArm64MacosDmg);
   const x64 =
-    by((n) => n.endsWith(".dmg") && (n.includes("x64") || n.includes("x86_64"))) ??
-    by((n) => n.endsWith(".dmg") && !n.includes("aarch64") && !n.includes("arm64"));
+    findByPredicate(assets, isExplicitX64MacosDmg) ??
+    findByPredicate(assets, isFallbackX64MacosDmg);
   return {
     arm64: arm?.browser_download_url ?? null,
     x64: x64?.browser_download_url ?? null,
