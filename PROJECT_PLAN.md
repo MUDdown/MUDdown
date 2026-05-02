@@ -245,12 +245,31 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
     - [x] CI notarization verification step (`xcrun stapler validate`)
     - [x] UPDATER_KEYS.md expanded with full Apple notarization setup guide
     - [x] D-U-N-S number assigned for StickMUD Entertainment LLC
-    - [ ] Apple Developer Program enrollment ($99/yr, requires D-U-N-S; single enrollment covers macOS and iOS)
+    - [x] Apple Developer Program enrollment ($99/yr, requires D-U-N-S; single enrollment covers macOS and iOS)
     - [ ] Developer ID Application certificate generation
     - [ ] App-specific password for notarization
-    - [ ] Configure 6 Apple CI secrets in GitHub Actions
+    - [ ] Configure 6 Apple CI secrets in GitHub Actions: `APPLE_CERTIFICATE` (base64-encoded `.p12`), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD` (app-specific password), `APPLE_TEAM_ID`
     - [ ] Verify minimum entitlements under hardened runtime (test removing `allow-unsigned-executable-memory`)
-  - [ ] Windows Authenticode signing via SignPath (free open-source tier)
+  - [ ] Windows Authenticode signing via Microsoft Artifact Signing (formerly Trusted Signing / Azure Code Signing)
+    - [x] Create Azure account / subscription (Pay-As-You-Go) for StickMUD Entertainment LLC
+    - [x] Configure `bundle.windows.signCommand` in `tauri.conf.json` to invoke `signtool` with the Artifact Signing dlib (signs `.exe` inside the `.msi` during bundling)
+    - [x] Add `azure/login@v2` (OIDC) and the Artifact Signing Client Tools install (`winget install Microsoft.Azure.ArtifactSigningClientTools`) to the Windows leg of `desktop-build.yml`
+    - [x] Author idempotent provisioning scripts (`scripts/setup-signing.sh`, `scripts/setup-signing-post-iv.sh`) — consent-gated, fork-aware, env-overridable
+    - [x] Run pre-IV provisioning (`scripts/setup-signing.sh`):
+      - [x] Register `Microsoft.CodeSigning` resource provider on the subscription
+      - [x] Create resource group `rg-signing` (East US)
+      - [x] Create Artifact Signing account `muddown-signing` (Basic SKU, $9.99/mo)
+      - [x] Grant `Artifact Signing Identity Verifier` role to the maintainer
+      - [x] Create Microsoft Entra app `github-muddown-signing` with two GitHub OIDC federated credentials (`refs/heads/main`, `refs/tags/desktop-v*`) — no long-lived secrets
+      - [x] Configure 6 GitHub Actions variables (non-secret; OIDC handles auth): `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_CODE_SIGNING_ENDPOINT`, `AZURE_CODE_SIGNING_ACCOUNT_NAME`, `AZURE_CERT_PROFILE_NAME`
+    - [x] Submit Public Trust Identity Validation as Organization (StickMUD Entertainment LLC) — 1–20 business days
+    - [ ] Run post-IV finalization (`scripts/setup-signing-post-iv.sh`):
+      - [ ] Create Public Trust certificate profile `muddown-public-trust` bound to the validated identity
+      - [ ] Assign `Artifact Signing Certificate Profile Signer` role to the Entra app, scoped to the cert profile (least privilege)
+      - [ ] Trigger first signed Windows build via `gh workflow run`
+    - [ ] **Flip `WINDOWS_SIGNING_ENABLED` GitHub Actions variable to `true`** — currently the workflow gates the Azure login, winget install, and `signtool verify` steps on this variable, and strips `bundle.windows.signCommand` from `tauri.conf.json` at build time when it's not `'true'`. Set after IV completes and post-IV script has run: `gh variable set WINDOWS_SIGNING_ENABLED -b true -R MUDdown/MUDdown`
+    - [ ] Verify signed `.msi` with `signtool verify /pa /v` in CI; confirm Authenticode chain on a clean Windows VM
+    - [ ] Confirm SmartScreen reputation accrual after first public release (Microsoft uses telemetry on signed binaries to build trust over weeks)
 - [x] Terminal client (renders MUDdown as styled terminal output)
   - [x] `TerminalTheme` interface in `packages/client` — maps block types to chalk style functions (glamour pattern); plain text = identity functions
   - [x] Add `renderTerminal(muddown, options)` to `packages/client` — pure function returning styled string, never writes to stdout; shared by terminal client and telnet bridge
