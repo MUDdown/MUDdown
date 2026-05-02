@@ -261,6 +261,22 @@ jobs:
           "CODE_SIGNING_METADATA=$metadata" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
           "SIGNTOOL_PATH=$signtool"         | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
+          # tauri-bundler spawns signCommand directly via CreateProcess (no
+          # cmd.exe shell), so %VAR% placeholders in tauri.conf.json are
+          # taken as a literal program name and fail with "program not
+          # found". Resolve the paths now and write the fully-expanded
+          # signCommand into the config so the bundler can invoke signtool
+          # with absolute paths.
+          $cfg  = "apps/desktop/src-tauri/tauri.conf.json"
+          $json = Get-Content $cfg -Raw | ConvertFrom-Json
+          # Use single-quoted JSON-style strings so embedded backslashes
+          # survive ConvertTo-Json without re-escaping. The placeholder %1
+          # is the file path and is substituted by tauri-bundler at sign time.
+          $resolved = '"' + $signtool + '" sign /v /fd SHA256 /tr http://timestamp.acs.microsoft.com /td SHA256 /dlib "' + $dlib + '" /dmdf "' + $metadata + '" "%1"'
+          $json.bundle.windows.signCommand = $resolved
+          $json | ConvertTo-Json -Depth 32 | Set-Content $cfg -Encoding utf8
+          Write-Host "signCommand resolved to: $resolved"
+
       # Apple notarization env vars are only exported when MACOS_SIGNING_ACTIVE == '1'.
       # Forwarding empty strings would cause tauri-bundler's Rust code to call
       # `security import` with an empty certificate (env::var returns Ok("") for
