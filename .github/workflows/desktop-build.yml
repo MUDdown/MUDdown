@@ -176,7 +176,12 @@ jobs:
           }
           $proc = Start-Process msiexec.exe -Wait -PassThru `
             -ArgumentList "/I `"$msi`" /quiet /norestart"
-          if ($proc.ExitCode -ne 0) {
+          # 3010 = ERROR_SUCCESS_REBOOT_REQUIRED. msiexec returns this on a
+          # successful install where a reboot would normally be advisable
+          # (commonly triggered by the bundled .NET 8 runtime) even when
+          # /norestart is passed. The tools are fully installed and usable
+          # in this case, so treat 3010 as success.
+          if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
             throw "msiexec failed with exit code $($proc.ExitCode)"
           }
           Remove-Item $msi -Force
