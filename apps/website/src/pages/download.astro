@@ -1,63 +1,73 @@
 ---
 import Base from "../layouts/Base.astro";
+import {
+  fetchLatestPublicRelease,
+  formatPublishedDate,
+  DESKTOP_TAG_PREFIX,
+  type Release,
+  type ReleaseAsset as Asset,
+} from "../lib/releases.ts";
 
 // Build-time fetch of the latest desktop release. Gracefully degrades to
 // a "release pending" notice when no release exists yet (initial bootstrap)
 // or the API is unreachable.
-const REPO = "MUDdown/MUDdown";
-const TAG_PREFIX = "desktop-v";
-
-type Asset = {
-  name: string;
-  browser_download_url: string;
-  size: number;
-  digest?: string | null;
-};
-
-type Release = {
-  tag_name: string;
-  name: string;
-  published_at: string;
-  html_url: string;
-  body: string;
-  assets: Asset[];
-};
 
 type Platform = "macos" | "windows" | "linux";
+
+type ArchToken = "arm64" | "x64";
 
 type ClassifiedAsset = Asset & {
   platform: Platform | "other";
   arch: string;
+  archToken: ArchToken | null; // machine-readable arch (independent of display label)
   kind: string; // installer, archive, signature, manifest
 };
 
-function classify(name: string): { platform: Platform | "other"; arch: string; kind: string } {
+function classify(name: string): { platform: Platform | "other"; arch: string; archToken: ArchToken | null; kind: string } {
   const lower = name.toLowerCase();
   // Detect arch via well-known Tauri tokens. The bare /arm/ check is intentionally
   // omitted: substrings like "charm" or "warm" would misclassify, and Tauri always
   // emits aarch64/arm64.
-  const detectArch = (): "arm64" | "x64" =>
+  const detectArch = (): ArchToken =>
     lower.includes("aarch64") || lower.includes("arm64") || lower.includes("armv8")
       ? "arm64"
       : "x64";
-  if (lower.endsWith(".sig")) return { platform: "other", arch: "", kind: "signature" };
-  if (lower === "latest.json") return { platform: "other", arch: "", kind: "manifest" };
+  if (lower.endsWith(".sig")) return { platform: "other", arch: "", archToken: null, kind: "signature" };
+  if (lower === "latest.json") return { platform: "other", arch: "", archToken: null, kind: "manifest" };
   if (lower.endsWith(".dmg")) {
-    const arch = detectArch() === "arm64" ? "arm64 (Apple Silicon)" : "x64 (Intel)";
-    return { platform: "macos", arch, kind: "DMG" };
+    const archToken = detectArch();
+    const arch = archToken === "arm64" ? "arm64 (Apple Silicon)" : "x64 (Intel)";
+    return { platform: "macos", arch, archToken, kind: "DMG" };
   }
   if (lower.endsWith(".app.tar.gz")) {
-    return { platform: "macos", arch: detectArch(), kind: "App archive (updater)" };
+    const archToken = detectArch();
+    return { platform: "macos", arch: archToken, archToken, kind: "App archive (updater)" };
   }
   if (lower.endsWith(".appimage.tar.gz")) {
-    return { platform: "linux", arch: detectArch(), kind: "AppImage archive (updater)" };
+    const archToken = detectArch();
+    return { platform: "linux", arch: archToken, archToken, kind: "AppImage archive (updater)" };
   }
-  if (lower.endsWith(".msi")) return { platform: "windows", arch: detectArch(), kind: "MSI installer" };
-  if (lower.endsWith(".exe")) return { platform: "windows", arch: detectArch(), kind: "EXE installer" };
-  if (lower.endsWith(".appimage")) return { platform: "linux", arch: detectArch(), kind: "AppImage" };
-  if (lower.endsWith(".deb")) return { platform: "linux", arch: detectArch(), kind: "Debian package" };
-  if (lower.endsWith(".rpm")) return { platform: "linux", arch: detectArch(), kind: "RPM package" };
-  return { platform: "other", arch: "", kind: name.split(".").pop() ?? "" };
+  if (lower.endsWith(".msi")) {
+    const archToken = detectArch();
+    return { platform: "windows", arch: archToken, archToken, kind: "MSI installer" };
+  }
+  if (lower.endsWith(".exe")) {
+    const archToken = detectArch();
+    return { platform: "windows", arch: archToken, archToken, kind: "EXE installer" };
+  }
+  if (lower.endsWith(".appimage")) {
+    const archToken = detectArch();
+    return { platform: "linux", arch: archToken, archToken, kind: "AppImage" };
+  }
+  if (lower.endsWith(".deb")) {
+    const archToken = detectArch();
+    return { platform: "linux", arch: archToken, archToken, kind: "Debian package" };
+  }
+  if (lower.endsWith(".rpm")) {
+    const archToken = detectArch();
+    return { platform: "linux", arch: archToken, archToken, kind: "RPM package" };
+  }
+  return { platform: "other", arch: "", archToken: null, kind: name.split(".").pop() ?? "" };
 }
 
 function formatSize(bytes: number): string {
@@ -78,47 +88,7 @@ function formatDigestShort(digest: string | null | undefined): string | null {
   return `${algorithm}:${hash.slice(0, 12)}…`;
 }
 
-let release: Release | null = null;
-let fetchError: string | null = null;
-
-try {
-  const headers: Record<string, string> = {
-    Accept: "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28",
-  };
-  const token = process.env.GITHUB_TOKEN;
-  if (!token) console.warn("[download] GITHUB_TOKEN not set; using unauthenticated API (60 req/hr limit).");
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  // Find the most recent desktop-v* release. Use list endpoint and filter by tag prefix
-  // because /releases/latest may return a non-desktop release if other release tracks exist.
-  const listRes = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=100`, {
-    headers,
-  });
-  if (listRes.ok) {
-    const data: unknown = await listRes.json();
-    if (!Array.isArray(data)) {
-      console.error("[download] GitHub API returned non-array body:", typeof data, JSON.stringify(data).slice(0, 200));
-      fetchError = "GitHub API returned an unexpected response format.";
-    } else {
-      // Only surface releases at v1.0.0 or later. The desktop-v0.x track is for
-      // internal verification builds (signed-build smoke tests, notarization
-      // dry-runs) and must not be advertised to end users via /download or
-      // /download/[platform] permalinks.
-      const isPublic = (tag: string | undefined): boolean =>
-        !!tag && /^desktop-v[1-9]\d*\./.test(tag);
-      release = (data as Release[]).find((r) => isPublic(r.tag_name)) ?? null;
-      if (!release) fetchError = "No desktop release published yet.";
-    }
-  } else {
-    const errorBody = await listRes.text().catch(() => "(unreadable)");
-    console.warn("[download] GitHub API returned", listRes.status, errorBody.slice(0, 500));
-    fetchError = `GitHub API returned ${listRes.status}`;
-  }
-} catch (err) {
-  console.error("[download] Exception fetching GitHub releases:", err);
-  fetchError = "Could not reach the GitHub API. The release information will appear once the build environment can connect to GitHub.";
-}
+const { release, error: fetchError } = await fetchLatestPublicRelease("download");
 
 const classified: ClassifiedAsset[] = (release?.assets ?? []).map((a) => ({
   ...a,
@@ -145,8 +115,8 @@ const macInstallers = installers.filter((a) => a.platform === "macos");
 const winInstallers = installers.filter((a) => a.platform === "windows");
 const linuxInstallers = installers.filter((a) => a.platform === "linux");
 
-const version = release?.tag_name?.replace(TAG_PREFIX, "") ?? null;
-const publishedAt = release?.published_at ? new Date(release.published_at).toISOString().slice(0, 10) : null;
+const version = release?.tag_name?.replace(DESKTOP_TAG_PREFIX, "") ?? null;
+const publishedAt = formatPublishedDate(release?.published_at);
 ---
 
 <Base title="Download MUDdown Desktop">
@@ -176,16 +146,19 @@ const publishedAt = release?.published_at ? new Date(release.published_at).toISO
             <div class="downloads-platform" data-platform="macos">
               <h3>macOS</h3>
               <ul class="downloads-asset-list">
-                {macInstallers.map((a) => (
-                  <li data-arch={a.arch.includes("arm64") ? "arm64" : "x64"}>
+                {macInstallers.map((a) => {
+                  const shortDigest = formatDigestShort(a.digest);
+                  return (
+                  <li data-arch={a.archToken ?? "x64"}>
                     <a href={a.browser_download_url} class="downloads-asset-link">{a.name}</a>
                     <span class="downloads-asset-meta">
                       {a.kind} &middot; {a.arch} &middot; {formatSize(a.size)}
-                      {formatDigestShort(a.digest) && <> &middot; <code title={a.digest ?? undefined}>{formatDigestShort(a.digest)}</code></>}
+                      {shortDigest && <> &middot; <code title={a.digest ?? undefined}>{shortDigest}</code></>}
                     </span>
                     {a.digest && <div class="downloads-asset-digest"><code>{a.digest}</code></div>}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
               <p class="downloads-platform-note">
                 On first launch, macOS may show a Gatekeeper prompt. Once the macOS distribution
@@ -198,16 +171,19 @@ const publishedAt = release?.published_at ? new Date(release.published_at).toISO
             <div class="downloads-platform" data-platform="windows">
               <h3>Windows</h3>
               <ul class="downloads-asset-list">
-                {winInstallers.map((a) => (
-                  <li data-arch={a.arch.includes("arm64") ? "arm64" : "x64"}>
+                {winInstallers.map((a) => {
+                  const shortDigest = formatDigestShort(a.digest);
+                  return (
+                  <li data-arch={a.archToken ?? "x64"}>
                     <a href={a.browser_download_url} class="downloads-asset-link">{a.name}</a>
                     <span class="downloads-asset-meta">
                       {a.kind} &middot; {a.arch} &middot; {formatSize(a.size)}
-                      {formatDigestShort(a.digest) && <> &middot; <code title={a.digest ?? undefined}>{formatDigestShort(a.digest)}</code></>}
+                      {shortDigest && <> &middot; <code title={a.digest ?? undefined}>{shortDigest}</code></>}
                     </span>
                     {a.digest && <div class="downloads-asset-digest"><code>{a.digest}</code></div>}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
               <p class="downloads-platform-note">
                 Signed via Microsoft Artifact Signing. SmartScreen reputation builds up over the
@@ -225,16 +201,19 @@ const publishedAt = release?.published_at ? new Date(release.published_at).toISO
                 is for Fedora/RHEL/openSUSE. Pick the one that matches your package manager.
               </p>
               <ul class="downloads-asset-list">
-                {linuxInstallers.map((a) => (
-                  <li data-arch={a.arch.includes("arm64") ? "arm64" : "x64"}>
+                {linuxInstallers.map((a) => {
+                  const shortDigest = formatDigestShort(a.digest);
+                  return (
+                  <li data-arch={a.archToken ?? "x64"}>
                     <a href={a.browser_download_url} class="downloads-asset-link">{a.name}</a>
                     <span class="downloads-asset-meta">
                       {a.kind} &middot; {a.arch} &middot; {formatSize(a.size)}
-                      {formatDigestShort(a.digest) && <> &middot; <code title={a.digest ?? undefined}>{formatDigestShort(a.digest)}</code></>}
+                      {shortDigest && <> &middot; <code title={a.digest ?? undefined}>{shortDigest}</code></>}
                     </span>
                     {a.digest && <div class="downloads-asset-digest"><code>{a.digest}</code></div>}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             </div>
           )}
@@ -289,11 +268,14 @@ xcrun stapler validate /Applications/MUDdown.app</code></pre>
                   <em>Updater artifacts</em> drawer above). Verify with
                   <a href="https://jedisct1.github.io/minisign/" target="_blank" rel="noopener noreferrer">minisign</a>:
                 </p>
-                <pre><code>minisign -V -P RWQ... -m MUDdown_{version}_amd64.AppImage</code></pre>
+                <pre><code>minisign -V -P RWSW/Bkmg9q6wjcY6X2gv2IJHh8v/ZaRItohvJu9D+SEBSUvLXMIcEJ9 -m MUDdown_{version}_amd64.AppImage</code></pre>
                 <p>
-                  Replace <code>RWQ...</code> with the project's Ed25519 public key (also
-                  bundled into the desktop app and published in
-                  <a href="https://github.com/MUDdown/MUDdown/blob/main/apps/desktop/UPDATER_KEYS.md" target="_blank" rel="noopener noreferrer">UPDATER_KEYS.md</a>).
+                  The public key above (<code>RWSW/Bkmg9q6…</code>) is the same Ed25519 key
+                  bundled into the desktop app for auto-update verification — it lives in
+                  <a href="https://github.com/MUDdown/MUDdown/blob/main/apps/desktop/src-tauri/tauri.conf.json" target="_blank" rel="noopener noreferrer"><code>apps/desktop/src-tauri/tauri.conf.json</code></a>
+                  (under <code>plugins.updater.pubkey</code>, base64-encoded). See
+                  <a href="https://github.com/MUDdown/MUDdown/blob/main/apps/desktop/UPDATER_KEYS.md" target="_blank" rel="noopener noreferrer">UPDATER_KEYS.md</a>
+                  for the rotation process.
                 </p>
               </div>
             )}
@@ -333,8 +315,16 @@ xcrun stapler validate /Applications/MUDdown.app</code></pre>
     const platform = (uaData && typeof uaData.platform === "string" && uaData.platform) || navigator.platform || "";
 
     // Exclude mobile platforms — neither the macOS DMG nor any other artifact
-    // installs on iOS/iPadOS/Android.
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(platform) || /iPhone|iPad|iPod|Android/i.test(ua);
+    // installs on iOS/iPadOS/Android. iPadOS in "Request Desktop Site" mode
+    // sends a Macintosh UA with no iPad token; real Macs report
+    // navigator.maxTouchPoints === 0, so any positive touch-point count on a
+    // "Mac" UA is a tablet/phone in disguise.
+    const looksMac = /Mac/.test(platform) || /Macintosh/.test(ua);
+    const touchOnMac = looksMac && (navigator.maxTouchPoints || 0) > 1;
+    const isMobile =
+      /iPhone|iPad|iPod|Android/i.test(platform) ||
+      /iPhone|iPad|iPod|Android/i.test(ua) ||
+      touchOnMac;
     if (isMobile) {
       msg.textContent = "Mobile devices: try the web client at /play, or open telnets://muddown.com:2323 in a telnet app.";
       return;

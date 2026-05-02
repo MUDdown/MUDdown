@@ -9,6 +9,16 @@ The MUDdown desktop app uses Tauri's built-in [auto-updater](https://v2.tauri.ap
 | Public key | Embedded in `tauri.conf.json` → `plugins.updater.pubkey` | Committed in repo |
 | Private key | Used by CI to sign release artifacts | GitHub Actions secret `TAURI_SIGNING_PRIVATE_KEY` |
 
+### Current public key
+
+The current production public key is:
+
+```
+RWSW/Bkmg9q6wjcY6X2gv2IJHh8v/ZaRItohvJu9D+SEBSUvLXMIcEJ9
+```
+
+Key ID: `C2BADA832619FC96`. This is the raw key (the second line of the `untrusted comment: minisign public key:` block) — pass it to `minisign -V -P <key>` directly. The base64-wrapped form embedded in [`tauri.conf.json`](src-tauri/tauri.conf.json) under `plugins.updater.pubkey` is identical content with the comment header included.
+
 ## Generating a New Key Pair
 
 ```bash

@@ -4,6 +4,7 @@
 // the right asset for each platform. If no release exists yet, we render a
 // fallback that points at the Downloads page.
 import Base from "../../layouts/Base.astro";
+import { fetchLatestPublicRelease, type ReleaseAsset as Asset } from "../../lib/releases.ts";
 
 export async function getStaticPaths() {
   return [
@@ -19,11 +20,6 @@ export async function getStaticPaths() {
 }
 
 const { platform } = Astro.params as { platform: string };
-
-const REPO = "MUDdown/MUDdown";
-
-type Asset = { name: string; browser_download_url: string };
-type Release = { tag_name: string; assets: Asset[] };
 
 // Two return values: a single asset for arch-specific slugs, or a pair for the
 // generic /download/macos slug (so the redirect page can pick at runtime).
@@ -61,7 +57,12 @@ function pickMacosPair(assets: Asset[]): { arm64: string | null; x64: string | n
   const by = (pred: (n: string) => boolean) =>
     assets.find((a) => pred(a.name.toLowerCase())) ?? null;
   const arm = by((n) => n.endsWith(".dmg") && (n.includes("aarch64") || n.includes("arm64")));
-  const x64 = by((n) => n.endsWith(".dmg") && !n.includes("aarch64") && !n.includes("arm64"));
+  // Mirror pickAsset("macos-x64"): prefer explicit x64/x86_64 tokens, fall back
+  // to any DMG without arm tokens. Keeps the generic /download/macos slug
+  // consistent with the arch-specific /download/macos-x64 slug.
+  const x64 =
+    by((n) => n.endsWith(".dmg") && (n.includes("x64") || n.includes("x86_64"))) ??
+    by((n) => n.endsWith(".dmg") && !n.includes("aarch64") && !n.includes("arm64"));
   return {
     arm64: arm?.browser_download_url ?? null,
     x64: x64?.browser_download_url ?? null,
@@ -70,44 +71,24 @@ function pickMacosPair(assets: Asset[]): { arm64: string | null; x64: string | n
 
 let resolution: Resolution | null = null;
 
-try {
-  const headers: Record<string, string> = {
-    Accept: "application/vnd.github+json",
-    "X-GitHub-Api-Version": "2022-11-28",
-  };
-  const token = process.env.GITHUB_TOKEN;
-  if (!token) console.warn(`[download/${platform}] GITHUB_TOKEN not set; using unauthenticated API (60 req/hr limit).`);
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  const res = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=100`, { headers });
-  if (res.ok) {
-    const data: unknown = await res.json();
-    if (!Array.isArray(data)) {
-      console.warn(`[download/${platform}] GitHub API returned non-array:`, JSON.stringify(data).slice(0, 200));
-    } else {
-      // Only redirect to releases at v1.0.0 or later. desktop-v0.x is reserved
-      // for internal verification builds and must not leak through permalinks.
-      const isPublic = (tag: string | undefined): boolean =>
-        !!tag && /^desktop-v[1-9]\d*\./.test(tag);
-      const release = (data as Release[]).find((r) => isPublic(r.tag_name));
-      if (release) {
-        const assets = Array.isArray(release.assets) ? release.assets : [];
-        if (platform === "macos") {
-          const pair = pickMacosPair(assets);
-          if (pair.arm64 || pair.x64) resolution = { kind: "macos-pair", ...pair };
-        } else {
-          const asset = pickAsset(assets, platform);
-          if (asset) resolution = { kind: "single", url: asset.browser_download_url };
-        }
-      }
-    }
+const { release, error: fetchErrorRaw } = await fetchLatestPublicRelease(`download/${platform}`);
+if (release) {
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  if (platform === "macos") {
+    const pair = pickMacosPair(assets);
+    if (pair.arm64 || pair.x64) resolution = { kind: "macos-pair", ...pair };
   } else {
-    const errorBody = await res.text().catch(() => "(unreadable)");
-    console.warn(`[download/${platform}] GitHub API returned ${res.status}:`, errorBody.slice(0, 500));
+    const asset = pickAsset(assets, platform);
+    if (asset) resolution = { kind: "single", url: asset.browser_download_url };
   }
-} catch (err) {
-  console.warn(`[download/${platform}] GitHub API fetch failed; falling back to /download.`, err);
 }
+
+// Distinguish "release published but no asset for this platform" (release !== null
+// but resolution === null) from "couldn't reach GitHub" (fetchErrorRaw set and
+// release === null). The "no release published yet" case shares fallback copy
+// with the "couldn't reach GitHub" case but logs differently.
+const isApiOutage = release === null && fetchErrorRaw !== null && fetchErrorRaw !== "No desktop release published yet.";
+const fetchError = isApiOutage ? fetchErrorRaw : null;
 
 const fallback = "/download";
 const singleTarget = resolution?.kind === "single" ? resolution.url : null;
@@ -126,6 +107,11 @@ const manualLink = singleTarget ?? macosArm64 ?? macosX64 ?? fallback;
           Your download should start automatically. If it doesn't,
           <a href={manualLink}>click here</a>.
         </p>
+      ) : fetchError ? (
+        <p>
+          {fetchError} In the meantime, visit the <a href={fallback}>Downloads page</a>
+          for status and other ways to play.
+        </p>
       ) : (
         <p>
           No desktop release is available yet. Visit the <a href={fallback}>Downloads page</a>
@@ -140,31 +126,46 @@ const manualLink = singleTarget ?? macosArm64 ?? macosX64 ?? fallback;
   // For arch-specific slugs we have a single URL. For the generic /download/macos
   // slug we have both arm64 and x64 candidates and pick at runtime so Intel Macs
   // aren't sent the Apple Silicon DMG (and vice versa).
-  function pickMacosTarget() {
-    if (!macosArm64 && !macosX64) return fallback;
+  function pickMacosTargetSync(arch) {
+    // Defensive guard: caller has already verified at least one candidate is
+    // non-null, but keep the fallback in case future changes break that
+    // invariant.
+    if (arch === "x64") return macosX64 || macosArm64 || fallback;
+    return macosArm64 || macosX64 || fallback;
+  }
+
+  function pickMacosTargetAsync(done) {
     var ua = navigator.userAgent || "";
     var uaData = navigator.userAgentData;
-    var finalize = function (arch) {
-      if (arch === "x64") return macosX64 || macosArm64 || fallback;
-      return macosArm64 || macosX64 || fallback;
-    };
+    var fallbackArch = /Intel Mac OS X/i.test(ua) ? "x64" : "arm64";
     if (uaData && typeof uaData.getHighEntropyValues === "function") {
+      var settled = false;
+      var resolveOnce = function (arch) {
+        if (settled) return;
+        settled = true;
+        done(pickMacosTargetSync(arch));
+      };
+      // Wrap the UA-CH Promise in a 3s timeout. The spec permits stub
+      // implementations to never settle, which would otherwise leave the
+      // page stuck at "Redirecting…" indefinitely.
+      var timer = setTimeout(function () { resolveOnce(fallbackArch); }, 3000);
       uaData.getHighEntropyValues(["architecture"]).then(function (hints) {
+        clearTimeout(timer);
         var arch = hints && hints.architecture === "x86" ? "x64" : "arm64";
-        window.location.replace(finalize(arch));
+        resolveOnce(arch);
       }).catch(function () {
-        window.location.replace(finalize(/Intel Mac OS X/i.test(ua) ? "x64" : "arm64"));
+        clearTimeout(timer);
+        resolveOnce(fallbackArch);
       });
-      return null; // async path takes over
+      return;
     }
-    return finalize(/Intel Mac OS X/i.test(ua) ? "x64" : "arm64");
+    done(pickMacosTargetSync(fallbackArch));
   }
 
   if (singleTarget) {
     window.location.replace(singleTarget);
   } else if (macosArm64 || macosX64) {
-    var t = pickMacosTarget();
-    if (t) window.location.replace(t);
+    pickMacosTargetAsync(function (target) { window.location.replace(target); });
   }
 </script>
 
@@ -173,3 +174,4 @@ const manualLink = singleTarget ?? macosArm64 ?? macosX64 ?? fallback;
     padding: 3rem 0;
   }
 </style>
+
