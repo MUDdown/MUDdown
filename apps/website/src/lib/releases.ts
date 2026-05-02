@@ -50,18 +50,6 @@ export async function fetchLatestPublicRelease(context: string): Promise<FetchRe
   return inflight;
 }
 
-async function doFetch req/hr GitHub limit quickly.
-let inflight: Promise<FetchReleaseResult> | null = null;
-
-// Fetches the most recent public desktop release. Returns a discriminated
-// result so callers can distinguish "release pending" (error: "No desktop
-// release published yet.") from "build environment can't reach GitHub".
-export async function fetchLatestPublicRelease(context: string): Promise<FetchReleaseResult> {
-  if (inflight) return inflight;
-  inflight = doFetch(context);
-  return inflight;
-}
-
 async function doFetch(context: string): Promise<FetchReleaseResult> {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
