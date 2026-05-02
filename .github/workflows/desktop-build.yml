@@ -149,48 +149,58 @@ jobs:
           }
           if (-not $env:RUNNER_TEMP) { throw "RUNNER_TEMP is not set" }
 
-          # Bundles SignTool, .NET 8 Runtime, and Azure.CodeSigning.Dlib.
-          # See https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-signing-integrations
-          # for the current minimum SignTool version. We download the MSI
-          # directly rather than going through winget; on GitHub-hosted
-          # Windows runners winget's first-run Microsoft Store source
-          # initialization is unreliable and has been observed to hang
-          # indefinitely, while a direct download from the Microsoft CDN
-          # is deterministic and significantly faster.
+          # Install only the Artifact Signing dlib via NuGet — SignTool and
+          # the .NET 8 Runtime are already present on the windows-latest
+          # runner image, so we don't need the full MSI installer (which
+          # bundles chained .NET 8 / VC++ Redist installers and has been
+          # observed to take 25+ minutes to complete on hosted runners,
+          # even with /quiet /norestart).
           #
-          # The MSI is pinned by SHA-256 so a swapped payload from the CDN
-          # would fail closed before being used to produce trusted signatures.
-          # When Microsoft refreshes the MSI (.NET runtime / SignTool / dlib
-          # version bumps) this hash must be regenerated; the build will fail
-          # loudly with a checksum mismatch until it's updated.
-          $msi = Join-Path $env:RUNNER_TEMP "ArtifactSigningClientTools.msi"
-          $expectedHash = "93807BB270E63416912FADDCECF21E0165FC8EB8AE444B01458C7849679E0E4F"
+          # Microsoft documents this as an explicit alternative; see the
+          # "Download and install the Artifact Signing dlib package" section
+          # of https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-signing-integrations
+          # and the package page at https://www.nuget.org/packages/Microsoft.ArtifactSigning.Client.
+          #
+          # The .nupkg is pinned by SHA-256 so a swapped payload from
+          # nuget.org would fail closed before being used to produce
+          # trusted signatures. Regenerate the hash when bumping the
+          # version constant below.
+          $asClientVersion = "1.0.128"
+          $expectedHash    = "74BD7D27E6CE1051409C38D9B46BC8DF0400ECD643D51FFBF2AC00869061E40B"
+          $nupkg           = Join-Path $env:RUNNER_TEMP "Microsoft.ArtifactSigning.Client.nupkg"
+          $extractRoot     = Join-Path $env:RUNNER_TEMP "artifact-signing-client"
+
           $ProgressPreference = 'SilentlyContinue'
           Invoke-WebRequest `
-            -Uri "https://download.microsoft.com/download/a3c24ba9-ff1f-444f-b626-eff710f345c3/ArtifactSigningClientTools.msi" `
-            -OutFile $msi `
+            -Uri "https://www.nuget.org/api/v2/package/Microsoft.ArtifactSigning.Client/$asClientVersion" `
+            -OutFile $nupkg `
             -TimeoutSec 300
-          $actualHash = (Get-FileHash $msi -Algorithm SHA256).Hash
+          $actualHash = (Get-FileHash $nupkg -Algorithm SHA256).Hash
           if ($actualHash -ne $expectedHash) {
-            throw "ArtifactSigningClientTools.msi checksum mismatch: expected $expectedHash, got $actualHash. If Microsoft has refreshed the MSI, regenerate the pinned hash."
+            throw "Microsoft.ArtifactSigning.Client.$asClientVersion.nupkg checksum mismatch: expected $expectedHash, got $actualHash. If the pinned version was bumped, regenerate the hash."
           }
-          $proc = Start-Process msiexec.exe -Wait -PassThru `
-            -ArgumentList "/I `"$msi`" /quiet /norestart"
-          # 3010 = ERROR_SUCCESS_REBOOT_REQUIRED. msiexec returns this on a
-          # successful install where a reboot would normally be advisable
-          # (commonly triggered by the bundled .NET 8 runtime) even when
-          # /norestart is passed. The tools are fully installed and usable
-          # in this case, so treat 3010 as success.
-          if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
-            throw "msiexec failed with exit code $($proc.ExitCode)"
-          }
-          Remove-Item $msi -Force
+          Expand-Archive -Path $nupkg -DestinationPath $extractRoot -Force
+          Remove-Item $nupkg -Force
 
-          $toolsRoot = "${env:ProgramFiles(x86)}\Microsoft SDKs\Azure\Artifact Signing Client Tools"
-          $dlib = Join-Path $toolsRoot "bin\x64\Azure.CodeSigning.Dlib.dll"
-          $signtool = Join-Path $toolsRoot "bin\x64\signtool.exe"
-          if (-not (Test-Path $dlib))     { throw "dlib not found at $dlib" }
-          if (-not (Test-Path $signtool)) { throw "signtool not found at $signtool" }
+          $dlib = Join-Path $extractRoot "bin\x64\Azure.CodeSigning.Dlib.dll"
+          if (-not (Test-Path $dlib)) { throw "dlib not found at $dlib" }
+
+          # SignTool from the Windows SDK on windows-latest. The 20348 SDK
+          # is documented as incompatible with the dlib; pick 22621 or
+          # newer. Glob the bin folder so the workflow keeps working as
+          # the runner image upgrades the SDK.
+          $sdkBin = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+          $signtool = Get-ChildItem -Path $sdkBin -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\10\.0\.(\d+)\.\d+\\x64\\signtool\.exe$' -and [int]$Matches[1] -ge 22621 } |
+            Sort-Object { [int]([regex]::Match($_.FullName, '\\10\.0\.(\d+)\.').Groups[1].Value) } -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $signtool) { throw "No compatible signtool.exe (Windows SDK 22621+) found under $sdkBin" }
+          Write-Host "Using signtool: $signtool"
+
+          # .NET 8 Runtime is preinstalled on windows-latest images; verify
+          # so we fail loudly if a future image change drops it.
+          $hasNet8 = (& dotnet --list-runtimes 2>$null) -match 'Microsoft\.NETCore\.App 8\.'
+          if (-not $hasNet8) { throw ".NET 8 Runtime not found on runner; signing dlib requires it" }
 
           $metadata = Join-Path $env:RUNNER_TEMP "artifact-signing-metadata.json"
           @{
