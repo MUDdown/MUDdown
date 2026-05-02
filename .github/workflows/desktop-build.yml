@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   get-version:
@@ -32,6 +32,9 @@ jobs:
 
   build:
     needs: get-version
+    permissions:
+      contents: write   # tauri-action publishes release assets
+      id-token: write   # azure/login OIDC (only consumed on the Windows leg)
     strategy:
       fail-fast: false
       matrix:
@@ -51,6 +54,21 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     name: Build (${{ matrix.target }})
+    env:
+      # Unified predicate for Windows code-signing. Signing is active only when
+      # ALL of the following hold:
+      #   - this is the Windows leg of the matrix
+      #   - the WINDOWS_SIGNING_ENABLED repo variable is flipped on
+      #   - the event is trusted (not a fork PR — GitHub does not issue OIDC
+      #     ID tokens to fork PRs, and we don't want to spend signing credits
+      #     on every internal PR push either).
+      # When the predicate is empty, the strip step removes signCommand from
+      # tauri.conf.json so the Tauri build still produces an unsigned MSI.
+      WINDOWS_SIGNING_ACTIVE: >-
+        ${{ matrix.platform == 'windows-latest'
+            && vars.WINDOWS_SIGNING_ENABLED == 'true'
+            && github.event_name != 'pull_request'
+            && '1' || '' }}
 
     steps:
       - uses: actions/checkout@v6
@@ -85,6 +103,77 @@ jobs:
 
       - name: Build workspace deps
         run: npx turbo run build --filter=@muddown/client... --filter=@muddown/shared...
+
+      # ---- Windows Authenticode signing (Microsoft Artifact Signing) ----
+      # Steps below are gated on env.WINDOWS_SIGNING_ACTIVE (defined at the
+      # job level above). When inactive, the strip step removes signCommand
+      # from tauri.conf.json so the Windows leg still produces an unsigned MSI.
+      - name: Strip signCommand when signing inactive
+        if: matrix.platform == 'windows-latest' && env.WINDOWS_SIGNING_ACTIVE != '1'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cfg = "apps/desktop/src-tauri/tauri.conf.json"
+          $json = Get-Content $cfg -Raw | ConvertFrom-Json
+          if ($json.bundle.windows.PSObject.Properties.Name -contains 'signCommand') {
+            $json.bundle.windows.PSObject.Properties.Remove('signCommand')
+            $json | ConvertTo-Json -Depth 32 | Set-Content $cfg -Encoding utf8
+            Write-Host "signCommand stripped (WINDOWS_SIGNING_ACTIVE != '1')"
+          }
+
+      - name: Azure login (OIDC)
+        if: env.WINDOWS_SIGNING_ACTIVE == '1'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Artifact Signing Client Tools + write signtool metadata
+        if: env.WINDOWS_SIGNING_ACTIVE == '1'
+        shell: pwsh
+        env:
+          AZURE_CODE_SIGNING_ENDPOINT: ${{ vars.AZURE_CODE_SIGNING_ENDPOINT }}
+          AZURE_CODE_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_CODE_SIGNING_ACCOUNT_NAME }}
+          AZURE_CERT_PROFILE_NAME: ${{ vars.AZURE_CERT_PROFILE_NAME }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # Validate required GitHub Actions variables are set (unset vars
+          # expand to empty strings, which would yield syntactically valid
+          # JSON that the signing client rejects with an opaque error).
+          foreach ($name in 'AZURE_CODE_SIGNING_ENDPOINT','AZURE_CODE_SIGNING_ACCOUNT_NAME','AZURE_CERT_PROFILE_NAME') {
+            if (-not (Get-Item "env:$name" -ErrorAction SilentlyContinue).Value) {
+              throw "Required GitHub Actions variable $name is not set"
+            }
+          }
+          if (-not $env:RUNNER_TEMP) { throw "RUNNER_TEMP is not set" }
+
+          # Bundles SignTool, .NET 8 Runtime, and Azure.CodeSigning.Dlib.
+          # See https://learn.microsoft.com/en-us/azure/trusted-signing/quickstart
+          # for the current minimum SignTool version.
+          winget install --id Microsoft.Azure.ArtifactSigningClientTools `
+            --exact --silent --accept-package-agreements --accept-source-agreements
+          if ($LASTEXITCODE -ne 0) {
+            throw "winget install failed with exit code $LASTEXITCODE"
+          }
+
+          $toolsRoot = "${env:ProgramFiles(x86)}\Microsoft SDKs\Azure\Artifact Signing Client Tools"
+          $dlib = Join-Path $toolsRoot "bin\x64\Azure.CodeSigning.Dlib.dll"
+          $signtool = Join-Path $toolsRoot "bin\x64\signtool.exe"
+          if (-not (Test-Path $dlib))     { throw "dlib not found at $dlib" }
+          if (-not (Test-Path $signtool)) { throw "signtool not found at $signtool" }
+
+          $metadata = Join-Path $env:RUNNER_TEMP "artifact-signing-metadata.json"
+          @{
+            Endpoint               = $env:AZURE_CODE_SIGNING_ENDPOINT
+            CodeSigningAccountName = $env:AZURE_CODE_SIGNING_ACCOUNT_NAME
+            CertificateProfileName = $env:AZURE_CERT_PROFILE_NAME
+          } | ConvertTo-Json | Set-Content -Path $metadata -Encoding ascii
+
+          "CODE_SIGNING_DLIB=$dlib"         | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "CODE_SIGNING_METADATA=$metadata" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "SIGNTOOL_PATH=$signtool"         | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
@@ -145,6 +234,22 @@ jobs:
           else
             echo "No .dmg found — skipping notarization check"
           fi
+
+      - name: Verify Authenticode signature (Windows)
+        if: env.WINDOWS_SIGNING_ACTIVE == '1'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Get-ChildItem -Recurse -Path "apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle" -Filter *.msi | Select-Object -First 1
+          if (-not $msi) {
+            Write-Error "No .msi found — signing was active but Tauri produced no MSI artifact"
+            exit 1
+          }
+          Write-Host "Verifying $($msi.FullName)"
+          & "$env:SIGNTOOL_PATH" verify /pa /v $msi.FullName
+          if ($LASTEXITCODE -ne 0) {
+            throw "signtool verify failed with exit code $LASTEXITCODE"
+          }
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
