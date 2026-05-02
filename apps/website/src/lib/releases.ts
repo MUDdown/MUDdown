@@ -24,10 +24,17 @@ export const DESKTOP_TAG_PREFIX = "desktop-v";
 // Only releases at v1.0.0 or later are surfaced publicly. The desktop-v0.x
 // track is reserved for internal verification builds (signed-build smoke
 // tests, notarization dry-runs) and must never reach end users via the
-// /download page or /download/[platform] permalinks.
+// /download page or /download/[platform] permalinks. The end anchor and
+// explicit semver shape rejects pre-release tags like desktop-v1.0.0-beta.1
+// — only stable MAJOR.MINOR.PATCH tags reach the download UI.
 export function isPublicDesktopTag(tag: string | undefined): boolean {
-  return !!tag && /^desktop-v[1-9]\d*\./.test(tag);
+  return !!tag && /^desktop-v[1-9]\d*\.\d+\.\d+$/.test(tag);
 }
+
+// Sentinel error message for the "no v1+ release published yet" path.
+// Exported so callers can distinguish this expected state from a real API
+// outage without coupling to a free-text string literal.
+export const ERROR_NO_RELEASE_YET = "No desktop release published yet.";
 
 export type FetchReleaseResult =
   | { release: Release; error: null }
@@ -46,8 +53,23 @@ let inflight: Promise<FetchReleaseResult> | null = null;
 // release published yet.") from "build environment can't reach GitHub".
 export async function fetchLatestPublicRelease(context: string): Promise<FetchReleaseResult> {
   if (inflight) return inflight;
-  inflight = doFetch(context);
-  return inflight;
+  // Memoize the in-flight Promise so concurrent SSG callers share one HTTP
+  // request, but clear the cache on failure so a transient network error
+  // doesn't poison the rest of the build. Successful results stay cached for
+  // the build's lifetime to keep the 9 SSG pages to a single API call.
+  const promise = doFetch(context).then((result) => {
+    if (result.release === null) inflight = null;
+    return result;
+  });
+  inflight = promise;
+  return promise;
+}
+
+// Test-only hook: clear the memoized fetch so each test case starts from a
+// clean slate. Production callers (Astro page frontmatter) never need this —
+// the cache deliberately survives for the duration of a single build.
+export function __resetMemoForTesting(): void {
+  inflight = null;
 }
 
 async function doFetch(context: string): Promise<FetchReleaseResult> {
@@ -71,7 +93,10 @@ async function doFetch(context: string): Promise<FetchReleaseResult> {
       { headers, signal: controller.signal },
     );
     if (!res.ok) {
-      const errorBody = await res.text().catch(() => "(unreadable)");
+      const errorBody = await res.text().catch((readErr) => {
+        console.warn(`[${context}] Could not read error response body:`, readErr);
+        return "(unreadable)";
+      });
       console.error(`[${context}] GitHub API returned ${res.status}:`, errorBody.slice(0, 500));
       return { release: null, error: `GitHub API returned ${res.status}.` };
     }
@@ -96,9 +121,11 @@ async function doFetch(context: string): Promise<FetchReleaseResult> {
         error: "GitHub API returned an unexpected response format.",
       };
     }
-    const release = (data as Release[]).find((r) => isPublicDesktopTag(r.tag_name));
+    const release = (data as (Release | null)[]).find(
+      (r): r is Release => r !== null && typeof r === "object" && isPublicDesktopTag(r.tag_name),
+    );
     if (!release) {
-      return { release: null, error: "No desktop release published yet." };
+      return { release: null, error: ERROR_NO_RELEASE_YET };
     }
     return { release, error: null };
   } catch (err) {

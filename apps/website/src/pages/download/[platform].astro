@@ -4,7 +4,8 @@
 // the right asset for each platform. If no release exists yet, we render a
 // fallback that points at the Downloads page.
 import Base from "../../layouts/Base.astro";
-import { fetchLatestPublicRelease, type ReleaseAsset as Asset } from "../../lib/releases.ts";
+import { fetchLatestPublicRelease, ERROR_NO_RELEASE_YET } from "../../lib/releases.ts";
+import { pickAsset, pickMacosPair } from "../../lib/release-assets.ts";
 
 export async function getStaticPaths() {
   return [
@@ -27,48 +28,6 @@ type Resolution =
   | { kind: "single"; url: string }
   | { kind: "macos-pair"; arm64: string | null; x64: string | null };
 
-function pickAsset(assets: Asset[], plat: string): Asset | null {
-  const by = (pred: (n: string) => boolean) =>
-    assets.find((a) => pred(a.name.toLowerCase())) ?? null;
-
-  switch (plat) {
-    case "macos-arm64":
-      return by((n) => n.endsWith(".dmg") && (n.includes("aarch64") || n.includes("arm64")));
-    case "macos-x64":
-      return (
-        by((n) => n.endsWith(".dmg") && (n.includes("x64") || n.includes("x86_64"))) ??
-        by((n) => n.endsWith(".dmg") && !n.includes("aarch64") && !n.includes("arm64"))
-      );
-    case "windows":
-      return by((n) => n.endsWith(".msi")) ?? by((n) => n.endsWith(".exe"));
-    case "linux":
-    case "linux-appimage":
-      return by((n) => n.endsWith(".appimage"));
-    case "linux-deb":
-      return by((n) => n.endsWith(".deb"));
-    case "linux-rpm":
-      return by((n) => n.endsWith(".rpm"));
-    default:
-      return null;
-  }
-}
-
-function pickMacosPair(assets: Asset[]): { arm64: string | null; x64: string | null } {
-  const by = (pred: (n: string) => boolean) =>
-    assets.find((a) => pred(a.name.toLowerCase())) ?? null;
-  const arm = by((n) => n.endsWith(".dmg") && (n.includes("aarch64") || n.includes("arm64")));
-  // Mirror pickAsset("macos-x64"): prefer explicit x64/x86_64 tokens, fall back
-  // to any DMG without arm tokens. Keeps the generic /download/macos slug
-  // consistent with the arch-specific /download/macos-x64 slug.
-  const x64 =
-    by((n) => n.endsWith(".dmg") && (n.includes("x64") || n.includes("x86_64"))) ??
-    by((n) => n.endsWith(".dmg") && !n.includes("aarch64") && !n.includes("arm64"));
-  return {
-    arm64: arm?.browser_download_url ?? null,
-    x64: x64?.browser_download_url ?? null,
-  };
-}
-
 let resolution: Resolution | null = null;
 
 const { release, error: fetchErrorRaw } = await fetchLatestPublicRelease(`download/${platform}`);
@@ -89,7 +48,7 @@ if (release) {
 // - "asset missing for this platform": release exists but pickAsset() / pickMacosPair()
 //   returned nothing (e.g. partial release where one matrix leg failed). In
 //   this case `release !== null` but `resolution === null`.
-const isApiOutage = release === null && fetchErrorRaw !== null && fetchErrorRaw !== "No desktop release published yet.";
+const isApiOutage = release === null && fetchErrorRaw !== null && fetchErrorRaw !== ERROR_NO_RELEASE_YET;
 const fetchError = isApiOutage ? fetchErrorRaw : null;
 const assetMissing = release !== null && resolution === null;
 

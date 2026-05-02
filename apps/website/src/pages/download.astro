@@ -7,14 +7,17 @@ import {
   type Release,
   type ReleaseAsset as Asset,
 } from "../lib/releases.ts";
+import {
+  classify,
+  formatSize,
+  formatDigestShort,
+  type Platform,
+  type ArchToken,
+} from "../lib/release-assets.ts";
 
 // Build-time fetch of the latest desktop release. Gracefully degrades to
 // a "release pending" notice when no release exists yet (initial bootstrap)
 // or the API is unreachable.
-
-type Platform = "macos" | "windows" | "linux";
-
-type ArchToken = "arm64" | "x64";
 
 type ClassifiedAsset = Asset & {
   platform: Platform | "other";
@@ -22,71 +25,6 @@ type ClassifiedAsset = Asset & {
   archToken: ArchToken | null; // machine-readable arch (independent of display label)
   kind: string; // installer, archive, signature, manifest
 };
-
-function classify(name: string): { platform: Platform | "other"; arch: string; archToken: ArchToken | null; kind: string } {
-  const lower = name.toLowerCase();
-  // Detect arch via well-known Tauri tokens. The bare /arm/ check is intentionally
-  // omitted: substrings like "charm" or "warm" would misclassify, and Tauri always
-  // emits aarch64/arm64.
-  const detectArch = (): ArchToken =>
-    lower.includes("aarch64") || lower.includes("arm64") || lower.includes("armv8")
-      ? "arm64"
-      : "x64";
-  if (lower.endsWith(".sig")) return { platform: "other", arch: "", archToken: null, kind: "signature" };
-  if (lower === "latest.json") return { platform: "other", arch: "", archToken: null, kind: "manifest" };
-  if (lower.endsWith(".dmg")) {
-    const archToken = detectArch();
-    const arch = archToken === "arm64" ? "arm64 (Apple Silicon)" : "x64 (Intel)";
-    return { platform: "macos", arch, archToken, kind: "DMG" };
-  }
-  if (lower.endsWith(".app.tar.gz")) {
-    const archToken = detectArch();
-    return { platform: "macos", arch: archToken, archToken, kind: "App archive (updater)" };
-  }
-  if (lower.endsWith(".appimage.tar.gz")) {
-    const archToken = detectArch();
-    return { platform: "linux", arch: archToken, archToken, kind: "AppImage archive (updater)" };
-  }
-  if (lower.endsWith(".msi")) {
-    const archToken = detectArch();
-    return { platform: "windows", arch: archToken, archToken, kind: "MSI installer" };
-  }
-  if (lower.endsWith(".exe")) {
-    const archToken = detectArch();
-    return { platform: "windows", arch: archToken, archToken, kind: "EXE installer" };
-  }
-  if (lower.endsWith(".appimage")) {
-    const archToken = detectArch();
-    return { platform: "linux", arch: archToken, archToken, kind: "AppImage" };
-  }
-  if (lower.endsWith(".deb")) {
-    const archToken = detectArch();
-    return { platform: "linux", arch: archToken, archToken, kind: "Debian package" };
-  }
-  if (lower.endsWith(".rpm")) {
-    const archToken = detectArch();
-    return { platform: "linux", arch: archToken, archToken, kind: "RPM package" };
-  }
-  return { platform: "other", arch: "", archToken: null, kind: name.split(".").pop() ?? "" };
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatDigestShort(digest: string | null | undefined): string | null {
-  if (!digest) return null;
-  // GitHub returns digests like "sha256:abcdef..." — render a short form for inline
-  // display. Callers expose the full digest separately so users can actually run
-  // sha256sum -c against it.
-  const idx = digest.indexOf(":");
-  if (idx <= 0 || idx === digest.length - 1) return digest;
-  const algorithm = digest.slice(0, idx);
-  const hash = digest.slice(idx + 1);
-  return `${algorithm}:${hash.slice(0, 12)}…`;
-}
 
 const { release, error: fetchError } = await fetchLatestPublicRelease("download");
 
