@@ -150,13 +150,24 @@ jobs:
           if (-not $env:RUNNER_TEMP) { throw "RUNNER_TEMP is not set" }
 
           # Bundles SignTool, .NET 8 Runtime, and Azure.CodeSigning.Dlib.
-          # See https://learn.microsoft.com/en-us/azure/trusted-signing/quickstart
-          # for the current minimum SignTool version.
-          winget install --id Microsoft.Azure.ArtifactSigningClientTools `
-            --exact --silent --accept-package-agreements --accept-source-agreements
-          if ($LASTEXITCODE -ne 0) {
-            throw "winget install failed with exit code $LASTEXITCODE"
+          # See https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-signing-integrations
+          # for the current minimum SignTool version. We download the MSI
+          # directly rather than going through winget; on GitHub-hosted
+          # Windows runners winget's first-run Microsoft Store source
+          # initialization is unreliable and has been observed to hang
+          # indefinitely, while a direct download from the Microsoft CDN
+          # is deterministic and significantly faster.
+          $msi = Join-Path $env:RUNNER_TEMP "ArtifactSigningClientTools.msi"
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest `
+            -Uri "https://download.microsoft.com/download/a3c24ba9-ff1f-444f-b626-eff710f345c3/ArtifactSigningClientTools.msi" `
+            -OutFile $msi
+          $proc = Start-Process msiexec.exe -Wait -PassThru `
+            -ArgumentList "/I `"$msi`" /quiet /norestart"
+          if ($proc.ExitCode -ne 0) {
+            throw "msiexec failed with exit code $($proc.ExitCode)"
           }
+          Remove-Item $msi -Force
 
           $toolsRoot = "${env:ProgramFiles(x86)}\Microsoft SDKs\Azure\Artifact Signing Client Tools"
           $dlib = Join-Path $toolsRoot "bin\x64\Azure.CodeSigning.Dlib.dll"
