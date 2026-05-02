@@ -80,6 +80,14 @@ jobs:
         ${{ startsWith(matrix.platform, 'macos')
             && secrets.APPLE_CERTIFICATE != ''
             && '1' || '' }}
+      # Tauri updater signing is active only when the Ed25519 private key
+      # is provisioned. Same Ok("") pitfall as APPLE_*: forwarding an empty
+      # string would make tauri-bundler attempt to sign updater artifacts
+      # with an empty key. We export TAURI_SIGNING_* via GITHUB_ENV in a
+      # gated step so the vars are absent (not empty) when inactive, and
+      # the bundler skips updater signing instead of failing.
+      TAURI_SIGNING_ACTIVE: >-
+        ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' && '1' || '' }}
 
     steps:
       - uses: actions/checkout@v6
@@ -292,12 +300,35 @@ jobs:
           write_var APPLE_PASSWORD             "$APPLE_PASSWORD"
           write_var APPLE_TEAM_ID              "$APPLE_TEAM_ID"
 
+      - name: Export Tauri updater signing env (signing active)
+        if: env.TAURI_SIGNING_ACTIVE == '1'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Multi-line heredoc form so the Ed25519 private key (which contains
+          # newlines) survives intact. See:
+          # https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#multiline-strings
+          write_var() {
+            local name="$1"
+            local value="$2"
+            local delim
+            delim="EOF_$(openssl rand -hex 8)"
+            {
+              echo "${name}<<${delim}"
+              printf '%s\n' "$value"
+              echo "${delim}"
+            } >> "$GITHUB_ENV"
+          }
+          write_var TAURI_SIGNING_PRIVATE_KEY          "$TAURI_SIGNING_PRIVATE_KEY"
+          write_var TAURI_SIGNING_PRIVATE_KEY_PASSWORD "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: apps/desktop
           args: --target ${{ matrix.target }}
