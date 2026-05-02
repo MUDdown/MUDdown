@@ -21,22 +21,23 @@ export async function getStaticPaths() {
 const { platform } = Astro.params as { platform: string };
 
 const REPO = "MUDdown/MUDdown";
-const TAG_PREFIX = "desktop-v";
 
 type Asset = { name: string; browser_download_url: string };
 type Release = { tag_name: string; assets: Asset[] };
+
+// Two return values: a single asset for arch-specific slugs, or a pair for the
+// generic /download/macos slug (so the redirect page can pick at runtime).
+type Resolution =
+  | { kind: "single"; url: string }
+  | { kind: "macos-pair"; arm64: string | null; x64: string | null };
 
 function pickAsset(assets: Asset[], plat: string): Asset | null {
   const by = (pred: (n: string) => boolean) =>
     assets.find((a) => pred(a.name.toLowerCase())) ?? null;
 
   switch (plat) {
-    case "macos":
     case "macos-arm64":
-      return (
-        by((n) => n.endsWith(".dmg") && (n.includes("aarch64") || n.includes("arm64"))) ??
-        by((n) => n.endsWith(".dmg"))
-      );
+      return by((n) => n.endsWith(".dmg") && (n.includes("aarch64") || n.includes("arm64")));
     case "macos-x64":
       return (
         by((n) => n.endsWith(".dmg") && (n.includes("x64") || n.includes("x86_64"))) ??
@@ -56,7 +57,18 @@ function pickAsset(assets: Asset[], plat: string): Asset | null {
   }
 }
 
-let target: string | null = null;
+function pickMacosPair(assets: Asset[]): { arm64: string | null; x64: string | null } {
+  const by = (pred: (n: string) => boolean) =>
+    assets.find((a) => pred(a.name.toLowerCase())) ?? null;
+  const arm = by((n) => n.endsWith(".dmg") && (n.includes("aarch64") || n.includes("arm64")));
+  const x64 = by((n) => n.endsWith(".dmg") && !n.includes("aarch64") && !n.includes("arm64"));
+  return {
+    arm64: arm?.browser_download_url ?? null,
+    x64: x64?.browser_download_url ?? null,
+  };
+}
+
+let resolution: Resolution | null = null;
 
 try {
   const headers: Record<string, string> = {
@@ -73,11 +85,20 @@ try {
     if (!Array.isArray(data)) {
       console.warn(`[download/${platform}] GitHub API returned non-array:`, JSON.stringify(data).slice(0, 200));
     } else {
-      const release = (data as Release[]).find((r) => r.tag_name?.startsWith(TAG_PREFIX));
+      // Only redirect to releases at v1.0.0 or later. desktop-v0.x is reserved
+      // for internal verification builds and must not leak through permalinks.
+      const isPublic = (tag: string | undefined): boolean =>
+        !!tag && /^desktop-v[1-9]\d*\./.test(tag);
+      const release = (data as Release[]).find((r) => isPublic(r.tag_name));
       if (release) {
         const assets = Array.isArray(release.assets) ? release.assets : [];
-        const asset = pickAsset(assets, platform);
-        if (asset) target = asset.browser_download_url;
+        if (platform === "macos") {
+          const pair = pickMacosPair(assets);
+          if (pair.arm64 || pair.x64) resolution = { kind: "macos-pair", ...pair };
+        } else {
+          const asset = pickAsset(assets, platform);
+          if (asset) resolution = { kind: "single", url: asset.browser_download_url };
+        }
       }
     }
   } else {
@@ -89,17 +110,21 @@ try {
 }
 
 const fallback = "/download";
-const finalUrl = target ?? fallback;
+const singleTarget = resolution?.kind === "single" ? resolution.url : null;
+const macosArm64 = resolution?.kind === "macos-pair" ? resolution.arm64 : null;
+const macosX64 = resolution?.kind === "macos-pair" ? resolution.x64 : null;
+const hasTarget = singleTarget !== null || macosArm64 !== null || macosX64 !== null;
+const manualLink = singleTarget ?? macosArm64 ?? macosX64 ?? fallback;
 ---
 
 <Base title={`Download MUDdown — ${platform}`}>
   <section class="downloads-page">
     <div class="container">
       <h2>Redirecting…</h2>
-      {target ? (
+      {hasTarget ? (
         <p>
           Your download should start automatically. If it doesn't,
-          <a href={finalUrl}>click here</a>.
+          <a href={manualLink}>click here</a>.
         </p>
       ) : (
         <p>
@@ -111,6 +136,40 @@ const finalUrl = target ?? fallback;
   </section>
 </Base>
 
-<script is:inline define:vars={{ target }}>
-  if (target) window.location.replace(target);
+<script is:inline define:vars={{ singleTarget, macosArm64, macosX64, fallback }}>
+  // For arch-specific slugs we have a single URL. For the generic /download/macos
+  // slug we have both arm64 and x64 candidates and pick at runtime so Intel Macs
+  // aren't sent the Apple Silicon DMG (and vice versa).
+  function pickMacosTarget() {
+    if (!macosArm64 && !macosX64) return fallback;
+    var ua = navigator.userAgent || "";
+    var uaData = navigator.userAgentData;
+    var finalize = function (arch) {
+      if (arch === "x64") return macosX64 || macosArm64 || fallback;
+      return macosArm64 || macosX64 || fallback;
+    };
+    if (uaData && typeof uaData.getHighEntropyValues === "function") {
+      uaData.getHighEntropyValues(["architecture"]).then(function (hints) {
+        var arch = hints && hints.architecture === "x86" ? "x64" : "arm64";
+        window.location.replace(finalize(arch));
+      }).catch(function () {
+        window.location.replace(finalize(/Intel Mac OS X/i.test(ua) ? "x64" : "arm64"));
+      });
+      return null; // async path takes over
+    }
+    return finalize(/Intel Mac OS X/i.test(ua) ? "x64" : "arm64");
+  }
+
+  if (singleTarget) {
+    window.location.replace(singleTarget);
+  } else if (macosArm64 || macosX64) {
+    var t = pickMacosTarget();
+    if (t) window.location.replace(t);
+  }
 </script>
+
+<style>
+  .downloads-page {
+    padding: 3rem 0;
+  }
+</style>

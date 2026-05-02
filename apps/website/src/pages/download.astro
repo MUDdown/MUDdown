@@ -33,8 +33,11 @@ type ClassifiedAsset = Asset & {
 
 function classify(name: string): { platform: Platform | "other"; arch: string; kind: string } {
   const lower = name.toLowerCase();
+  // Detect arch via well-known Tauri tokens. The bare /arm/ check is intentionally
+  // omitted: substrings like "charm" or "warm" would misclassify, and Tauri always
+  // emits aarch64/arm64.
   const detectArch = (): "arm64" | "x64" =>
-    lower.includes("aarch64") || lower.includes("arm64") || lower.includes("armv8") || lower.includes("arm")
+    lower.includes("aarch64") || lower.includes("arm64") || lower.includes("armv8")
       ? "arm64"
       : "x64";
   if (lower.endsWith(".sig")) return { platform: "other", arch: "", kind: "signature" };
@@ -45,6 +48,9 @@ function classify(name: string): { platform: Platform | "other"; arch: string; k
   }
   if (lower.endsWith(".app.tar.gz")) {
     return { platform: "macos", arch: detectArch(), kind: "App archive (updater)" };
+  }
+  if (lower.endsWith(".appimage.tar.gz")) {
+    return { platform: "linux", arch: detectArch(), kind: "AppImage archive (updater)" };
   }
   if (lower.endsWith(".msi")) return { platform: "windows", arch: detectArch(), kind: "MSI installer" };
   if (lower.endsWith(".exe")) return { platform: "windows", arch: detectArch(), kind: "EXE installer" };
@@ -60,10 +66,11 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function formatDigest(digest: string | null | undefined): string | null {
+function formatDigestShort(digest: string | null | undefined): string | null {
   if (!digest) return null;
-  // GitHub returns digests like "sha256:abcdef..." — show short form for inline display.
-  // The full digest is available in the "Verify the signature" section.
+  // GitHub returns digests like "sha256:abcdef..." — render a short form for inline
+  // display. Callers expose the full digest separately so users can actually run
+  // sha256sum -c against it.
   const idx = digest.indexOf(":");
   if (idx <= 0 || idx === digest.length - 1) return digest;
   const algorithm = digest.slice(0, idx);
@@ -94,7 +101,13 @@ try {
       console.error("[download] GitHub API returned non-array body:", typeof data, JSON.stringify(data).slice(0, 200));
       fetchError = "GitHub API returned an unexpected response format.";
     } else {
-      release = (data as Release[]).find((r) => r.tag_name?.startsWith(TAG_PREFIX)) ?? null;
+      // Only surface releases at v1.0.0 or later. The desktop-v0.x track is for
+      // internal verification builds (signed-build smoke tests, notarization
+      // dry-runs) and must not be advertised to end users via /download or
+      // /download/[platform] permalinks.
+      const isPublic = (tag: string | undefined): boolean =>
+        !!tag && /^desktop-v[1-9]\d*\./.test(tag);
+      release = (data as Release[]).find((r) => isPublic(r.tag_name)) ?? null;
       if (!release) fetchError = "No desktop release published yet.";
     }
   } else {
@@ -151,16 +164,17 @@ const publishedAt = release?.published_at ? new Date(release.published_at).toISO
           </div>
 
           {macInstallers.length > 0 && (
-            <div class="downloads-platform">
+            <div class="downloads-platform" data-platform="macos">
               <h3>macOS</h3>
               <ul class="downloads-asset-list">
                 {macInstallers.map((a) => (
-                  <li>
+                  <li data-arch={a.arch.includes("arm64") ? "arm64" : "x64"}>
                     <a href={a.browser_download_url} class="downloads-asset-link">{a.name}</a>
                     <span class="downloads-asset-meta">
                       {a.kind} &middot; {a.arch} &middot; {formatSize(a.size)}
-                      {formatDigest(a.digest) && <> &middot; <code>{formatDigest(a.digest)}</code></>}
+                      {formatDigestShort(a.digest) && <> &middot; <code title={a.digest ?? undefined}>{formatDigestShort(a.digest)}</code></>}
                     </span>
+                    {a.digest && <div class="downloads-asset-digest"><code>{a.digest}</code></div>}
                   </li>
                 ))}
               </ul>
@@ -172,16 +186,17 @@ const publishedAt = release?.published_at ? new Date(release.published_at).toISO
           )}
 
           {winInstallers.length > 0 && (
-            <div class="downloads-platform">
+            <div class="downloads-platform" data-platform="windows">
               <h3>Windows</h3>
               <ul class="downloads-asset-list">
                 {winInstallers.map((a) => (
-                  <li>
+                  <li data-arch={a.arch.includes("arm64") ? "arm64" : "x64"}>
                     <a href={a.browser_download_url} class="downloads-asset-link">{a.name}</a>
                     <span class="downloads-asset-meta">
                       {a.kind} &middot; {a.arch} &middot; {formatSize(a.size)}
-                      {formatDigest(a.digest) && <> &middot; <code>{formatDigest(a.digest)}</code></>}
+                      {formatDigestShort(a.digest) && <> &middot; <code title={a.digest ?? undefined}>{formatDigestShort(a.digest)}</code></>}
                     </span>
+                    {a.digest && <div class="downloads-asset-digest"><code>{a.digest}</code></div>}
                   </li>
                 ))}
               </ul>
@@ -193,16 +208,22 @@ const publishedAt = release?.published_at ? new Date(release.published_at).toISO
           )}
 
           {linuxInstallers.length > 0 && (
-            <div class="downloads-platform">
+            <div class="downloads-platform" data-platform="linux">
               <h3>Linux</h3>
+              <p class="downloads-platform-note">
+                Linux ships in three formats. <strong>AppImage</strong> runs on most distros
+                without installation; <strong>.deb</strong> is for Debian/Ubuntu; <strong>.rpm</strong>
+                is for Fedora/RHEL/openSUSE. Pick the one that matches your package manager.
+              </p>
               <ul class="downloads-asset-list">
                 {linuxInstallers.map((a) => (
-                  <li>
+                  <li data-arch={a.arch.includes("arm64") ? "arm64" : "x64"}>
                     <a href={a.browser_download_url} class="downloads-asset-link">{a.name}</a>
                     <span class="downloads-asset-meta">
                       {a.kind} &middot; {a.arch} &middot; {formatSize(a.size)}
-                      {formatDigest(a.digest) && <> &middot; <code>{formatDigest(a.digest)}</code></>}
+                      {formatDigestShort(a.digest) && <> &middot; <code title={a.digest ?? undefined}>{formatDigestShort(a.digest)}</code></>}
                     </span>
+                    {a.digest && <div class="downloads-asset-digest"><code>{a.digest}</code></div>}
                   </li>
                 ))}
               </ul>
@@ -229,15 +250,17 @@ const publishedAt = release?.published_at ? new Date(release.published_at).toISO
 
           <details class="downloads-verify" id="verify">
             <summary>Verify the signature</summary>
-            <div id="verify-macos">
-              <h4>macOS — notarization staple</h4>
-              <pre><code>spctl -a -t exec -vv /Applications/MUDdown.app
+            {macInstallers.length > 0 && (
+              <div id="verify-macos">
+                <h4>macOS — notarization staple</h4>
+                <pre><code>spctl -a -t exec -vv /Applications/MUDdown.app
 xcrun stapler validate /Applications/MUDdown.app</code></pre>
-              <p>
-                The first command should print <code>accepted</code> with the developer's
-                Team ID. The second should print <code>The validate action worked!</code>.
-              </p>
-            </div>
+                <p>
+                  The first command should print <code>accepted</code> with the developer's
+                  Team ID. The second should print <code>The validate action worked!</code>.
+                </p>
+              </div>
+            )}
             {winInstallers.length > 0 && (
               <div id="verify-windows">
                 <h4>Windows — Authenticode signature</h4>
@@ -248,13 +271,23 @@ xcrun stapler validate /Applications/MUDdown.app</code></pre>
                 </p>
               </div>
             )}
-            <div id="verify-linux">
-              <h4>Linux — checksum verification</h4>
-              <p>
-                Linux artifacts are not OS-signed; verify the SHA256 digest shown next to each
-                asset above against the value reported by GitHub on the release page.
-              </p>
-            </div>
+            {linuxInstallers.length > 0 && (
+              <div id="verify-linux">
+                <h4>Linux — minisign signature</h4>
+                <p>
+                  Linux artifacts are not OS-signed, but the Tauri auto-updater publishes
+                  per-asset <code>.sig</code> files alongside each installer (see the
+                  <em>Updater artifacts</em> drawer above). Verify with
+                  <a href="https://jedisct1.github.io/minisign/" target="_blank" rel="noopener noreferrer">minisign</a>:
+                </p>
+                <pre><code>minisign -V -P RWQ... -m MUDdown_{version}_amd64.AppImage</code></pre>
+                <p>
+                  Replace <code>RWQ...</code> with the project's Ed25519 public key (also
+                  bundled into the desktop app and published in
+                  <a href="https://github.com/MUDdown/MUDdown/blob/main/apps/desktop/UPDATER_KEYS.md" target="_blank" rel="noopener noreferrer">UPDATER_KEYS.md</a>).
+                </p>
+              </div>
+            )}
           </details>
         </>
       ) : (
@@ -277,45 +310,46 @@ xcrun stapler validate /Applications/MUDdown.app</code></pre>
 </Base>
 
 <script is:inline>
-  // Detect the visitor's OS and elevate the matching primary download.
+  // Detect the visitor's OS (and macOS architecture) and elevate the matching
+  // primary download. iOS/iPadOS are explicitly excluded from the macOS branch
+  // because a DMG is not installable on iOS — those visitors fall through to
+  // the "pick an installer below" fallback, which still shows web/telnet links.
   (function () {
     const msg = document.getElementById("os-detect-msg");
     const cta = document.getElementById("os-detect-cta");
     if (!msg || !cta) return;
 
     const ua = navigator.userAgent || "";
-    // Prefer the modern UA-Client-Hints API (synchronous low-entropy `platform` hint),
-    // fall back to the deprecated `navigator.platform` for browsers that don't ship it yet.
-    const uaData = /** @type {{ platform?: string } | undefined} */ (navigator.userAgentData);
+    const uaData = /** @type {{ platform?: string, getHighEntropyValues?: (h: string[]) => Promise<{ architecture?: string }> } | undefined} */ (navigator.userAgentData);
     const platform = (uaData && typeof uaData.platform === "string" && uaData.platform) || navigator.platform || "";
 
-    let target = null;
-    let label = "your platform";
+    // Exclude mobile platforms — neither the macOS DMG nor any other artifact
+    // installs on iOS/iPadOS/Android.
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(platform) || /iPhone|iPad|iPod|Android/i.test(ua);
+    if (isMobile) {
+      msg.textContent = "Mobile devices: try the web client at /play, or open telnets://muddown.com:2323 in a telnet app.";
+      return;
+    }
 
-    // Look for the first asset link matching the detected platform's section.
-    const findLink = (sectionHeading) => {
+    // Pick a download link inside a section, optionally preferring a specific arch.
+    const findLink = (sectionHeading, preferArch) => {
       const heads = Array.from(document.querySelectorAll(".downloads-platform h3"));
       const head = heads.find((h) => h.textContent.trim() === sectionHeading);
       if (!head) return null;
-      const ul = head.parentElement?.querySelector(".downloads-asset-list");
-      const a = ul?.querySelector("a.downloads-asset-link");
+      const ul = head.parentElement && head.parentElement.querySelector(".downloads-asset-list");
+      if (!ul) return null;
+      if (preferArch) {
+        const li = ul.querySelector(`li[data-arch="${preferArch}"]`);
+        if (li) {
+          const a = li.querySelector("a.downloads-asset-link");
+          if (a) return a.getAttribute("href");
+        }
+      }
+      const a = ul.querySelector("a.downloads-asset-link");
       return a ? a.getAttribute("href") : null;
     };
 
-    // userAgentData.platform values: "macOS", "Windows", "Linux", "Android", "Chrome OS".
-    // Legacy navigator.platform values include "MacIntel", "Win32", "Linux x86_64", etc.
-    if (/^macOS$/i.test(platform) || /Mac|iPhone|iPad/.test(platform) || /Macintosh/.test(ua)) {
-      target = findLink("macOS");
-      label = "macOS";
-    } else if (/^Windows$/i.test(platform) || /Win/.test(platform)) {
-      target = findLink("Windows");
-      label = "Windows";
-    } else if (/Linux/i.test(platform)) {
-      target = findLink("Linux");
-      label = "Linux";
-    }
-
-    if (target) {
+    const renderCta = (target, label) => {
       const strong = document.createElement("strong");
       strong.textContent = label;
       msg.textContent = "Detected ";
@@ -326,9 +360,43 @@ xcrun stapler validate /Applications/MUDdown.app</code></pre>
       a.className = "primary";
       a.textContent = `Download for ${label}`;
       cta.appendChild(a);
-    } else {
-      msg.textContent = "Pick the right installer for your operating system below.";
+    };
+
+    // userAgentData.platform values: "macOS", "Windows", "Linux", "Android", "Chrome OS".
+    // Legacy navigator.platform values include "MacIntel", "Win32", "Linux x86_64", etc.
+    if (/^macOS$/i.test(platform) || /Mac/.test(platform) || /Macintosh/.test(ua)) {
+      // macOS arch detection: prefer UA-CH high-entropy hint, fall back to UA
+      // string heuristics. "Intel Mac OS X" is unambiguous; otherwise newer
+      // Safari hides the arch and we default to arm64 (the active product).
+      const finish = (arch) => {
+        const target = findLink("macOS", arch);
+        if (target) renderCta(target, arch === "arm64" ? "macOS (Apple Silicon)" : "macOS (Intel)");
+        else msg.textContent = "Pick the right installer for your operating system below.";
+      };
+      if (uaData && typeof uaData.getHighEntropyValues === "function") {
+        uaData.getHighEntropyValues(["architecture"]).then((hints) => {
+          const arch = hints && hints.architecture === "x86" ? "x64" : "arm64";
+          finish(arch);
+        }).catch(() => finish(/Intel Mac OS X/i.test(ua) ? "x64" : "arm64"));
+      } else {
+        finish(/Intel Mac OS X/i.test(ua) ? "x64" : "arm64");
+      }
+      return;
     }
+    if (/^Windows$/i.test(platform) || /Win/.test(platform)) {
+      const target = findLink("Windows");
+      if (target) renderCta(target, "Windows");
+      else msg.textContent = "Pick the right installer for your operating system below.";
+      return;
+    }
+    if (/Linux/i.test(platform)) {
+      // Linux ships three incompatible package formats. Browser detection can't
+      // reliably pick the right one, so we point at the section instead of
+      // auto-selecting a single artifact.
+      msg.textContent = "Detected Linux. Pick the package format that matches your distro below — AppImage runs almost anywhere.";
+      return;
+    }
+    msg.textContent = "Pick the right installer for your operating system below.";
   })();
 </script>
 
@@ -420,6 +488,17 @@ xcrun stapler validate /Applications/MUDdown.app</code></pre>
   .downloads-asset-meta code {
     font-size: 0.8rem;
     word-break: break-all;
+  }
+  .downloads-asset-digest {
+    flex-basis: 100%;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    margin-top: 0.15rem;
+  }
+  .downloads-asset-digest code {
+    font-family: var(--font-mono, monospace);
+    word-break: break-all;
+    user-select: all;
   }
   .downloads-platform-note {
     color: var(--text-dim);
