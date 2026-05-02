@@ -69,6 +69,15 @@ jobs:
             && vars.WINDOWS_SIGNING_ENABLED == 'true'
             && github.event_name != 'pull_request'
             && '1' || '' }}
+      # macOS code-signing is active only when an Apple Developer ID
+      # certificate has been provisioned in repo secrets. Until then
+      # the strip step removes the hardened-runtime entitlements field
+      # so the Tauri bundler doesn't attempt to codesign with a missing
+      # cert (which fails with `security import` errors).
+      MACOS_SIGNING_ACTIVE: >-
+        ${{ startsWith(matrix.platform, 'macos')
+            && secrets.APPLE_CERTIFICATE != ''
+            && '1' || '' }}
 
     steps:
       - uses: actions/checkout@v6
@@ -120,6 +129,20 @@ jobs:
             $json | ConvertTo-Json -Depth 32 | Set-Content $cfg -Encoding utf8
             Write-Host "signCommand stripped (WINDOWS_SIGNING_ACTIVE != '1')"
           }
+
+      - name: Strip macOS entitlements when signing inactive
+        if: startsWith(matrix.platform, 'macos') && env.MACOS_SIGNING_ACTIVE != '1'
+        run: |
+          set -euo pipefail
+          cfg="apps/desktop/src-tauri/tauri.conf.json"
+          # The hardened-runtime entitlements field forces tauri-bundler
+          # to invoke `security import` + codesign. Strip it (and any
+          # signingIdentity) when no Apple Developer ID cert is
+          # provisioned so the build still produces an unsigned .app/.dmg.
+          tmp=$(mktemp)
+          jq 'del(.bundle.macOS.entitlements) | del(.bundle.macOS.signingIdentity) | del(.bundle.macOS.providerShortName)' "$cfg" > "$tmp"
+          mv "$tmp" "$cfg"
+          echo "macOS signing config stripped (MACOS_SIGNING_ACTIVE != '1')"
 
       - name: Azure login (OIDC)
         if: env.WINDOWS_SIGNING_ACTIVE == '1'
