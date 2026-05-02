@@ -260,14 +260,14 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
       - [x] Create resource group `rg-signing` (East US)
       - [x] Create Artifact Signing account `muddown-signing` (Basic SKU, $9.99/mo)
       - [x] Grant `Artifact Signing Identity Verifier` role to the maintainer
-      - [x] Create Microsoft Entra app `github-muddown-signing` with two GitHub OIDC federated credentials (`refs/heads/main`, `refs/tags/desktop-v*`) — no long-lived secrets
+      - [x] Create Microsoft Entra app `github-muddown-signing` with a GitHub OIDC federated credential for `refs/heads/main` — no long-lived secrets (tag-triggered FIC deferred until release flow is wired)
       - [x] Configure 6 GitHub Actions variables (non-secret; OIDC handles auth): `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_CODE_SIGNING_ENDPOINT`, `AZURE_CODE_SIGNING_ACCOUNT_NAME`, `AZURE_CERT_PROFILE_NAME`
     - [x] Submit Public Trust Identity Validation as Organization (StickMUD Entertainment LLC) — 1–20 business days
     - [ ] Run post-IV finalization (`scripts/setup-signing-post-iv.sh`):
       - [ ] Create Public Trust certificate profile `muddown-public-trust` bound to the validated identity
       - [ ] Assign `Artifact Signing Certificate Profile Signer` role to the Entra app, scoped to the cert profile (least privilege)
+      - [ ] Flip `WINDOWS_SIGNING_ENABLED` GitHub Actions variable to `true` (the workflow gates Azure login, winget install, and `signtool verify` on this variable, and strips `bundle.windows.signCommand` from `tauri.conf.json` when it's not `'true'`)
       - [ ] Trigger first signed Windows build via `gh workflow run`
-    - [ ] **Flip `WINDOWS_SIGNING_ENABLED` GitHub Actions variable to `true`** — currently the workflow gates the Azure login, winget install, and `signtool verify` steps on this variable, and strips `bundle.windows.signCommand` from `tauri.conf.json` at build time when it's not `'true'`. Set after IV completes and post-IV script has run: `gh variable set WINDOWS_SIGNING_ENABLED -b true -R MUDdown/MUDdown`
     - [ ] Verify signed `.msi` with `signtool verify /pa /v` in CI; confirm Authenticode chain on a clean Windows VM
     - [ ] Confirm SmartScreen reputation accrual after first public release (Microsoft uses telemetry on signed binaries to build trust over weeks)
 - [x] Terminal client (renders MUDdown as styled terminal output)

@@ -18,8 +18,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 jobs:
   get-version:
@@ -33,6 +32,9 @@ jobs:
 
   build:
     needs: get-version
+    permissions:
+      contents: write   # tauri-action publishes release assets
+      id-token: write   # azure/login OIDC (only consumed on the Windows leg)
     strategy:
       fail-fast: false
       matrix:

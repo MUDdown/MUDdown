@@ -28,8 +28,9 @@ builds. They are committed for reproducibility/audit, **not** for general use.
 `setup-signing-post-iv.sh` reads `.signing-state.env`, prompts for the
 completed validation's GUID, creates the certificate profile, grants the
 Entra service principal the `Artifact Signing Certificate Profile Signer`
-role scoped to that profile, and triggers a `Desktop Build` workflow run
-on `$GH_BRANCH`.
+role scoped to that profile, sets the `WINDOWS_SIGNING_ENABLED=true`
+GitHub Actions variable, and triggers a `Desktop Build` workflow run on
+`$GH_BRANCH` — that run will produce a signed MSI.
 
 ### Prerequisites
 
@@ -45,8 +46,8 @@ on `$GH_BRANCH`.
 
 - An Azure Resource Group + Artifact Signing account (Basic SKU, **$9.99/mo**)
 - An Entra app registration with a GitHub OIDC federated credential for
-  `refs/heads/main` (additional credentials can be added later for tag
-  triggers — see comments in `setup-signing.sh`)
+  `refs/heads/$GH_BRANCH` (defaults to `main`; additional credentials can
+  be added later for tag triggers — see comments in `setup-signing.sh`)
 - Six non-secret GitHub Actions Variables on the target repo
 - A local `.signing-state.env` (gitignored) bridging the two scripts
 

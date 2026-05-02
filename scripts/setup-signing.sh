@@ -180,7 +180,7 @@ create_fic() {
         subject:$s, audiences:["api://AzureADTokenExchange"]}')" >/dev/null
   fi
 }
-create_fic "github-main-branch" "repo:${GH_REPO}:ref:refs/heads/main"
+create_fic "github-${GH_BRANCH}-branch" "repo:${GH_REPO}:ref:refs/heads/${GH_BRANCH}"
 # NOTE: Tag-triggered releases are not yet wired up. When they are, add an
 # additional FIC here using an exact subject (e.g.
 # "repo:${GH_REPO}:ref:refs/tags/desktop-v1.2.3" per release) or migrate to

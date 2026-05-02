@@ -19,6 +19,12 @@ for cmd in az gh; do
   command -v "$cmd" >/dev/null || { echo "Missing required tool: $cmd" >&2; exit 1; }
 done
 az account show >/dev/null 2>&1 || { echo "Run 'az login' first." >&2; exit 1; }
+gh auth status >/dev/null 2>&1 || { echo "Run 'gh auth login' first." >&2; exit 1; }
+
+# The artifact-signing CLI extension is required for cert-profile commands.
+# setup-signing.sh installs it, but post-IV may run on a different machine.
+az extension show --name artifact-signing >/dev/null 2>&1 \
+  || az extension add --name artifact-signing >/dev/null
 
 echo "Identity validations on $ACCOUNT:"
 az rest --method get \
@@ -64,10 +70,18 @@ if [ "${ROLE_COUNT:-0}" = "0" ]; then
 fi
 echo "✓ Signer role granted (scoped to profile)"
 
+# Flip the CI gate so the triggered run actually signs. The Desktop Build
+# workflow keys all signing steps off `vars.WINDOWS_SIGNING_ENABLED == 'true'`;
+# without this the auto-triggered build below would still produce an
+# unsigned MSI. Idempotent — re-running just rewrites the same value.
+gh variable set WINDOWS_SIGNING_ENABLED -b true -R "$GH_REPO" >/dev/null
+echo "✓ WINDOWS_SIGNING_ENABLED=true on $GH_REPO"
+
 # Trigger a signed build. Branch is configurable so post-IV verification
-# can run against a feature branch before flipping WINDOWS_SIGNING_ENABLED
-# on main. Defaults to main; override via GH_BRANCH (set in .signing-state.env
-# by setup-signing.sh, or exported in the current shell).
+# can run against a feature branch before merging to main. Defaults to main;
+# override via GH_BRANCH (set in .signing-state.env by setup-signing.sh, or
+# exported in the current shell). The branch must match the OIDC federated
+# credential subject created by setup-signing.sh.
 BRANCH="${GH_BRANCH:-main}"
 gh workflow run "Desktop Build" -R "$GH_REPO" -r "$BRANCH"
 echo "✓ Build triggered on $BRANCH — watch with: gh run watch -R $GH_REPO"
