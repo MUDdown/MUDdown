@@ -150,13 +150,41 @@ jobs:
           if (-not $env:RUNNER_TEMP) { throw "RUNNER_TEMP is not set" }
 
           # Bundles SignTool, .NET 8 Runtime, and Azure.CodeSigning.Dlib.
-          # See https://learn.microsoft.com/en-us/azure/trusted-signing/quickstart
-          # for the current minimum SignTool version.
-          winget install --id Microsoft.Azure.ArtifactSigningClientTools `
-            --exact --silent --accept-package-agreements --accept-source-agreements
-          if ($LASTEXITCODE -ne 0) {
-            throw "winget install failed with exit code $LASTEXITCODE"
+          # See https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-signing-integrations
+          # for the current minimum SignTool version. We download the MSI
+          # directly rather than going through winget; on GitHub-hosted
+          # Windows runners winget's first-run Microsoft Store source
+          # initialization is unreliable and has been observed to hang
+          # indefinitely, while a direct download from the Microsoft CDN
+          # is deterministic and significantly faster.
+          #
+          # The MSI is pinned by SHA-256 so a swapped payload from the CDN
+          # would fail closed before being used to produce trusted signatures.
+          # When Microsoft refreshes the MSI (.NET runtime / SignTool / dlib
+          # version bumps) this hash must be regenerated; the build will fail
+          # loudly with a checksum mismatch until it's updated.
+          $msi = Join-Path $env:RUNNER_TEMP "ArtifactSigningClientTools.msi"
+          $expectedHash = "93807BB270E63416912FADDCECF21E0165FC8EB8AE444B01458C7849679E0E4F"
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest `
+            -Uri "https://download.microsoft.com/download/a3c24ba9-ff1f-444f-b626-eff710f345c3/ArtifactSigningClientTools.msi" `
+            -OutFile $msi `
+            -TimeoutSec 300
+          $actualHash = (Get-FileHash $msi -Algorithm SHA256).Hash
+          if ($actualHash -ne $expectedHash) {
+            throw "ArtifactSigningClientTools.msi checksum mismatch: expected $expectedHash, got $actualHash. If Microsoft has refreshed the MSI, regenerate the pinned hash."
           }
+          $proc = Start-Process msiexec.exe -Wait -PassThru `
+            -ArgumentList "/I `"$msi`" /quiet /norestart"
+          # 3010 = ERROR_SUCCESS_REBOOT_REQUIRED. msiexec returns this on a
+          # successful install where a reboot would normally be advisable
+          # (commonly triggered by the bundled .NET 8 runtime) even when
+          # /norestart is passed. The tools are fully installed and usable
+          # in this case, so treat 3010 as success.
+          if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
+            throw "msiexec failed with exit code $($proc.ExitCode)"
+          }
+          Remove-Item $msi -Force
 
           $toolsRoot = "${env:ProgramFiles(x86)}\Microsoft SDKs\Azure\Artifact Signing Client Tools"
           $dlib = Join-Path $toolsRoot "bin\x64\Azure.CodeSigning.Dlib.dll"
