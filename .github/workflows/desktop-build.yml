@@ -76,9 +76,21 @@ jobs:
       # cert (which fails with `security import` errors).
       # On fork PRs, GitHub masks secrets (resolves to ''), so the strip
       # step always runs there — producing unsigned artifacts, which is correct.
+      # macOS code-signing is active only when *all* required Apple
+      # secrets are populated. Checking only APPLE_CERTIFICATE would let
+      # the import step run with a missing password (→ "MAC verification
+      # failed") or let the build proceed without a signing identity
+      # / notarization creds (→ confusing late failure). On fork PRs
+      # GitHub masks secrets (resolves to ''), so the strip step always
+      # runs there — producing unsigned artifacts, which is correct.
       MACOS_SIGNING_ACTIVE: >-
         ${{ startsWith(matrix.platform, 'macos')
             && secrets.APPLE_CERTIFICATE != ''
+            && secrets.APPLE_CERTIFICATE_PASSWORD != ''
+            && secrets.APPLE_SIGNING_IDENTITY != ''
+            && secrets.APPLE_ID != ''
+            && secrets.APPLE_PASSWORD != ''
+            && secrets.APPLE_TEAM_ID != ''
             && '1' || '' }}
       # Tauri updater signing is active only when the Ed25519 private key
       # is provisioned. Same Ok("") pitfall as APPLE_*: forwarding an empty
@@ -323,6 +335,21 @@ jobs:
           KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
           CERT_PATH="$RUNNER_TEMP/apple-cert.p12"
 
+          # Defence-in-depth: scrub the decoded .p12 even if a later
+          # command aborts under `set -e`. Runners are ephemeral, but
+          # the file contains the unencrypted-once-imported key so
+          # there's no reason to leave it on disk a moment longer than
+          # necessary.
+          trap 'rm -f "$CERT_PATH"' EXIT
+
+          # Strip stray CR/LF from the secrets. GitHub secret expansion
+          # via `env:` can introduce a trailing newline; passing that to
+          # `security import -P` produces a 33-byte password and fails
+          # with "MAC verification failed during PKCS12 import (wrong
+          # password?)" even when the password and .p12 are correct.
+          APPLE_CERTIFICATE="$(printf '%s' "$APPLE_CERTIFICATE" | tr -d '\r\n')"
+          APPLE_CERTIFICATE_PASSWORD="$(printf '%s' "$APPLE_CERTIFICATE_PASSWORD" | tr -d '\r\n')"
+
           # macOS BSD `base64` uses -D, GNU uses -d. `openssl base64 -d -A`
           # is portable and tolerates trailing newlines in the input.
           printf '%s' "$APPLE_CERTIFICATE" | openssl base64 -d -A > "$CERT_PATH"
@@ -353,7 +380,7 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH" \
             $(security list-keychains -d user | sed 's/[\" ]//g')
 
-          rm -f "$CERT_PATH"
+          # CERT_PATH cleanup is handled by the EXIT trap above.
           echo "✓ Imported Apple identity into $KEYCHAIN_PATH"
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
