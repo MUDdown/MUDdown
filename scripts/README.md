@@ -99,26 +99,55 @@ What it automates:
 - Generates a fresh 2048-bit RSA private key locally (in `$WORK_DIR`,
   default `~/.muddown-apple-signing`, mode 700)
 - Builds a CSR with CN = your organization's legal name
-- Signs an ES256 JWT (≤20-min expiry) for the App Store Connect API using
-  your downloaded `.p8` key
-- POSTs the CSR to `https://api.appstoreconnect.apple.com/v1/certificates`
-  with `certificateType=DEVELOPER_ID_APPLICATION`
+- **Optionally** submits the CSR to App Store Connect via API. As of
+  2026, Apple restricts Developer ID Application cert issuance to the
+  **Account Holder** role, which cannot be assigned to API keys — so for
+  most teams the API path returns
+  `403 FORBIDDEN_ERROR: This operation can only be performed by the
+  Account Holder`. The script handles this cleanly: drop a portal-issued
+  `.cer` into `$WORK_DIR` (see "Manual portal flow" below) and the
+  script skips the API call entirely.
 - Bundles the issued certificate + private key into a password-protected
   `.p12` (using `openssl pkcs12 -legacy` for Sequoia/Sonoma compatibility)
+- Self-tests the `.p12` by extracting the cert and key moduli and
+  confirming they match — catches packaging bugs before secrets are pushed
 - After confirmation, pushes six secrets to `$GH_REPO` via `gh secret set`:
   `APPLE_CERTIFICATE` (base64 `.p12`), `APPLE_CERTIFICATE_PASSWORD`,
   `APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID`, `APPLE_ID`, `APPLE_PASSWORD`
+
+### Manual portal flow (recommended)
+
+Because Apple's API gate is Account-Holder-only, the smoothest path is:
+
+1. Run the script once to generate the key and CSR. It will fail at the
+   API call with `FORBIDDEN_ERROR` — that's expected. (You can supply
+   throwaway values for the App Store Connect Key ID / Issuer ID / `.p8`
+   path on this run; they aren't used once the manual cert is in place.)
+2. Visit https://developer.apple.com/account/resources/certificates/add,
+   pick **Developer ID Application**, upload
+   `~/.muddown-apple-signing/developer-id-application.csr`, and download
+   the issued `.cer`.
+3. Move (Finder-drag if `~/Downloads` is TCC-protected) the `.cer` to
+   `~/.muddown-apple-signing/developer-id-application.cer`.
+4. Re-run the script. The on-disk cert is detected up front: the App
+   Store Connect Key ID / Issuer ID / `.p8` prompts and the
+   `cryptography` Python preflight are all skipped, the `.p12` is built,
+   the self-test runs, and the six secrets are pushed.
 
 What still requires the Apple portals (one-time human steps):
 
 1. **App Store Connect API key** — App Store Connect → Users and Access →
    Integrations → App Store Connect API → Generate API Key with the
    **Admin** role. Apple shows the `.p8` exactly once for download.
-   (The Developer role *cannot* issue Developer ID certificates.)
+   (The Developer role *cannot* issue Developer ID certificates. Even
+   Admin currently fails for Developer ID issuance — keep the key for
+   future API operations that *do* permit Admin.)
 2. **App-specific password** — `https://account.apple.com` → Sign-In and
    Security → App-Specific Passwords → generate one for "MUDdown
    notarization". Cannot be retrieved later.
 3. **Team ID** — Apple Developer membership page (10-character string).
+4. **Developer ID Application certificate** — see "Manual portal flow"
+   above.
 
 ### Prerequisites
 

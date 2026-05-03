@@ -120,12 +120,20 @@ EOF
   exit 1
 fi
 
-if ! python3 -c 'import cryptography' 2>/dev/null; then
+# The Python `cryptography` package is only needed for the App Store
+# Connect ES256 JWT path. If a portal-issued .cer is already on disk in
+# $WORK_DIR (the manual-flow case — see scripts/README.md), the API call
+# is skipped entirely and we don't need the dependency.
+if [ ! -f "$WORK_DIR/${P12_NAME}.cer" ] \
+   && ! python3 -c 'import cryptography' 2>/dev/null; then
   cat <<'EOF' >&2
 Missing Python 'cryptography' package (required for ES256 JWT signing).
 Install with:
   python3 -m pip install --user cryptography
 Then re-run this script.
+
+(If you intend to use the manual-portal flow, drop the issued .cer at
+ $WORK_DIR/${P12_NAME}.cer first and this dependency is not needed.)
 EOF
   exit 1
 fi
@@ -141,6 +149,17 @@ fi
 
 mkdir -p "$WORK_DIR"
 chmod 700 "$WORK_DIR"
+
+# If a portal-issued .cer is already on disk we'll short-circuit the
+# App Store Connect API call entirely (the manual-flow case — see
+# scripts/README.md). In that case the .p8 / Key ID / Issuer ID inputs
+# are unused, so don't prompt for them. We still need every other input
+# (Team ID, Apple ID, common name, app-specific password, .p12 password).
+HAVE_PORTAL_CERT=no
+if [ -f "$WORK_DIR/${P12_NAME}.cer" ]; then
+  HAVE_PORTAL_CERT=yes
+  echo "→ Found existing $WORK_DIR/${P12_NAME}.cer — skipping App Store Connect API prompts."
+fi
 
 # ──────────────────────────────────────────────────────────────────────
 # Collect inputs interactively (no values stored in shell history)
@@ -165,15 +184,19 @@ prompt() {
   export "$var_name"
 }
 
-prompt APP_STORE_CONNECT_KEY_ID    "App Store Connect Key ID (10 chars)"
-prompt APP_STORE_CONNECT_ISSUER_ID "App Store Connect Issuer ID (UUID)"
-prompt APP_STORE_CONNECT_KEY_PATH  "Path to your downloaded .p8 file"
+if [ "$HAVE_PORTAL_CERT" != "yes" ]; then
+  prompt APP_STORE_CONNECT_KEY_ID    "App Store Connect Key ID (10 chars)"
+  prompt APP_STORE_CONNECT_ISSUER_ID "App Store Connect Issuer ID (UUID)"
+  prompt APP_STORE_CONNECT_KEY_PATH  "Path to your downloaded .p8 file"
+fi
 prompt APPLE_TEAM_ID               "Apple Team ID (10 chars)"
 prompt APPLE_ID                    "Apple ID (email)"
 prompt APPLE_COMMON_NAME           "Common Name on the cert (e.g. 'StickMUD Entertainment LLC')"
 
-[ -f "$APP_STORE_CONNECT_KEY_PATH" ] \
-  || { echo "App Store Connect key not found: $APP_STORE_CONNECT_KEY_PATH" >&2; exit 1; }
+if [ "$HAVE_PORTAL_CERT" != "yes" ]; then
+  [ -f "$APP_STORE_CONNECT_KEY_PATH" ] \
+    || { echo "App Store Connect key not found: $APP_STORE_CONNECT_KEY_PATH" >&2; exit 1; }
+fi
 
 # Generate (or reuse) an export password for the .p12. Stored in the work
 # directory with mode 600 so re-runs keep working without re-prompting.
@@ -372,7 +395,7 @@ fi
 # ──────────────────────────────────────────────────────────────────────
 # Step 4 — Bundle key + cert into a .p12
 # ──────────────────────────────────────────────────────────────────────
-echo "→ Building $P12_PATH…"
+echo "→ Building ${P12_PATH}…"
 # Convert the DER cert to PEM for openssl pkcs12; the private key is
 # already PEM. -legacy avoids macOS Keychain "MAC verification failed"
 # loading errors on Sequoia / Sonoma. Note: GitHub-hosted Linux runners
@@ -435,7 +458,7 @@ _P12_CERT_MOD=$(openssl pkcs12 -in "$P12_PATH" -clcerts -nokeys \
   | openssl md5 2>/dev/null | awk '{print $NF}')
 _P12_KEY_MOD=$(openssl pkcs12 -in "$P12_PATH" -nocerts \
   -passin "file:$P12_PASSWORD_FILE" -legacy -passout pass:smoke 2>/dev/null \
-  | openssl rsa -noout -modulus 2>/dev/null \
+  | openssl rsa -passin pass:smoke -noout -modulus 2>/dev/null \
   | openssl md5 2>/dev/null | awk '{print $NF}')
 set -e
 if [ -z "$_P12_CERT_MOD" ] || [ "$_P12_CERT_MOD" != "$_P12_KEY_MOD" ]; then
