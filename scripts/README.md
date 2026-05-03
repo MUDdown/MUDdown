@@ -120,15 +120,19 @@ What it automates:
 Because Apple's API gate is Account-Holder-only, the smoothest path is:
 
 1. Run the script once to generate the key and CSR. It will fail at the
-   API call with `FORBIDDEN_ERROR` — that's expected.
+   API call with `FORBIDDEN_ERROR` — that's expected. (You can supply
+   throwaway values for the App Store Connect Key ID / Issuer ID / `.p8`
+   path on this run; they aren't used once the manual cert is in place.)
 2. Visit https://developer.apple.com/account/resources/certificates/add,
    pick **Developer ID Application**, upload
    `~/.muddown-apple-signing/developer-id-application.csr`, and download
    the issued `.cer`.
 3. Move (Finder-drag if `~/Downloads` is TCC-protected) the `.cer` to
    `~/.muddown-apple-signing/developer-id-application.cer`.
-4. Re-run the script. The on-disk cert short-circuits the API call,
-   the `.p12` is built, the self-test runs, and the six secrets are pushed.
+4. Re-run the script. The on-disk cert is detected up front: the App
+   Store Connect Key ID / Issuer ID / `.p8` prompts and the
+   `cryptography` Python preflight are all skipped, the `.p12` is built,
+   the self-test runs, and the six secrets are pushed.
 
 What still requires the Apple portals (one-time human steps):
 
