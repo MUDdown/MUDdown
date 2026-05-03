@@ -497,14 +497,21 @@ jobs:
       - name: Verify notarization (macOS)
         if: startsWith(matrix.platform, 'macos') && env.MACOS_SIGNING_ACTIVE == '1'
         run: |
+          set -euo pipefail
           DMG=$(find apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle -name "*.dmg" -print -quit)
-          if [ -n "$DMG" ]; then
-            echo "Verifying notarization staple on $DMG"
-            xcrun stapler validate "$DMG"
-          else
+          if [ -z "$DMG" ]; then
             echo "::error::Signing was active but no .dmg found — bundle may have failed" >&2
             exit 1
           fi
+
+          # tauri-action staples the .app inside the .dmg but does not staple
+          # the .dmg itself. Apple recommends stapling the outer container so
+          # Gatekeeper can verify offline; do that here, then validate.
+          echo "Stapling notarization ticket onto $DMG"
+          xcrun stapler staple "$DMG"
+
+          echo "Verifying notarization staple on $DMG"
+          xcrun stapler validate "$DMG"
 
       - name: Verify Authenticode signature (Windows)
         if: env.WINDOWS_SIGNING_ACTIVE == '1'
