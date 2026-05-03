@@ -98,7 +98,7 @@ What it automates:
 
 - Generates a fresh 2048-bit RSA private key locally (in `$WORK_DIR`,
   default `~/.muddown-apple-signing`, mode 700)
-- Builds a CSR with CN = your organisation's legal name
+- Builds a CSR with CN = your organization's legal name
 - Signs an ES256 JWT (≤20-min expiry) for the App Store Connect API using
   your downloaded `.p8` key
 - POSTs the CSR to `https://api.appstoreconnect.apple.com/v1/certificates`
@@ -123,7 +123,17 @@ What still requires the Apple portals (one-time human steps):
 ### Prerequisites
 
 - macOS (the script uses `openssl pkcs12 -legacy` and Xcode CLI tooling)
-- `openssl`, `curl`, `jq`, `python3`, `gh` on `$PATH`
+- **OpenSSL 3.x first on `$PATH`.** macOS ships LibreSSL at
+  `/usr/bin/openssl`, which does *not* support `pkcs12 -legacy` (needed
+  for Sequoia/Sonoma Keychain compatibility). Install OpenSSL 3 via
+  Homebrew and put it ahead of `/usr/bin`:
+  ```
+  brew install openssl@3
+  export PATH="$(brew --prefix openssl@3)/bin:$PATH"
+  ```
+  The script preflights this and aborts with instructions if the
+  detected `openssl` lacks `-legacy` support.
+- `curl`, `jq`, `python3`, `gh` on `$PATH`
 - The Python `cryptography` package (`python3 -m pip install --user
   cryptography`) — required for ES256 signing
 - An Apple Developer Program membership (Organization, with D-U-N-S)
@@ -157,6 +167,8 @@ For idempotency across re-runs the script keeps the following on disk
 
 - `developer-id-application.key` — the Developer ID private key (PEM)
 - `developer-id-application.csr` — the CSR that was submitted
+- `developer-id-application.csr.conf` — the OpenSSL config used to build
+  the CSR (drives drift detection on re-runs)
 - `developer-id-application.cer` — the issued certificate (DER)
 - `developer-id-application.pem` — the same cert in PEM form
 - `developer-id-application.p12` — the bundled key + cert

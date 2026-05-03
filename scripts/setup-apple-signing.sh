@@ -48,11 +48,14 @@ CERT_TYPE="${CERT_TYPE:-DEVELOPER_ID_APPLICATION}"
 # Consent gate
 # ──────────────────────────────────────────────────────────────────────
 if [ "${MUDDOWN_APPLE_SIGNING_CONSENT:-no}" != "yes" ]; then
-  cat <<'EOF' >&2
+  # Unquoted heredoc: only $WORK_DIR expands here. Do not add $VAR
+  # references, backticks, or $(...) to this body without quoting them.
+  cat <<EOF >&2
 This script will:
   - Generate a Developer ID Application private key on this machine
   - Submit a CSR to App Store Connect (counts against your 5-cert limit)
-  - Bundle the issued cert + key into a password-protected .p12 in $WORK_DIR
+  - Bundle the issued cert + key into a password-protected .p12 in
+    $WORK_DIR
   - Optionally push APPLE_* secrets to a GitHub repository
 
 Before running, make sure you have:
@@ -77,6 +80,45 @@ fi
 for cmd in openssl curl jq python3 gh; do
   command -v "$cmd" >/dev/null || { echo "Missing required tool: $cmd" >&2; exit 1; }
 done
+
+# `openssl pkcs12 -legacy` is an OpenSSL 3.x option needed for macOS
+# Keychain compatibility on Sequoia/Sonoma. macOS ships LibreSSL at
+# /usr/bin/openssl, which does NOT support -legacy and would otherwise
+# fail late in the script — *after* a Developer ID cert has already been
+# burned against the 5-per-team cap. Catch it now.
+if ! openssl pkcs12 -help 2>&1 | grep -q -- '-legacy'; then
+  cat <<EOF >&2
+Detected openssl: $(command -v openssl) ($(openssl version))
+This build does not support 'pkcs12 -legacy', which this script requires
+for macOS Keychain compatibility. macOS ships LibreSSL at
+/usr/bin/openssl, which lacks this flag.
+
+Install OpenSSL 3 via Homebrew and put it first on PATH:
+
+  brew install openssl@3
+  export PATH="\$(brew --prefix openssl@3)/bin:\$PATH"
+
+Then re-run this script.
+EOF
+  exit 1
+fi
+
+# Functional runtime check: the help-text grep above catches LibreSSL, but
+# some Linux distributions package OpenSSL 3.x with the legacy provider
+# compiled out — it appears in help text but fails at runtime.
+_legacy_err=$(openssl genrsa 512 2>/dev/null \
+  | openssl pkcs12 -export -legacy -inkey /dev/stdin \
+    -out /dev/null -passout pass:smoke 2>&1 || true)
+if printf '%s' "$_legacy_err" | grep -qiE 'provider|unknown option.*legacy'; then
+  cat <<EOF >&2
+Detected openssl: $(command -v openssl) ($(openssl version))
+The '-legacy' provider is not available at runtime.
+
+On macOS:  brew install openssl@3 && export PATH="\$(brew --prefix openssl@3)/bin:\$PATH"
+On Linux:  install the openssl-legacy package for your distribution.
+EOF
+  exit 1
+fi
 
 if ! python3 -c 'import cryptography' 2>/dev/null; then
   cat <<'EOF' >&2
@@ -150,24 +192,72 @@ fi
 prompt APPLE_APP_SPECIFIC_PASSWORD "App-specific password for $APPLE_ID" yes
 
 # ──────────────────────────────────────────────────────────────────────
-# Step 1 — Generate the private key + CSR (idempotent)
+# Step 1 — Generate the private key + CSR (idempotent, drift-aware)
 # ──────────────────────────────────────────────────────────────────────
 KEY_PATH="$WORK_DIR/${P12_NAME}.key"
 CSR_PATH="$WORK_DIR/${P12_NAME}.csr"
+CSR_CONF="$WORK_DIR/${P12_NAME}.csr.conf"
+CER_PATH="$WORK_DIR/${P12_NAME}.cer"
+P12_PATH="$WORK_DIR/${P12_NAME}.p12"
+
+# Build the CSR via a config file rather than `-subj`. OpenSSL's `-subj`
+# uses '/' as the RDN delimiter, which silently corrupts CNs that
+# contain '/' (e.g. "A/V Systems LLC") or '=' or other special chars.
+# Use a quoted heredoc for the static sections and printf for the
+# user-supplied values — avoids command substitution in an unquoted
+# heredoc if APPLE_COMMON_NAME or APPLE_ID contain $(...) or backticks.
+cat > "$CSR_CONF" <<'ENDCONF'
+[req]
+distinguished_name = dn
+prompt             = no
+[dn]
+ENDCONF
+printf 'CN           = %s\nemailAddress = %s\nC            = US\n' \
+  "$APPLE_COMMON_NAME" "$APPLE_ID" >> "$CSR_CONF"
+chmod 600 "$CSR_CONF"
 
 if [ ! -f "$KEY_PATH" ]; then
   echo "→ Generating 2048-bit RSA key…"
   openssl genrsa -out "$KEY_PATH" 2048
   chmod 600 "$KEY_PATH"
+  # Fresh key invalidates any pre-existing CSR/cert — wipe them so we
+  # don't submit a CSR encoding a *different* (now-deleted) key's pubkey
+  # and get a cert issued that we can never bundle into a .p12. Apple
+  # caps Developer ID Application certs at 5 per team, so a wasted slot
+  # on a key/CSR mismatch is genuinely costly.
+  rm -f "$CSR_PATH" "$CER_PATH"
 fi
 # Validate the key is well-formed (catches partial writes / corrupted reuse).
-openssl rsa -in "$KEY_PATH" -noout -check >/dev/null 2>&1 \
-  || { echo "Private key at $KEY_PATH is invalid. Delete it and re-run." >&2; exit 1; }
+if ! _key_err=$(openssl rsa -in "$KEY_PATH" -noout -check 2>&1); then
+  echo "Private key at $KEY_PATH is invalid: $_key_err" >&2
+  echo "Delete $KEY_PATH and re-run to generate a fresh key." >&2
+  exit 1
+fi
+
+# If a CSR is already on disk, verify it still matches the current key
+# *and* the current APPLE_COMMON_NAME. If either has drifted, regenerate
+# the CSR (and discard any cert that was issued for the stale CSR).
+if [ -f "$CSR_PATH" ]; then
+  # Break each modulus read into a separate step so that a non-zero exit
+  # from openssl doesn't silently produce an empty MD5 hash via pipefail.
+  # If either read fails, use a sentinel value that guarantees mismatch.
+  _KEY_RAW=$(openssl rsa -in "$KEY_PATH" -noout -modulus 2>/dev/null) \
+    || _KEY_RAW="(key-unreadable)"
+  _CSR_RAW=$(openssl req -in "$CSR_PATH" -noout -modulus 2>/dev/null) \
+    || _CSR_RAW="(csr-unreadable)"
+  KEY_MOD=$(printf '%s' "$_KEY_RAW" | openssl md5 | awk '{print $NF}')
+  CSR_MOD=$(printf '%s' "$_CSR_RAW" | openssl md5 | awk '{print $NF}')
+  CSR_CN=$(openssl req -in "$CSR_PATH" -noout -subject -nameopt multiline,utf8 \
+    | awk -F'= ' '/^[[:space:]]*commonName/ { sub(/[[:space:]]+$/, "", $2); print $2; exit }')
+  if [ "$KEY_MOD" != "$CSR_MOD" ] || [ "$CSR_CN" != "$APPLE_COMMON_NAME" ]; then
+    echo "→ Existing CSR is stale (key or Common Name has changed); regenerating."
+    rm -f "$CSR_PATH" "$CER_PATH"
+  fi
+fi
 
 if [ ! -f "$CSR_PATH" ]; then
   echo "→ Building CSR…"
-  openssl req -new -key "$KEY_PATH" -out "$CSR_PATH" \
-    -subj "/emailAddress=${APPLE_ID}/CN=${APPLE_COMMON_NAME}/C=US"
+  openssl req -new -key "$KEY_PATH" -out "$CSR_PATH" -config "$CSR_CONF"
 fi
 
 # Apple expects the CSR as base64-encoded *PEM body* (lines between BEGIN/END).
@@ -177,18 +267,50 @@ CSR_BODY_B64=$(awk '/BEGIN CERTIFICATE REQUEST/{flag=1;next}/END CERTIFICATE REQ
   || { echo "CSR at $CSR_PATH is empty or malformed (no PEM body). Delete it and re-run." >&2; exit 1; }
 
 # ──────────────────────────────────────────────────────────────────────
-# Step 2 — Build a short-lived (≤20-min) ES256 JWT for App Store Connect
+# Step 2 — Decide whether we need a new certificate from App Store Connect
 # ──────────────────────────────────────────────────────────────────────
-# We use python3 because ES256 signing requires DER→JOSE signature
-# conversion (Apple rejects raw OpenSSL DER signatures), which is awkward
-# in pure bash. Python ships with macOS Xcode Command Line Tools.
-JWT=$(python3 - "$APP_STORE_CONNECT_KEY_ID" "$APP_STORE_CONNECT_ISSUER_ID" "$APP_STORE_CONNECT_KEY_PATH" <<'PY'
+# (CER_PATH / P12_PATH were defined alongside KEY_PATH/CSR_PATH above.)
+
+NEEDS_NEW_CERT=yes
+if [ -f "$CER_PATH" ] && [ "${FORCE_NEW_CERT:-no}" != "yes" ]; then
+  # If a non-expired cert is on disk, reuse it. Apple caps the team at 5
+  # active Developer ID Application certs; we don't want to burn one on
+  # every dry-run. We refuse to silently re-issue on a date-parse failure
+  # — the user must explicitly opt in via FORCE_NEW_CERT=yes.
+  EXP=$(openssl x509 -in "$CER_PATH" -inform DER -noout -enddate 2>/dev/null \
+    | awk -F= '/notAfter/ {print $2}')
+  if [ -z "$EXP" ]; then
+    echo "Existing $CER_PATH is unreadable (no notAfter). Delete it or set FORCE_NEW_CERT=yes." >&2
+    exit 1
+  fi
+  # Normalize double-space day-of-month padding ("Jan  2" → "Jan 2") so
+  # BSD date -f '%b %d ...' parses correctly on macOS for days 1-9.
+  EXP_NORM=$(printf '%s' "$EXP" | tr -s ' ')
+  EXP_EPOCH=$(date -u -j -f '%b %d %T %Y %Z' "$EXP_NORM" +%s 2>/dev/null \
+           || date -u -d "$EXP_NORM" +%s 2>/dev/null || true)
+  if [ -z "$EXP_EPOCH" ]; then
+    echo "Could not parse certificate expiry '$EXP_NORM'. Set FORCE_NEW_CERT=yes to re-issue, or fix locally." >&2
+    exit 1
+  fi
+  if [ "$(date -u +%s)" -lt "$EXP_EPOCH" ]; then
+    echo "→ Reusing existing certificate (valid until $EXP_NORM)"
+    NEEDS_NEW_CERT=no
+  fi
+fi
+
+if [ "$NEEDS_NEW_CERT" = "yes" ]; then
+  # Build the short-lived (≤20-min) ES256 JWT only when we actually need
+  # to call the API. Building it eagerly would load the .p8 key into a
+  # Python process on every run, even when reusing a still-valid cert.
+  #
+  # ES256 signing requires DER→JOSE signature conversion (Apple rejects
+  # raw OpenSSL DER signatures), which is awkward in pure bash. The
+  # `cryptography` package was pre-checked in the bash preflight.
+  echo "→ Building App Store Connect JWT…"
+  JWT=$(python3 - "$APP_STORE_CONNECT_KEY_ID" "$APP_STORE_CONNECT_ISSUER_ID" "$APP_STORE_CONNECT_KEY_PATH" <<'PY'
 import base64, json, sys, time
 from pathlib import Path
 
-# Python's stdlib has no ES256 support; the `cryptography` package is
-# required (pre-checked in the bash preflight, so import is expected to
-# succeed here).
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
@@ -212,39 +334,8 @@ jose_sig    = r.to_bytes(32, "big") + s.to_bytes(32, "big")
 print((signing_input + b"." + b64url(jose_sig)).decode())
 PY
 )
-[ -n "$JWT" ] || { echo "Failed to build App Store Connect JWT" >&2; exit 1; }
+  [ -n "$JWT" ] || { echo "Failed to build App Store Connect JWT" >&2; exit 1; }
 
-# ──────────────────────────────────────────────────────────────────────
-# Step 3 — Submit the CSR
-# ──────────────────────────────────────────────────────────────────────
-CER_PATH="$WORK_DIR/${P12_NAME}.cer"
-P12_PATH="$WORK_DIR/${P12_NAME}.p12"
-
-NEEDS_NEW_CERT=yes
-if [ -f "$CER_PATH" ] && [ "${FORCE_NEW_CERT:-no}" != "yes" ]; then
-  # If a non-expired cert is on disk, reuse it. Apple caps the team at 5
-  # active Developer ID Application certs; we don't want to burn one on
-  # every dry-run. We refuse to silently re-issue on a date-parse failure
-  # — the user must explicitly opt in via FORCE_NEW_CERT=yes.
-  EXP=$(openssl x509 -in "$CER_PATH" -inform DER -noout -enddate 2>/dev/null \
-    | awk -F= '/notAfter/ {print $2}')
-  if [ -z "$EXP" ]; then
-    echo "Existing $CER_PATH is unreadable (no notAfter). Delete it or set FORCE_NEW_CERT=yes." >&2
-    exit 1
-  fi
-  EXP_EPOCH=$(date -u -j -f '%b %d %T %Y %Z' "$EXP" +%s 2>/dev/null \
-           || date -u -d "$EXP" +%s 2>/dev/null || true)
-  if [ -z "$EXP_EPOCH" ]; then
-    echo "Could not parse certificate expiry '$EXP'. Set FORCE_NEW_CERT=yes to re-issue, or fix locally." >&2
-    exit 1
-  fi
-  if [ "$(date -u +%s)" -lt "$EXP_EPOCH" ]; then
-    echo "→ Reusing existing certificate (valid until $EXP)"
-    NEEDS_NEW_CERT=no
-  fi
-fi
-
-if [ "$NEEDS_NEW_CERT" = "yes" ]; then
   echo "→ Requesting Developer ID Application certificate from App Store Connect…"
   REQ_BODY=$(jq -nc \
     --arg type "$CERT_TYPE" --arg csr "$CSR_BODY_B64" \
@@ -265,7 +356,10 @@ if [ "$NEEDS_NEW_CERT" = "yes" ]; then
     exit 1
   fi
 
-  printf '%s' "$CERT_B64" | base64 --decode > "$CER_PATH"
+  # `base64 --decode` is GNU; macOS BSD `base64` uses `-D`. Use
+  # `openssl base64 -d -A` which is portable across both (and is already
+  # a hard dependency of this script).
+  printf '%s' "$CERT_B64" | openssl base64 -d -A > "$CER_PATH"
   if [ ! -s "$CER_PATH" ] \
      || ! openssl x509 -in "$CER_PATH" -inform DER -noout 2>/dev/null; then
     echo "Decoded certificate at $CER_PATH is empty or not valid DER." >&2
@@ -300,6 +394,25 @@ SIGNING_IDENTITY=$(openssl x509 -in "$CER_PEM_PATH" -noout -subject -nameopt mul
 [ -n "$SIGNING_IDENTITY" ] \
   || { echo "Could not extract CN from certificate." >&2; exit 1; }
 
+# Apple issues Developer ID identities as e.g.
+#   "Developer ID Application: StickMUD Entertainment LLC (ABCDE12345)"
+# Cross-check that the Team ID embedded in the CN matches the value the
+# user typed at the prompt. A mismatch here means either the prompt was
+# wrong or the cert came from a different team — either way the secrets
+# we're about to push would lead to confusing CI notarization failures
+# rather than a clean error here.
+case "$SIGNING_IDENTITY" in
+  *"($APPLE_TEAM_ID)") ;;
+  *)
+    echo "✗ Signing identity does not contain the configured Team ID." >&2
+    echo "    Identity:  $SIGNING_IDENTITY" >&2
+    echo "    Team ID:   $APPLE_TEAM_ID" >&2
+    echo "  Re-run with the correct APPLE_TEAM_ID, or delete \$WORK_DIR" >&2
+    echo "  if this cert was issued under the wrong team." >&2
+    exit 1
+    ;;
+esac
+
 # Pass the password via file rather than `pass:…` so it never appears in
 # the process argv (visible to other users via `ps`).
 openssl pkcs12 -export -legacy \
@@ -311,11 +424,24 @@ chmod 600 "$P12_PATH"
 echo "✓ .p12 ready: $P12_PATH"
 echo "  Signing identity: $SIGNING_IDENTITY"
 
-# Re-read the .p12 we just produced, using the same password file, to
-# catch packaging or password mismatches before shipping it to GitHub.
-openssl pkcs12 -in "$P12_PATH" -nokeys -passin "file:$P12_PASSWORD_FILE" \
-  -legacy -info >/dev/null 2>&1 \
-  || { echo "Self-test failed: cannot read back $P12_PATH with the saved password." >&2; exit 1; }
+# Verify the .p12 round-trips: extract cert and key moduli separately and
+# confirm they match. Catches key/cert mismatches, wrong password, and
+# corrupt .p12 files. set +e around the pipelines since we check results
+# explicitly via the empty-string and equality tests below.
+set +e
+_P12_CERT_MOD=$(openssl pkcs12 -in "$P12_PATH" -clcerts -nokeys \
+  -passin "file:$P12_PASSWORD_FILE" -legacy 2>/dev/null \
+  | openssl x509 -noout -modulus 2>/dev/null \
+  | openssl md5 2>/dev/null | awk '{print $NF}')
+_P12_KEY_MOD=$(openssl pkcs12 -in "$P12_PATH" -nocerts \
+  -passin "file:$P12_PASSWORD_FILE" -legacy -passout pass:smoke 2>/dev/null \
+  | openssl rsa -noout -modulus 2>/dev/null \
+  | openssl md5 2>/dev/null | awk '{print $NF}')
+set -e
+if [ -z "$_P12_CERT_MOD" ] || [ "$_P12_CERT_MOD" != "$_P12_KEY_MOD" ]; then
+  echo "Self-test failed: key and cert in $P12_PATH do not match (or file is unreadable)." >&2
+  exit 1
+fi
 
 # ──────────────────────────────────────────────────────────────────────
 # Step 5 — Push secrets to GitHub Actions
@@ -345,8 +471,11 @@ P12_B64=$(base64 < "$P12_PATH" | tr -d '\n')
 set +e
 FAILED=()
 push_secret() {
-  local name="$1" value="$2"
-  if ! printf '%s' "$value" | gh secret set "$name" -R "$GH_REPO" --body - >/dev/null; then
+  local name="$1" value="$2" _err
+  # Capture gh's stderr so we can report which secret failed and why.
+  # 2>&1 >/dev/null: stderr goes to capture pipe, stdout to /dev/null.
+  if ! _err=$(printf '%s' "$value" | gh secret set "$name" -R "$GH_REPO" --body - 2>&1 >/dev/null); then
+    echo "  Failed to push $name: $_err" >&2
     FAILED+=("$name")
   fi
 }
