@@ -264,22 +264,34 @@ jobs:
           # tauri-bundler spawns signCommand directly via CreateProcess (no
           # cmd.exe shell), so %VAR% placeholders in tauri.conf.json are
           # taken as a literal program name and fail with "program not
-          # found". Resolve the paths now and write the fully-expanded
-          # signCommand into the config so the bundler can invoke signtool
-          # with absolute paths.
+          # found". Worse, when signCommand is a string tauri-bundler
+          # shell-word-splits it (treating backslash as an escape char),
+          # which mangles Windows paths and produces ERROR_INVALID_NAME
+          # (os error 123) at sign time.
+          #
+          # Tauri v2 accepts signCommand as either a string or an object
+          # { cmd, args }. The object form is passed straight to
+          # std::process::Command without any parsing, so it preserves
+          # backslashes and embedded spaces correctly. Use it.
           $cfg  = "apps/desktop/src-tauri/tauri.conf.json"
           $json = Get-Content $cfg -Raw | ConvertFrom-Json
-          # Use PowerShell single-quoted strings to build the command — they
-          # are literal (no variable or escape interpretation), so the
-          # backslashes in the resolved Windows paths pass through verbatim.
-          # ConvertTo-Json will then escape them as JSON requires (\\), and
-          # tauri-bundler decodes that back to single backslashes when it
-          # reads the config. The placeholder %1 is the file path and is
-          # substituted by tauri-bundler at sign time.
-          $resolved = '"' + $signtool + '" sign /v /fd SHA256 /tr http://timestamp.acs.microsoft.com /td SHA256 /dlib "' + $dlib + '" /dmdf "' + $metadata + '" "%1"'
-          $json.bundle.windows.signCommand = $resolved
+          $signCommand = [PSCustomObject]@{
+            cmd  = $signtool
+            args = @(
+              "sign",
+              "/v",
+              "/fd", "SHA256",
+              "/tr", "http://timestamp.acs.microsoft.com",
+              "/td", "SHA256",
+              "/dlib", $dlib,
+              "/dmdf", $metadata,
+              "%1"
+            )
+          }
+          $json.bundle.windows.signCommand = $signCommand
           $json | ConvertTo-Json -Depth 32 | Set-Content $cfg -Encoding utf8
-          Write-Host "signCommand resolved to: $resolved"
+          Write-Host "signCommand.cmd  = $($signCommand.cmd)"
+          Write-Host "signCommand.args = $($signCommand.args -join ' ')"
 
       # Apple notarization env vars are only exported when MACOS_SIGNING_ACTIVE == '1'.
       # Forwarding empty strings would cause tauri-bundler's Rust code to call
