@@ -157,6 +157,10 @@ chmod 700 "$WORK_DIR"
 # (Team ID, Apple ID, common name, app-specific password, .p12 password).
 HAVE_PORTAL_CERT=no
 if [ -f "$WORK_DIR/${P12_NAME}.cer" ]; then
+  if ! openssl x509 -in "$WORK_DIR/${P12_NAME}.cer" -inform DER -noout 2>/dev/null; then
+    echo "Existing $WORK_DIR/${P12_NAME}.cer is not a valid DER certificate — delete it and re-run." >&2
+    exit 1
+  fi
   HAVE_PORTAL_CERT=yes
   echo "→ Found existing $WORK_DIR/${P12_NAME}.cer — skipping App Store Connect API prompts."
 fi
@@ -461,7 +465,7 @@ _P12_KEY_MOD=$(openssl pkcs12 -in "$P12_PATH" -nocerts \
   | openssl rsa -passin pass:smoke -noout -modulus 2>/dev/null \
   | openssl md5 2>/dev/null | awk '{print $NF}')
 set -e
-if [ -z "$_P12_CERT_MOD" ] || [ "$_P12_CERT_MOD" != "$_P12_KEY_MOD" ]; then
+if [ -z "$_P12_CERT_MOD" ] || [ -z "$_P12_KEY_MOD" ] || [ "$_P12_CERT_MOD" != "$_P12_KEY_MOD" ]; then
   echo "Self-test failed: key and cert in $P12_PATH do not match (or file is unreadable)." >&2
   exit 1
 fi
