@@ -372,7 +372,7 @@ fi
 # ──────────────────────────────────────────────────────────────────────
 # Step 4 — Bundle key + cert into a .p12
 # ──────────────────────────────────────────────────────────────────────
-echo "→ Building $P12_PATH…"
+echo "→ Building ${P12_PATH}…"
 # Convert the DER cert to PEM for openssl pkcs12; the private key is
 # already PEM. -legacy avoids macOS Keychain "MAC verification failed"
 # loading errors on Sequoia / Sonoma. Note: GitHub-hosted Linux runners
@@ -435,7 +435,7 @@ _P12_CERT_MOD=$(openssl pkcs12 -in "$P12_PATH" -clcerts -nokeys \
   | openssl md5 2>/dev/null | awk '{print $NF}')
 _P12_KEY_MOD=$(openssl pkcs12 -in "$P12_PATH" -nocerts \
   -passin "file:$P12_PASSWORD_FILE" -legacy -passout pass:smoke 2>/dev/null \
-  | openssl rsa -noout -modulus 2>/dev/null \
+  | openssl rsa -passin pass:smoke -noout -modulus 2>/dev/null \
   | openssl md5 2>/dev/null | awk '{print $NF}')
 set -e
 if [ -z "$_P12_CERT_MOD" ] || [ "$_P12_CERT_MOD" != "$_P12_KEY_MOD" ]; then
