@@ -84,3 +84,97 @@ You'll need a separate Azure subscription, your own Identity Validation
 - No private keys (Artifact Signing keeps them in Azure HSMs, never exported)
 - No Azure secrets (federated OIDC, no client secrets to leak)
 - No customer/contributor data
+
+## Code-signing setup (Apple Developer ID — macOS notarization)
+
+`setup-apple-signing.sh` provisions a Developer ID Application certificate
+for signing and notarizing the macOS desktop builds.
+
+| Script | Purpose | When |
+|--------|---------|------|
+| `setup-apple-signing.sh` | Generates a Developer ID Application key + CSR, requests a cert from App Store Connect, bundles it into a `.p12`, and pushes the six `APPLE_*` secrets to GitHub | Once, after Apple Developer Program enrollment is complete |
+
+What it automates:
+
+- Generates a fresh 2048-bit RSA private key locally (in `$WORK_DIR`,
+  default `~/.muddown-apple-signing`, mode 700)
+- Builds a CSR with CN = your organization's legal name
+- Signs an ES256 JWT (≤20-min expiry) for the App Store Connect API using
+  your downloaded `.p8` key
+- POSTs the CSR to `https://api.appstoreconnect.apple.com/v1/certificates`
+  with `certificateType=DEVELOPER_ID_APPLICATION`
+- Bundles the issued certificate + private key into a password-protected
+  `.p12` (using `openssl pkcs12 -legacy` for Sequoia/Sonoma compatibility)
+- After confirmation, pushes six secrets to `$GH_REPO` via `gh secret set`:
+  `APPLE_CERTIFICATE` (base64 `.p12`), `APPLE_CERTIFICATE_PASSWORD`,
+  `APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID`, `APPLE_ID`, `APPLE_PASSWORD`
+
+What still requires the Apple portals (one-time human steps):
+
+1. **App Store Connect API key** — App Store Connect → Users and Access →
+   Integrations → App Store Connect API → Generate API Key with the
+   **Admin** role. Apple shows the `.p8` exactly once for download.
+   (The Developer role *cannot* issue Developer ID certificates.)
+2. **App-specific password** — `https://account.apple.com` → Sign-In and
+   Security → App-Specific Passwords → generate one for "MUDdown
+   notarization". Cannot be retrieved later.
+3. **Team ID** — Apple Developer membership page (10-character string).
+
+### Prerequisites
+
+- macOS (the script uses `openssl pkcs12 -legacy` and Xcode CLI tooling)
+- **OpenSSL 3.x first on `$PATH`.** macOS ships LibreSSL at
+  `/usr/bin/openssl`, which does *not* support `pkcs12 -legacy` (needed
+  for Sequoia/Sonoma Keychain compatibility). Install OpenSSL 3 via
+  Homebrew and put it ahead of `/usr/bin`:
+  ```
+  brew install openssl@3
+  export PATH="$(brew --prefix openssl@3)/bin:$PATH"
+  ```
+  The script preflights this and aborts with instructions if the
+  detected `openssl` lacks `-legacy` support.
+- `curl`, `jq`, `python3`, `gh` on `$PATH`
+- The Python `cryptography` package (`python3 -m pip install --user
+  cryptography`) — required for ES256 signing
+- An Apple Developer Program membership (Organization, with D-U-N-S)
+- Write access to `$GH_REPO`
+
+### Safety guarantees
+
+- **Refuse to run without explicit consent.** Requires
+  `MUDDOWN_APPLE_SIGNING_CONSENT=yes` in the environment.
+- **No silent re-issuance.** Apple caps Developer ID Application
+  certificates at 5 active per team. The script reuses a still-valid cert
+  on disk; pass `FORCE_NEW_CERT=yes` to override.
+- **Idempotent.** Re-running after a partial failure is safe: the key,
+  CSR, and `.p12` export password are reused from `$WORK_DIR`.
+- **Local-only private key.** The Developer ID private key is generated
+  on this machine and never leaves it; only the `.p12` (encrypted) is
+  uploaded to GitHub Actions.
+- **Fork-aware.** Override `GH_REPO` to target your own fork.
+
+### What's *not* in this directory
+
+- No private keys (Developer ID key lives in `$WORK_DIR` only, gitignored)
+- No `.p8` API keys (you supply the path at runtime)
+- No app-specific passwords (read from a hidden prompt, never stored)
+- No customer/contributor data
+
+### What *is* persisted in `$WORK_DIR`
+
+For idempotency across re-runs the script keeps the following on disk
+(directory mode `700`, files mode `600`, never copied into the repo):
+
+- `developer-id-application.key` — the Developer ID private key (PEM)
+- `developer-id-application.csr` — the CSR that was submitted
+- `developer-id-application.csr.conf` — the OpenSSL config used to build
+  the CSR (drives drift detection on re-runs)
+- `developer-id-application.cer` — the issued certificate (DER)
+- `developer-id-application.pem` — the same cert in PEM form
+- `developer-id-application.p12` — the bundled key + cert
+- `developer-id-application.p12.password` — the random `.p12` export
+  password (also pushed as `APPLE_CERTIFICATE_PASSWORD` to GitHub)
+
+Delete `$WORK_DIR` to fully reset state. Apple caps the team at 5 active
+Developer ID Application certs, so prefer reusing the on-disk cert over
+re-issuing.
