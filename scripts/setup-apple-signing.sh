@@ -3,7 +3,9 @@
 # notarization. Idempotent: safe to re-run if any step fails partway.
 #
 # What this automates:
-#  - Generates a fresh 2048-bit RSA private key locally (never leaves this machine)
+#  - Generates a fresh 2048-bit RSA private key locally; the raw .key file
+#    never leaves this machine. The key material *is* later re-bundled
+#    (encrypted) into the .p12 that is uploaded to GitHub Actions secrets.
 #  - Builds a Certificate Signing Request (CSR) for the key
 #  - Signs an App Store Connect API JWT (ES256) using your downloaded .p8 key
 #  - POSTs the CSR to https://api.appstoreconnect.apple.com/v1/certificates
@@ -50,6 +52,7 @@ if [ "${MUDDOWN_APPLE_SIGNING_CONSENT:-no}" != "yes" ]; then
 This script will:
   - Generate a Developer ID Application private key on this machine
   - Submit a CSR to App Store Connect (counts against your 5-cert limit)
+  - Bundle the issued cert + key into a password-protected .p12 in $WORK_DIR
   - Optionally push APPLE_* secrets to a GitHub repository
 
 Before running, make sure you have:
@@ -75,6 +78,16 @@ for cmd in openssl curl jq python3 gh; do
   command -v "$cmd" >/dev/null || { echo "Missing required tool: $cmd" >&2; exit 1; }
 done
 
+if ! python3 -c 'import cryptography' 2>/dev/null; then
+  cat <<'EOF' >&2
+Missing Python 'cryptography' package (required for ES256 JWT signing).
+Install with:
+  python3 -m pip install --user cryptography
+Then re-run this script.
+EOF
+  exit 1
+fi
+
 gh auth status >/dev/null 2>&1 || { echo "Run 'gh auth login' first." >&2; exit 1; }
 
 if ! gh repo view "$GH_REPO" --json viewerPermission --jq '.viewerPermission' 2>/dev/null \
@@ -97,12 +110,16 @@ prompt() {
     echo "Using $var_name from environment."
     return
   fi
-  if [ "$hidden" = "yes" ]; then
-    read -rsp "$prompt_text: " "$var_name"
-    echo
-  else
-    read -rp "$prompt_text: " "$var_name"
-  fi
+  while :; do
+    if [ "$hidden" = "yes" ]; then
+      read -rsp "$prompt_text: " "$var_name"
+      echo
+    else
+      read -rp "$prompt_text: " "$var_name"
+    fi
+    if [ -n "${!var_name}" ]; then break; fi
+    echo "  (value is required — please try again)" >&2
+  done
   export "$var_name"
 }
 
@@ -143,6 +160,9 @@ if [ ! -f "$KEY_PATH" ]; then
   openssl genrsa -out "$KEY_PATH" 2048
   chmod 600 "$KEY_PATH"
 fi
+# Validate the key is well-formed (catches partial writes / corrupted reuse).
+openssl rsa -in "$KEY_PATH" -noout -check >/dev/null 2>&1 \
+  || { echo "Private key at $KEY_PATH is invalid. Delete it and re-run." >&2; exit 1; }
 
 if [ ! -f "$CSR_PATH" ]; then
   echo "→ Building CSR…"
@@ -152,7 +172,9 @@ fi
 
 # Apple expects the CSR as base64-encoded *PEM body* (lines between BEGIN/END).
 CSR_BODY_B64=$(awk '/BEGIN CERTIFICATE REQUEST/{flag=1;next}/END CERTIFICATE REQUEST/{flag=0}flag' \
-  "$CSR_PATH" | tr -d '\n')
+  "$CSR_PATH" | tr -d '\r\n')
+[ -n "$CSR_BODY_B64" ] \
+  || { echo "CSR at $CSR_PATH is empty or malformed (no PEM body). Delete it and re-run." >&2; exit 1; }
 
 # ──────────────────────────────────────────────────────────────────────
 # Step 2 — Build a short-lived (≤20-min) ES256 JWT for App Store Connect
@@ -161,22 +183,15 @@ CSR_BODY_B64=$(awk '/BEGIN CERTIFICATE REQUEST/{flag=1;next}/END CERTIFICATE REQ
 # conversion (Apple rejects raw OpenSSL DER signatures), which is awkward
 # in pure bash. Python ships with macOS Xcode Command Line Tools.
 JWT=$(python3 - "$APP_STORE_CONNECT_KEY_ID" "$APP_STORE_CONNECT_ISSUER_ID" "$APP_STORE_CONNECT_KEY_PATH" <<'PY'
-import base64, hashlib, json, sys, time
+import base64, json, sys, time
 from pathlib import Path
 
-# We rely only on stdlib + cryptography from XCode? No — stdlib has no ES256.
-# Try cryptography (commonly preinstalled with pip); fall back to instructing
-# the user.
-try:
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import ec
-    from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
-except ImportError:
-    sys.stderr.write(
-        "Missing Python 'cryptography' package. Install with:\n"
-        "  python3 -m pip install --user cryptography\n"
-    )
-    sys.exit(1)
+# Python's stdlib has no ES256 support; the `cryptography` package is
+# required (pre-checked in the bash preflight, so import is expected to
+# succeed here).
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
 key_id, issuer_id, p8_path = sys.argv[1], sys.argv[2], sys.argv[3]
 header  = {"alg": "ES256", "kid": key_id, "typ": "JWT"}
@@ -209,12 +224,21 @@ NEEDS_NEW_CERT=yes
 if [ -f "$CER_PATH" ] && [ "${FORCE_NEW_CERT:-no}" != "yes" ]; then
   # If a non-expired cert is on disk, reuse it. Apple caps the team at 5
   # active Developer ID Application certs; we don't want to burn one on
-  # every dry-run.
+  # every dry-run. We refuse to silently re-issue on a date-parse failure
+  # — the user must explicitly opt in via FORCE_NEW_CERT=yes.
   EXP=$(openssl x509 -in "$CER_PATH" -inform DER -noout -enddate 2>/dev/null \
     | awk -F= '/notAfter/ {print $2}')
-  if [ -n "$EXP" ] && [ "$(date -u +%s)" -lt "$(date -u -j -f '%b %d %T %Y %Z' "$EXP" +%s 2>/dev/null \
-                                                  || date -u -d "$EXP" +%s 2>/dev/null \
-                                                  || echo 0)" ]; then
+  if [ -z "$EXP" ]; then
+    echo "Existing $CER_PATH is unreadable (no notAfter). Delete it or set FORCE_NEW_CERT=yes." >&2
+    exit 1
+  fi
+  EXP_EPOCH=$(date -u -j -f '%b %d %T %Y %Z' "$EXP" +%s 2>/dev/null \
+           || date -u -d "$EXP" +%s 2>/dev/null || true)
+  if [ -z "$EXP_EPOCH" ]; then
+    echo "Could not parse certificate expiry '$EXP'. Set FORCE_NEW_CERT=yes to re-issue, or fix locally." >&2
+    exit 1
+  fi
+  if [ "$(date -u +%s)" -lt "$EXP_EPOCH" ]; then
     echo "→ Reusing existing certificate (valid until $EXP)"
     NEEDS_NEW_CERT=no
   fi
@@ -231,14 +255,23 @@ if [ "$NEEDS_NEW_CERT" = "yes" ]; then
     -H "Content-Type: application/json" \
     -d "$REQ_BODY")
 
-  if ! printf '%s' "$RESP" | jq -e '.data.attributes.certificateContent' >/dev/null; then
-    echo "App Store Connect rejected the request:" >&2
+  # `jq -e` returns success on the JSON string "" — guard against null/empty
+  # certificateContent explicitly so we never write a zero-byte .cer that
+  # would then poison the idempotency check on the next run.
+  CERT_B64=$(printf '%s' "$RESP" | jq -r '.data.attributes.certificateContent // empty')
+  if [ -z "$CERT_B64" ]; then
+    echo "App Store Connect rejected the request or returned empty certificateContent:" >&2
     printf '%s\n' "$RESP" | jq . >&2 || printf '%s\n' "$RESP" >&2
     exit 1
   fi
 
-  printf '%s' "$RESP" | jq -r '.data.attributes.certificateContent' \
-    | base64 --decode > "$CER_PATH"
+  printf '%s' "$CERT_B64" | base64 --decode > "$CER_PATH"
+  if [ ! -s "$CER_PATH" ] \
+     || ! openssl x509 -in "$CER_PATH" -inform DER -noout 2>/dev/null; then
+    echo "Decoded certificate at $CER_PATH is empty or not valid DER." >&2
+    rm -f "$CER_PATH"
+    exit 1
+  fi
   echo "✓ Certificate saved to $CER_PATH"
 fi
 
@@ -248,23 +281,41 @@ fi
 echo "→ Building $P12_PATH…"
 # Convert the DER cert to PEM for openssl pkcs12; the private key is
 # already PEM. -legacy avoids macOS Keychain "MAC verification failed"
-# loading errors on Sequoia / Sonoma.
+# loading errors on Sequoia / Sonoma. Note: GitHub-hosted Linux runners
+# using OpenSSL 3.x must explicitly enable the legacy provider to read
+# this .p12 (`-provider legacy -provider default` on the import side, or
+# rely on Apple's `apple-actions/import-codesign-certs` which already
+# does this).
 CER_PEM_PATH="$WORK_DIR/${P12_NAME}.pem"
 openssl x509 -inform DER -in "$CER_PATH" -out "$CER_PEM_PATH"
 
-SIGNING_IDENTITY=$(openssl x509 -in "$CER_PEM_PATH" -noout -subject -nameopt RFC2253 \
-  | sed -E 's/.*CN=([^,]+).*/\1/')
+# Extract the CN using -nameopt multiline (one attribute per line, no
+# comma escaping). Apple issues Developer ID certs as e.g.
+#   commonName = Developer ID Application: Acme, LLC (ABCDE12345)
+# A naive `sed 's/.*CN=([^,]+).*/\1/'` truncates on the first comma,
+# silently breaking codesign matching for any org with a comma in its
+# legal name.
+SIGNING_IDENTITY=$(openssl x509 -in "$CER_PEM_PATH" -noout -subject -nameopt multiline,utf8 \
+  | awk -F'= ' '/^[[:space:]]*commonName/ { sub(/[[:space:]]+$/, "", $2); print $2; exit }')
 [ -n "$SIGNING_IDENTITY" ] \
   || { echo "Could not extract CN from certificate." >&2; exit 1; }
 
+# Pass the password via file rather than `pass:…` so it never appears in
+# the process argv (visible to other users via `ps`).
 openssl pkcs12 -export -legacy \
   -inkey "$KEY_PATH" -in "$CER_PEM_PATH" \
   -name "$SIGNING_IDENTITY" \
   -out "$P12_PATH" \
-  -passout "pass:$P12_PASSWORD"
+  -passout "file:$P12_PASSWORD_FILE"
 chmod 600 "$P12_PATH"
 echo "✓ .p12 ready: $P12_PATH"
 echo "  Signing identity: $SIGNING_IDENTITY"
+
+# Re-read the .p12 we just produced, using the same password file, to
+# catch packaging or password mismatches before shipping it to GitHub.
+openssl pkcs12 -in "$P12_PATH" -nokeys -passin "file:$P12_PASSWORD_FILE" \
+  -legacy -info >/dev/null 2>&1 \
+  || { echo "Self-test failed: cannot read back $P12_PATH with the saved password." >&2; exit 1; }
 
 # ──────────────────────────────────────────────────────────────────────
 # Step 5 — Push secrets to GitHub Actions
@@ -287,12 +338,33 @@ read -rp "Push to GitHub? [y/N] " CONFIRM
   || { echo "Skipped. Re-run when ready, or set the secrets manually."; exit 0; }
 
 P12_B64=$(base64 < "$P12_PATH" | tr -d '\n')
-gh secret set APPLE_CERTIFICATE          -b "$P12_B64"                     -R "$GH_REPO"
-gh secret set APPLE_CERTIFICATE_PASSWORD -b "$P12_PASSWORD"                -R "$GH_REPO"
-gh secret set APPLE_SIGNING_IDENTITY     -b "$SIGNING_IDENTITY"            -R "$GH_REPO"
-gh secret set APPLE_TEAM_ID              -b "$APPLE_TEAM_ID"               -R "$GH_REPO"
-gh secret set APPLE_ID                   -b "$APPLE_ID"                    -R "$GH_REPO"
-gh secret set APPLE_PASSWORD             -b "$APPLE_APP_SPECIFIC_PASSWORD" -R "$GH_REPO"
+
+# Push secrets one by one and aggregate failures so a partial-secrets
+# state is reported clearly. We disable `set -e` only inside this loop;
+# the caller still gets a non-zero exit if anything failed.
+set +e
+FAILED=()
+push_secret() {
+  local name="$1" value="$2"
+  if ! printf '%s' "$value" | gh secret set "$name" -R "$GH_REPO" --body - >/dev/null; then
+    FAILED+=("$name")
+  fi
+}
+push_secret APPLE_CERTIFICATE          "$P12_B64"
+push_secret APPLE_CERTIFICATE_PASSWORD "$P12_PASSWORD"
+push_secret APPLE_SIGNING_IDENTITY     "$SIGNING_IDENTITY"
+push_secret APPLE_TEAM_ID              "$APPLE_TEAM_ID"
+push_secret APPLE_ID                   "$APPLE_ID"
+push_secret APPLE_PASSWORD             "$APPLE_APP_SPECIFIC_PASSWORD"
+set -e
+
+if [ "${#FAILED[@]}" -ne 0 ]; then
+  echo >&2
+  echo "✗ Failed to push the following secrets to $GH_REPO:" >&2
+  for s in "${FAILED[@]}"; do echo "    - $s" >&2; done
+  echo "  Re-run the script (idempotent) or 'gh secret set' the failed names manually." >&2
+  exit 1
+fi
 echo "✓ All six APPLE_* secrets pushed to $GH_REPO"
 echo
 echo "Next step: trigger a desktop build. The macOS leg should now produce a"

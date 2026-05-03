@@ -149,3 +149,20 @@ What still requires the Apple portals (one-time human steps):
 - No `.p8` API keys (you supply the path at runtime)
 - No app-specific passwords (read from a hidden prompt, never stored)
 - No customer/contributor data
+
+### What *is* persisted in `$WORK_DIR`
+
+For idempotency across re-runs the script keeps the following on disk
+(directory mode `700`, files mode `600`, never copied into the repo):
+
+- `developer-id-application.key` — the Developer ID private key (PEM)
+- `developer-id-application.csr` — the CSR that was submitted
+- `developer-id-application.cer` — the issued certificate (DER)
+- `developer-id-application.pem` — the same cert in PEM form
+- `developer-id-application.p12` — the bundled key + cert
+- `developer-id-application.p12.password` — the random `.p12` export
+  password (also pushed as `APPLE_CERTIFICATE_PASSWORD` to GitHub)
+
+Delete `$WORK_DIR` to fully reset state. Apple caps the team at 5 active
+Developer ID Application certs, so prefer reusing the on-disk cert over
+re-issuing.
