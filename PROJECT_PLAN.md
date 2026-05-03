@@ -246,9 +246,10 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
     - [x] UPDATER_KEYS.md expanded with full Apple notarization setup guide
     - [x] D-U-N-S number assigned for StickMUD Entertainment LLC
     - [x] Apple Developer Program enrollment ($99/yr, requires D-U-N-S; single enrollment covers macOS and iOS)
-    - [ ] Developer ID Application certificate generation
-    - [ ] App-specific password for notarization
-    - [ ] Configure 6 Apple CI secrets in GitHub Actions: `APPLE_CERTIFICATE` (base64-encoded `.p12`), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD` (app-specific password), `APPLE_TEAM_ID`
+    - [x] Provisioning helper script (`scripts/setup-apple-signing.sh`) — consent-gated, idempotent, fork-aware: generates a 2048-bit RSA key + CSR locally, signs an ES256 JWT for App Store Connect, POSTs the CSR to `/v1/certificates` with `certificateType=DEVELOPER_ID_APPLICATION`, bundles the issued cert into a `.p12`, and pushes all six `APPLE_*` secrets to GitHub. Requires a one-time App Store Connect API key (Admin role) and an app-specific password — both are portal-only steps.
+    - [ ] Developer ID Application certificate generation (run `scripts/setup-apple-signing.sh`)
+    - [ ] App-specific password for notarization (manual: `account.apple.com` → Sign-In and Security → App-Specific Passwords)
+    - [ ] Configure 6 Apple CI secrets in GitHub Actions: `APPLE_CERTIFICATE` (base64-encoded `.p12`), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD` (app-specific password), `APPLE_TEAM_ID` — pushed automatically by `scripts/setup-apple-signing.sh`
     - [ ] Verify minimum entitlements under hardened runtime (test removing `allow-unsigned-executable-memory`)
   - [ ] Windows Authenticode signing via Microsoft Artifact Signing (formerly Trusted Signing / Azure Code Signing)
     - [x] Create Azure account / subscription (Pay-As-You-Go) for StickMUD Entertainment LLC
