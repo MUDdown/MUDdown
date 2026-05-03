@@ -294,17 +294,72 @@ jobs:
           Write-Host "signCommand.args = $($signCommand.args -join ' ')"
 
       # Apple notarization env vars are only exported when MACOS_SIGNING_ACTIVE == '1'.
-      # Forwarding empty strings would cause tauri-bundler's Rust code to call
-      # `security import` with an empty certificate (env::var returns Ok("") for
-      # empty vars, which it doesn't treat as "unset"), producing the error
-      # 'security import: failed to import keychain certificate'. We export to
-      # GITHUB_ENV (rather than the step's `env:` block) so the vars are simply
-      # absent when inactive, and the bundler falls through to ad-hoc codesign.
-      - name: Export Apple signing env (signing active)
+      #
+      # We deliberately do NOT pass APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD
+      # to tauri-action. tauri-bundler's env-driven `security import` codepath
+      # is unreliable on macOS 15 runners — both the OpenSSL `-legacy` (RC2-40)
+      # and OpenSSL 3 default (PBES2/AES) PKCS12 formats are rejected by
+      # `security import` against the runner's default keychain, with errors
+      # like "One or more parameters passed to a function were not valid" or
+      # "MAC verification failed during PKCS12 import (wrong password?)".
+      #
+      # Instead, the "Import Apple cert into build keychain" step below creates
+      # a temporary keychain, imports the .p12 there, and adds it to the
+      # search list. tauri-bundler then locates the identity via
+      # APPLE_SIGNING_IDENTITY and skips the `security import` step entirely.
+      #
+      # Forwarding empty strings to APPLE_SIGNING_IDENTITY etc. would still be
+      # bad (env::var returns Ok("") for empty vars, which the bundler doesn't
+      # treat as "unset"). We export to GITHUB_ENV so vars are simply absent
+      # when inactive, and the bundler falls through to ad-hoc codesign.
+      - name: Import Apple cert into build keychain (signing active)
         if: startsWith(matrix.platform, 'macos') && env.MACOS_SIGNING_ACTIVE == '1'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          CERT_PATH="$RUNNER_TEMP/apple-cert.p12"
+
+          # macOS BSD `base64` uses -D, GNU uses -d. `openssl base64 -d -A`
+          # is portable and tolerates trailing newlines in the input.
+          printf '%s' "$APPLE_CERTIFICATE" | openssl base64 -d -A > "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # `-T /usr/bin/codesign` authorises codesign to use the imported
+          # private key without an interactive prompt. `-A` would authorise
+          # *all* apps and is too broad for CI.
+          security import "$CERT_PATH" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security \
+            -T /usr/bin/productsign
+
+          # Required on macOS 10.12+ — without this, codesign prompts for the
+          # keychain password (which fails non-interactively in CI).
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+          # Add the build keychain to the user's search list so codesign
+          # can find the identity. Preserve existing entries.
+          security list-keychains -d user -s "$KEYCHAIN_PATH" \
+            $(security list-keychains -d user | sed 's/[\" ]//g')
+
+          rm -f "$CERT_PATH"
+          echo "✓ Imported Apple identity into $KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Export Apple signing env (signing active)
+        if: startsWith(matrix.platform, 'macos') && env.MACOS_SIGNING_ACTIVE == '1'
+        env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
@@ -313,7 +368,7 @@ jobs:
           set -euo pipefail
           # Use the heredoc form documented at
           # https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#multiline-strings
-          # so that multi-line base64 certs survive without splitting.
+          # so multi-line values survive without splitting.
           write_var() {
             local name="$1"
             local value="$2"
@@ -325,8 +380,6 @@ jobs:
               echo "${delim}"
             } >> "$GITHUB_ENV"
           }
-          write_var APPLE_CERTIFICATE          "$APPLE_CERTIFICATE"
-          write_var APPLE_CERTIFICATE_PASSWORD "$APPLE_CERTIFICATE_PASSWORD"
           write_var APPLE_SIGNING_IDENTITY     "$APPLE_SIGNING_IDENTITY"
           write_var APPLE_ID                   "$APPLE_ID"
           write_var APPLE_PASSWORD             "$APPLE_PASSWORD"
