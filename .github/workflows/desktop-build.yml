@@ -340,7 +340,7 @@ jobs:
           # the file contains the unencrypted-once-imported key so
           # there's no reason to leave it on disk a moment longer than
           # necessary.
-          trap 'rm -f "$CERT_PATH"' EXIT
+          trap 'rm -f "$CERT_PATH"; security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true' EXIT
 
           # Strip stray CR/LF from the secrets. GitHub secret expansion
           # via `env:` can introduce a trailing newline; passing that to
@@ -513,10 +513,15 @@ jobs:
           # the .dmg.
           MOUNT_POINT="$RUNNER_TEMP/dmg-verify-$$"
           mkdir -p "$MOUNT_POINT"
+          # Set the cleanup trap *before* attaching so that an interrupt or
+          # signal between attach and the next line cannot leave a mounted
+          # volume without a cleanup handler.
+          trap 'hdiutil detach "$MOUNT_POINT" -force >/dev/null 2>&1 || true' EXIT
           # `-nobrowse` keeps the volume out of Finder; `-readonly` makes
           # the operation race-free against any concurrent writers.
-          hdiutil attach "$DMG" -mountpoint "$MOUNT_POINT" -nobrowse -readonly -noverify
-          trap 'hdiutil detach "$MOUNT_POINT" -force >/dev/null 2>&1 || true' EXIT
+          # No `-noverify` — we want the CRC check to catch a truncated or
+          # corrupted .dmg rather than silently mounting a damaged artifact.
+          hdiutil attach "$DMG" -mountpoint "$MOUNT_POINT" -nobrowse -readonly
 
           APP=$(find "$MOUNT_POINT" -maxdepth 2 -name "*.app" -print -quit)
           if [ -z "$APP" ]; then
@@ -555,4 +560,4 @@ jobs:
             apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
             apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
             apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
-          if-no-files-found: warn
+          if-no-files-found: error
