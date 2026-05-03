@@ -340,7 +340,14 @@ jobs:
           # the file contains the unencrypted-once-imported key so
           # there's no reason to leave it on disk a moment longer than
           # necessary.
-          trap 'rm -f "$CERT_PATH"; security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true' EXIT
+          #
+          # Note: do *not* delete the keychain here — this trap fires when
+          # the import step's shell exits, but the keychain must persist
+          # into the later "Build Tauri app" step (a separate shell
+          # invocation) for codesign to find the signing identity. Keychain
+          # teardown happens in a dedicated `if: always()` cleanup step at
+          # the end of the job.
+          trap 'rm -f "$CERT_PATH"' EXIT
 
           # Strip stray CR/LF from the secrets. GitHub secret expansion
           # via `env:` can introduce a trailing newline; passing that to
@@ -561,3 +568,12 @@ jobs:
             apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
             apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
           if-no-files-found: error
+
+      # Tear down the temporary build keychain regardless of whether the
+      # build succeeded. Runs unconditionally so a failed build still
+      # cleans up the user keychain search list (relevant on self-hosted
+      # runners; harmless on GitHub-hosted ephemeral VMs).
+      - name: Remove temporary build keychain
+        if: always() && startsWith(matrix.platform, 'macos') && env.MACOS_SIGNING_ACTIVE == '1'
+        run: |
+          security delete-keychain "$RUNNER_TEMP/build.keychain-db" 2>/dev/null || true
