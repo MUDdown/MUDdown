@@ -504,14 +504,31 @@ jobs:
             exit 1
           fi
 
-          # tauri-action staples the .app inside the .dmg but does not staple
-          # the .dmg itself. Apple recommends stapling the outer container so
-          # Gatekeeper can verify offline; do that here, then validate.
-          echo "Stapling notarization ticket onto $DMG"
-          xcrun stapler staple "$DMG"
+          # tauri-action submits the .app to Apple's notary service and
+          # staples the ticket onto the .app, then re-bundles the signed
+          # + stapled .app into a .dmg. The .dmg itself is not submitted,
+          # so `stapler staple <dmg>` would fail (exit 65). Validate the
+          # .app inside the .dmg instead — that's what Gatekeeper checks
+          # when the user double-clicks the app after copying it out of
+          # the .dmg.
+          MOUNT_POINT="$RUNNER_TEMP/dmg-verify-$$"
+          mkdir -p "$MOUNT_POINT"
+          # `-nobrowse` keeps the volume out of Finder; `-readonly` makes
+          # the operation race-free against any concurrent writers.
+          hdiutil attach "$DMG" -mountpoint "$MOUNT_POINT" -nobrowse -readonly -noverify
+          trap 'hdiutil detach "$MOUNT_POINT" -force >/dev/null 2>&1 || true' EXIT
 
-          echo "Verifying notarization staple on $DMG"
-          xcrun stapler validate "$DMG"
+          APP=$(find "$MOUNT_POINT" -maxdepth 2 -name "*.app" -print -quit)
+          if [ -z "$APP" ]; then
+            echo "::error::No .app found inside $DMG" >&2
+            exit 1
+          fi
+
+          echo "Verifying notarization staple on $APP"
+          xcrun stapler validate "$APP"
+
+          echo "Verifying Gatekeeper acceptance on $APP"
+          spctl --assess --type execute --verbose=2 "$APP"
 
       - name: Verify Authenticode signature (Windows)
         if: env.WINDOWS_SIGNING_ACTIVE == '1'
