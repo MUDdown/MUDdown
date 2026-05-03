@@ -76,9 +76,21 @@ jobs:
       # cert (which fails with `security import` errors).
       # On fork PRs, GitHub masks secrets (resolves to ''), so the strip
       # step always runs there — producing unsigned artifacts, which is correct.
+      # macOS code-signing is active only when *all* required Apple
+      # secrets are populated. Checking only APPLE_CERTIFICATE would let
+      # the import step run with a missing password (→ "MAC verification
+      # failed") or let the build proceed without a signing identity
+      # / notarization creds (→ confusing late failure). On fork PRs
+      # GitHub masks secrets (resolves to ''), so the strip step always
+      # runs there — producing unsigned artifacts, which is correct.
       MACOS_SIGNING_ACTIVE: >-
         ${{ startsWith(matrix.platform, 'macos')
             && secrets.APPLE_CERTIFICATE != ''
+            && secrets.APPLE_CERTIFICATE_PASSWORD != ''
+            && secrets.APPLE_SIGNING_IDENTITY != ''
+            && secrets.APPLE_ID != ''
+            && secrets.APPLE_PASSWORD != ''
+            && secrets.APPLE_TEAM_ID != ''
             && '1' || '' }}
       # Tauri updater signing is active only when the Ed25519 private key
       # is provisioned. Same Ok("") pitfall as APPLE_*: forwarding an empty
@@ -294,17 +306,110 @@ jobs:
           Write-Host "signCommand.args = $($signCommand.args -join ' ')"
 
       # Apple notarization env vars are only exported when MACOS_SIGNING_ACTIVE == '1'.
-      # Forwarding empty strings would cause tauri-bundler's Rust code to call
-      # `security import` with an empty certificate (env::var returns Ok("") for
-      # empty vars, which it doesn't treat as "unset"), producing the error
-      # 'security import: failed to import keychain certificate'. We export to
-      # GITHUB_ENV (rather than the step's `env:` block) so the vars are simply
-      # absent when inactive, and the bundler falls through to ad-hoc codesign.
-      - name: Export Apple signing env (signing active)
+      #
+      # We deliberately do NOT pass APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD
+      # to tauri-action. tauri-bundler's env-driven `security import` codepath
+      # is unreliable on macOS 15 runners — both the OpenSSL `-legacy` (RC2-40)
+      # and OpenSSL 3 default (PBES2/AES) PKCS12 formats are rejected by
+      # `security import` against the runner's default keychain, with errors
+      # like "One or more parameters passed to a function were not valid" or
+      # "MAC verification failed during PKCS12 import (wrong password?)".
+      #
+      # Instead, the "Import Apple cert into build keychain" step below creates
+      # a temporary keychain, imports the .p12 there, and adds it to the
+      # search list. tauri-bundler then locates the identity via
+      # APPLE_SIGNING_IDENTITY and skips the `security import` step entirely.
+      #
+      # Forwarding empty strings to APPLE_SIGNING_IDENTITY etc. would still be
+      # bad (env::var returns Ok("") for empty vars, which the bundler doesn't
+      # treat as "unset"). We export to GITHUB_ENV so vars are simply absent
+      # when inactive, and the bundler falls through to ad-hoc codesign.
+      - name: Import Apple cert into build keychain (signing active)
         if: startsWith(matrix.platform, 'macos') && env.MACOS_SIGNING_ACTIVE == '1'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          CERT_PATH="$RUNNER_TEMP/apple-cert.p12"
+
+          # Defence-in-depth: scrub the decoded .p12 even if a later
+          # command aborts under `set -e`. Runners are ephemeral, but
+          # the file contains the unencrypted-once-imported key so
+          # there's no reason to leave it on disk a moment longer than
+          # necessary.
+          trap 'rm -f "$CERT_PATH"' EXIT
+
+          # Strip stray CR/LF from the secrets. GitHub secret expansion
+          # via `env:` can introduce a trailing newline; passing that to
+          # `security import -P` produces a 33-byte password and fails
+          # with "MAC verification failed during PKCS12 import (wrong
+          # password?)" even when the password and .p12 are correct.
+          APPLE_CERTIFICATE="$(printf '%s' "$APPLE_CERTIFICATE" | tr -d '\r\n')"
+          APPLE_CERTIFICATE_PASSWORD="$(printf '%s' "$APPLE_CERTIFICATE_PASSWORD" | tr -d '\r\n')"
+
+          # macOS BSD `base64` uses -D, GNU uses -d. `openssl base64 -d -A`
+          # is portable and tolerates trailing newlines in the input.
+          printf '%s' "$APPLE_CERTIFICATE" | openssl base64 -d -A > "$CERT_PATH"
+
+          # Diagnostics: confirm the .p12 round-tripped intact and the
+          # password is the expected length. Neither value is sensitive
+          # (the sha256 of the public-cert-bundled .p12 doesn't reveal
+          # the private key, and we print only the byte length of the
+          # password, never its content). This isolates "GitHub secret
+          # corruption" from "security-import bug".
+          echo "p12 size:        $(wc -c < "$CERT_PATH" | tr -d ' ') bytes"
+          echo "p12 sha256:      $(shasum -a 256 "$CERT_PATH" | awk '{print $1}')"
+          echo "password length: ${#APPLE_CERTIFICATE_PASSWORD} bytes"
+
+          # Cross-check the password against the .p12 with openssl,
+          # which uses an independent PKCS12 implementation. If openssl
+          # accepts the password but `security import` rejects it,
+          # we're hitting a security(1) bug rather than bad inputs.
+          if openssl pkcs12 -in "$CERT_PATH" \
+              -passin "pass:$APPLE_CERTIFICATE_PASSWORD" \
+              -nokeys -noout 2>/dev/null; then
+            echo "✓ openssl accepts the .p12 password"
+          else
+            echo "✗ openssl rejects the .p12 password — secret is corrupted"
+            exit 1
+          fi
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # `-T /usr/bin/codesign` authorises codesign to use the imported
+          # private key without an interactive prompt. `-A` would authorise
+          # *all* apps and is too broad for CI.
+          security import "$CERT_PATH" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security \
+            -T /usr/bin/productsign
+
+          # Required on macOS 10.12+ — without this, codesign prompts for the
+          # keychain password (which fails non-interactively in CI).
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+          # Add the build keychain to the user's search list so codesign
+          # can find the identity. Preserve existing entries.
+          security list-keychains -d user -s "$KEYCHAIN_PATH" \
+            $(security list-keychains -d user | sed 's/[\" ]//g')
+
+          # CERT_PATH cleanup is handled by the EXIT trap above.
+          echo "✓ Imported Apple identity into $KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Export Apple signing env (signing active)
+        if: startsWith(matrix.platform, 'macos') && env.MACOS_SIGNING_ACTIVE == '1'
+        env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
@@ -313,7 +418,7 @@ jobs:
           set -euo pipefail
           # Use the heredoc form documented at
           # https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#multiline-strings
-          # so that multi-line base64 certs survive without splitting.
+          # so multi-line values survive without splitting.
           write_var() {
             local name="$1"
             local value="$2"
@@ -325,8 +430,6 @@ jobs:
               echo "${delim}"
             } >> "$GITHUB_ENV"
           }
-          write_var APPLE_CERTIFICATE          "$APPLE_CERTIFICATE"
-          write_var APPLE_CERTIFICATE_PASSWORD "$APPLE_CERTIFICATE_PASSWORD"
           write_var APPLE_SIGNING_IDENTITY     "$APPLE_SIGNING_IDENTITY"
           write_var APPLE_ID                   "$APPLE_ID"
           write_var APPLE_PASSWORD             "$APPLE_PASSWORD"
@@ -394,14 +497,38 @@ jobs:
       - name: Verify notarization (macOS)
         if: startsWith(matrix.platform, 'macos') && env.MACOS_SIGNING_ACTIVE == '1'
         run: |
+          set -euo pipefail
           DMG=$(find apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle -name "*.dmg" -print -quit)
-          if [ -n "$DMG" ]; then
-            echo "Verifying notarization staple on $DMG"
-            xcrun stapler validate "$DMG"
-          else
+          if [ -z "$DMG" ]; then
             echo "::error::Signing was active but no .dmg found — bundle may have failed" >&2
             exit 1
           fi
+
+          # tauri-action submits the .app to Apple's notary service and
+          # staples the ticket onto the .app, then re-bundles the signed
+          # + stapled .app into a .dmg. The .dmg itself is not submitted,
+          # so `stapler staple <dmg>` would fail (exit 65). Validate the
+          # .app inside the .dmg instead — that's what Gatekeeper checks
+          # when the user double-clicks the app after copying it out of
+          # the .dmg.
+          MOUNT_POINT="$RUNNER_TEMP/dmg-verify-$$"
+          mkdir -p "$MOUNT_POINT"
+          # `-nobrowse` keeps the volume out of Finder; `-readonly` makes
+          # the operation race-free against any concurrent writers.
+          hdiutil attach "$DMG" -mountpoint "$MOUNT_POINT" -nobrowse -readonly -noverify
+          trap 'hdiutil detach "$MOUNT_POINT" -force >/dev/null 2>&1 || true' EXIT
+
+          APP=$(find "$MOUNT_POINT" -maxdepth 2 -name "*.app" -print -quit)
+          if [ -z "$APP" ]; then
+            echo "::error::No .app found inside $DMG" >&2
+            exit 1
+          fi
+
+          echo "Verifying notarization staple on $APP"
+          xcrun stapler validate "$APP"
+
+          echo "Verifying Gatekeeper acceptance on $APP"
+          spctl --assess --type execute --verbose=2 "$APP"
 
       - name: Verify Authenticode signature (Windows)
         if: env.WINDOWS_SIGNING_ACTIVE == '1'
