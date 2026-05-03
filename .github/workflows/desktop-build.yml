@@ -354,6 +354,29 @@ jobs:
           # is portable and tolerates trailing newlines in the input.
           printf '%s' "$APPLE_CERTIFICATE" | openssl base64 -d -A > "$CERT_PATH"
 
+          # Diagnostics: confirm the .p12 round-tripped intact and the
+          # password is the expected length. Neither value is sensitive
+          # (the sha256 of the public-cert-bundled .p12 doesn't reveal
+          # the private key, and we print only the byte length of the
+          # password, never its content). This isolates "GitHub secret
+          # corruption" from "security-import bug".
+          echo "p12 size:        $(wc -c < "$CERT_PATH" | tr -d ' ') bytes"
+          echo "p12 sha256:      $(shasum -a 256 "$CERT_PATH" | awk '{print $1}')"
+          echo "password length: ${#APPLE_CERTIFICATE_PASSWORD} bytes"
+
+          # Cross-check the password against the .p12 with openssl,
+          # which uses an independent PKCS12 implementation. If openssl
+          # accepts the password but `security import` rejects it,
+          # we're hitting a security(1) bug rather than bad inputs.
+          if openssl pkcs12 -in "$CERT_PATH" \
+              -passin "pass:$APPLE_CERTIFICATE_PASSWORD" \
+              -nokeys -noout 2>/dev/null; then
+            echo "✓ openssl accepts the .p12 password"
+          else
+            echo "✗ openssl rejects the .p12 password — secret is corrupted"
+            exit 1
+          fi
+
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
