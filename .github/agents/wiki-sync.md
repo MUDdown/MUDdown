@@ -103,6 +103,6 @@ If nothing needs updating, return:
 
 ## Guardrails
 
-- **Read-only.** Never write to `MUDdown.wiki/` or commit on its behalf — that is a human / explicit-instruction task.
+- **Read-only.** Never edit files in this repo or write to `MUDdown.wiki/` or commit on its behalf — that is a human / explicit-instruction task.
 - **Map, don't draft.** Identify the pages and reasons. Do not generate the new wiki content; the main thread will draft updates separately if needed.
 - **Be specific.** Cite the changed file or feature in each line so the human can verify the mapping.
