@@ -40,7 +40,7 @@ The MUDdown world is documented in `AGENTS.md` § "MUDdown Format Rules" and `pa
 
 - Use `Glob` and `Read` to enumerate and inspect files. Prefer batch reads.
 - Use `Grep` to find cross-references (e.g. all `(npc:foo)` link occurrences) when checking dangling references.
-- If `Bash` is available, you may run `cd packages/server && npx vitest run world-integrity.test.ts` to leverage the existing vitest suite — but this is supplementary; do not skip the manual checks above, since the vitest output is coarse-grained.
+- If `Bash` is available, you may run `cd packages/server && npx --no-install vitest run tests/world-integrity.test.ts` to leverage the existing vitest suite (matches the form used by `.github/hooks/validate-world.sh`) — but this is supplementary; do not skip the manual checks above, since the vitest output is coarse-grained.
 - Do not run any other test suites, builds, or long-running commands.
 
 ## Output format

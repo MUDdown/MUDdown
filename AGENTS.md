@@ -263,6 +263,9 @@ The project wiki lives in a separate Git repository (`MUDdown/MUDdown.wiki`), ty
 |---------|-------|--------|
 | Players | Getting-Started, Command-Reference, World-Guide, Item-Catalog, NPC-Directory, Combat-Guide, FAQ | How to play, commands, world content, items, NPCs, combat |
 | Developers | Architecture-Overview, Adding-Content, Wire-Protocol, MUDdown-Format, LLM-Integration, Deployment-Guide, Contributing, OAuth-Setup | Codebase internals, content authoring, protocols, integrations, ops |
+| Clients | Desktop-App, Desktop-Client, Mobile-App, Mobile-Client, Terminal-App, Terminal-Client, Telnet-Bridge | Per-client documentation; the `*-App.md` and `*-Client.md` pages are distinct — update both when a client change lands |
+| Integrations | MCP-Integration | External integrations (LLM-Integration is listed under Developers above) |
+| Navigation | _Sidebar, Home | Wiki sidebar and landing page — update when adding a new page |
 
 **When to update:**
 

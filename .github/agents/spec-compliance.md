@@ -24,7 +24,7 @@ The spec is the source of truth. Common compliance points to verify:
    - `v: 1`, `id: <uuid>`, `type` ∈ allowed values, ISO-8601 `timestamp`, `muddown:` field present.
    - Every server-emitted envelope must round-trip through `packages/shared` types.
 2. **Container blocks** (spec §3 "Container Blocks"):
-   - `:::<kind>{…attrs…}` must use known kinds defined in §3 (`room`, `system`, `combat`, `dialogue`, `item`, …). `inventory` is a usage extension that appears in spec examples but check §3 for the current normative list before flagging.
+   - `:::<kind>{…attrs…}` must use known kinds defined in §3: `room` (§3.1), `npc` (§3.2), `item` (§3.3), `combat` (§3.4), `dialogue` (§3.5). `system` is the canonical wrapper for system messages. Note that `## Inventory` is a markdown section convention inside `:::npc` blocks (§3.2), not a container kind itself.
    - Every container opens with `:::` and closes with `:::`.
    - System messages are wrapped in `:::system{type="…"}…:::`.
 3. **Interactive link schemes** (spec §4 "Interactive Links"):

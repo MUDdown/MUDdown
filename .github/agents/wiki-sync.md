@@ -25,7 +25,7 @@ The wiki lives at `../MUDdown.wiki/` (sibling clone) and follows the structure d
 | Players | `Getting-Started.md`, `Command-Reference.md`, `World-Guide.md`, `Item-Catalog.md`, `NPC-Directory.md`, `Combat-Guide.md`, `FAQ.md` |
 | Developers | `Architecture-Overview.md`, `Adding-Content.md`, `Wire-Protocol.md`, `MUDdown-Format.md`, `LLM-Integration.md`, `Deployment-Guide.md`, `Contributing.md`, `OAuth-Setup.md` |
 | Clients | `Desktop-App.md`, `Desktop-Client.md`, `Mobile-App.md`, `Mobile-Client.md`, `Terminal-App.md`, `Terminal-Client.md`, `Telnet-Bridge.md` (the `*-App.md` and `*-Client.md` pages are **distinct** files — check both when a client change lands) |
-| Integrations | `MCP-Integration.md`, `LLM-Integration.md` |
+| Integrations | `MCP-Integration.md` |
 | Navigation | `_Sidebar.md`, `Home.md` |
 
 ## Mapping rules
