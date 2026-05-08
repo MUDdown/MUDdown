@@ -18,7 +18,17 @@ You receive one of:
 
 ## Wiki layout
 
-The wiki lives at `../MUDdown.wiki/` (sibling clone) and follows the structure documented in `AGENTS.md` § "Maintaining the Wiki":
+The wiki lives at `../MUDdown.wiki/` (sibling clone) and follows the structure documented in `AGENTS.md` § "Maintaining the Wiki".
+
+**If `../MUDdown.wiki/` is missing or unreadable**, do not abort the diff mapping — the layout below is authoritative and the report is still useful. Emit a single warning line at the top of the output in this form, then continue:
+
+```
+Warning: wiki repo not accessible at ../MUDdown.wiki/ (<reason: ENOENT | EACCES | not a git repo>). Page list below is based on the documented layout; cross-checks against current wiki content were skipped. See AGENTS.md § "Maintaining the Wiki" for clone instructions.
+```
+
+Skip optional `Grep` cross-checks of wiki content when the repo is unavailable; mapping rules below operate on filenames only.
+
+The structure:
 
 | Section | Pages |
 |---------|-------|
@@ -56,7 +66,7 @@ AGENTS.md § "Maintaining the Wiki" defines the player-facing rules; the rest be
 
 ## How to work
 
-1. Get the diff: `git diff origin/main...HEAD --stat` (or against a specified ref). Subagents start in the project working directory.
+1. Get the diff: `git diff origin/main...HEAD --stat` (or against a specified ref).
 2. For each changed file or feature, apply the mapping rules above.
 3. If unsure whether a change is user-visible, default to flagging the candidate page with severity "maybe".
 4. Optionally cross-check by `Grep`-ing the wiki for stale references to anything removed.
