@@ -401,6 +401,102 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [ ] GPS/physical world overlay mode
 - [ ] Accessibility audit and WCAG 2.2 compliance
 
+### Phase 9 — Discord Integration
+
+Two independent workstreams that surface MUDdown inside the existing MUDdown Discord server without depending on the Discord Social SDK (a closed C++/Unity/Unreal SDK aimed at packaged native games — not a fit for our web/RN/Tauri/Node clients). "Sign in with Discord" is already shipped via the standard OAuth provider; the work below is additive.
+
+#### 9a. Discord-as-client bridge (`packages/discord-bridge`)
+
+A new workspace parallel to `packages/bridge` (telnet) that lets a Discord user play MUDdown from inside the MUDdown Discord server. Same architectural shape as the telnet bridge — a stateless proxy that holds one WebSocket connection to the production game server per Discord player and translates between Discord messages and the MUDdown wire envelope. **No ANSI**, no OSC 8 — Discord components (embeds + buttons) replace clickable telnet links.
+
+Channel model: a dedicated `#play` (or `#game`) channel on the MUDdown Discord server is the public hub for slash commands, but the primary play surface is **the bot's DM with each player** (one DM thread per Discord user, one WebSocket session behind it). Public-channel slash commands are convenience entry points that funnel the player into their DM session.
+
+Mapping (the design choices that need fixing now, not later):
+
+| MUDdown side | Discord side | Notes |
+|---|---|---|
+| Player connection | One Discord user ↔ one WebSocket session, keyed by Discord user ID linked to a MUDdown account via the existing Discord OAuth identity link in the auth tables | Unauthenticated/unlinked users get a "link your account first" reply with a deep link |
+| Player input | Plain DM text → raw command line (same as telnet); slash commands (`/play`, `/who`, `/quit`, `/switch`) for convenience and discoverability | DMs are the primary channel |
+| Server output | One Discord **embed per envelope** (room / system / narrative / combat / dialogue), title = block kind, description = MUDdown body run through a Discord-flavored Markdown renderer in `packages/discord-bridge/src/render.ts` (reuses the `parser` AST) | |
+| Interactive links (`go:`, `cmd:`, `item:`, `npc:`) | Discord **buttons** under the embed (5 per row × 5 rows = 25 max); overflow collapses into a select menu. Button `custom_id` encodes the link URI; the bridge re-injects it as a command on click | |
+| Container blocks | Embed `color` per type (room=blue, system=red, combat=orange, dialogue=green, narrative=neutral) | Mirrors ARIA role intent visually |
+| Long output | Discord's 4096-char embed-description limit → split across multiple embeds in one message; paginated if >10 | |
+| Frontmatter / hidden meta | Stripped before render | |
+| Rate limits | Per-channel debounce + Discord's own 5/5s limits — coalesce redundant `room` re-renders | |
+
+**Multi-character support.** MUDdown already has multiple characters per account (`CharacterRecord`, `getCharacterById`), so the bridge needs an explicit character-selection step:
+
+- On first DM, the bridge replies with a list of the linked account's characters as buttons (`Pick a character` embed). Clicking one opens the WebSocket and starts play.
+- `/switch` slash command (or `quit` then re-DM) tears down the session, returns to the picker, and starts a new session under the chosen character.
+- The bridge stores the `lastCharacterId` per Discord user so a fresh DM auto-resumes the most recent character with a "Switch?" button visible at the top of the first room embed.
+- Only one active character per Discord user at a time (matches the WebSocket "one session per connection" invariant).
+
+Out of scope (deliberately, like the telnet bridge): voice, lobbies, account creation, world editing.
+
+Tasks:
+- [ ] Scaffold `packages/discord-bridge` (depends on `client`, `shared`, `parser`; runtime dep on `discord.js`)
+- [ ] Discord bot application registration + invite flow + `MUDDOWN_DISCORD_BOT_TOKEN` env var (deploy-side)
+- [ ] Connection manager: Discord user ID → WebSocket session, with idle eviction matching the telnet bridge
+- [ ] MUDdown → Discord renderer: AST → embeds + components, with the constraints above
+- [ ] Slash commands (`/play`, `/who`, `/switch`, `/quit`) registered globally for the MUDdown guild
+- [ ] DM intake: route plain text from a player's DM to their session as a command line
+- [ ] Button/select handlers: re-inject link URIs as commands; character-picker buttons
+- [ ] Account linking: leverage existing Discord OAuth; persist Discord user ID ↔ account mapping in `GameDatabase` (extend `IdentityLinkRecord` if needed)
+- [ ] Multi-character flow: picker on first DM, `/switch` mid-session, `lastCharacterId` resume
+- [ ] Tests (`vitest`): renderer fixtures (envelope → expected embed/components shape), connection-manager unit tests, account-linking round trip, character-switch flow
+- [ ] Systemd unit (`deploy/muddown-discord-bridge.service`) parallel to `muddown-bridge.service`
+- [ ] Wiki: new `Discord-Bridge.md` page (sibling to `Telnet-Bridge.md`); link from `_Sidebar.md` and `Home.md`
+- [ ] Skill: new `.github/skills/discord-bridge/SKILL.md` covering renderer invariants, button-id encoding, the no-auto-message rule, and the multi-character picker flow
+- [ ] Plugin: add `discord-bridge` to the `muddown-operator` plugin (`.github/plugins/muddown-operator/skills/discord-bridge/` directory symlink + README table + AGENTS.md skills table)
+
+#### 9b. Discord Rich Presence (opt-in, desktop only)
+
+[Discord Rich Presence](https://discord.com/developers/docs/rich-presence/overview) over the local IPC socket from the Tauri desktop app — no SDK, no extra runtime. The Discord client speaks RPC over a Unix domain socket (`$XDG_RUNTIME_DIR/discord-ipc-N`) on Linux/macOS and a named pipe (`\\.\pipe\discord-ipc-N`) on Windows; the desktop app talks to it directly from Rust.
+
+**Hard requirement: defaulted off, opt-in, one-click toggle, fully local.** No data leaves the user's machine via MUDdown's servers; the desktop client speaks directly to the local Discord client. If Discord isn't running, it's a silent no-op.
+
+Surface design (uses every Rich Presence field productively, since they only display when someone clicks into the profile — a low-cost place to be informative):
+
+| RPC field | Value | Visible where |
+|---|---|---|
+| Activity name | `MUDdown` | Activity header — renders as **"Playing MUDdown"** on the profile and friends list |
+| `details` (line 1) | `Exploring <region-name>` (e.g. "Exploring Greenhaven") | Profile expanded view |
+| `state` (line 2) | `<room title>` (e.g. "Town Square") | Profile expanded view |
+| `start` timestamp | Session start time | Renders as `00:14:32 elapsed` — gives the playing-time field for free |
+| `large_image` | MUDdown logo asset (uploaded to the Discord developer portal) | Profile expanded view |
+| `large_text` | `MUDdown — open Markdown MUD platform` | Tooltip on logo hover |
+| `small_image` | Lighting/region icon (`bright`, `dim`, `dark`, `magical`) keyed off the room's `lighting` frontmatter | Profile expanded view, badge on logo |
+| `small_text` | `<region> · <lighting>` (e.g. "Greenhaven · bright") | Tooltip on small icon |
+| `buttons` (max 2) | `[Play in browser → muddown.com/play]`, `[Get MUDdown → muddown.com]` | Profile expanded view, click-through |
+| `party.size` | `[1, 1]` for solo, `[N, room.capacity]` if/when parties land | Profile expanded view |
+
+Things to **deliberately not** include: character name (privacy — character names can be RP-sensitive and a player may not want their Discord friends to know their alt's name), inventory, combat status, raw coordinates.
+
+Investigation tasks (worth confirming before locking the design):
+- [ ] Confirm Discord's current RPC update rate limit (documented as "max 1 update per 15 seconds" historically; verify in 2026 docs and treat as a debounce floor)
+- [ ] Confirm `buttons` URLs don't require domain verification in the developer portal (some apps have hit a verification gate)
+- [ ] Test behaviour when the user has multiple Discord accounts logged into the desktop client (RPC connects to whichever instance opens its socket first — document the implication)
+- [ ] Decide whether `small_image` lighting icons require uploading 4+ assets to the dev portal or whether one neutral asset is sufficient for v1
+
+Implementation tasks:
+- [ ] Add `discord_rich_presence` setting to the desktop preferences store, default `false`
+- [ ] Settings UI: toggle in the existing preferences pane with copy explaining exactly what is shared (region, room title, session elapsed time, lighting icon) and that it goes only to the local Discord client, never to MUDdown's servers
+- [ ] Tauri-side IPC client (Rust crate, e.g. `discord-rich-presence`, or a hand-rolled minimal client — evaluate during scaffolding) gated behind the setting
+- [ ] Wire the renderer's "current room" signal to the presence updater; debounce to ≥15 s per Discord's RPC limit
+- [ ] Graceful no-op when Discord isn't running locally (don't error, don't retry-spam)
+- [ ] Toggle off → immediate `ClearActivity` so nothing lingers on the profile
+- [ ] Tests: setting persistence, IPC payload shape, debounce behaviour, no-Discord fallback, clear-on-off
+- [ ] Privacy: add a row in the privacy policy listing Rich Presence as off-by-default and listing exactly what it shares when enabled — coordinate with the [`privacy` skill](.github/skills/privacy/SKILL.md)
+- [ ] Wiki: extend `Desktop-App.md` with a "Discord Rich Presence" section documenting the opt-in and field map
+- [ ] Features page: add an "Optional Discord Rich Presence (opt-in)" entry under the Desktop section
+- [ ] Skill: extend `.github/skills/desktop-app/SKILL.md` with the RPC integration pattern (or a new `discord-rich-presence` skill if it grows large enough)
+
+#### 9c. Cross-cutting
+
+- [ ] Update `AGENTS.md` "What NOT to Do" with: "Don't enable Rich Presence by default" and "Don't auto-send Discord messages without explicit user action" (mirrors Discord's policy and ours)
+- [ ] Add `Discord-Bridge.md` and the `Desktop-App.md` Rich Presence section to the `wiki-sync` subagent's awareness so future doc-impact mapping covers them
+- [ ] World-validator and spec-compliance subagents are unaffected — neither workstream changes the wire protocol or world tree
+
 ---
 
 ## Agent Development Kit Adoption
