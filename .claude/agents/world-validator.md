@@ -1,0 +1,1 @@
+../../.github/agents/world-validator.md
