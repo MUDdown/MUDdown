@@ -1,0 +1,12 @@
+{
+  "name": "muddown-operator",
+  "description": "Operator workflow for MUDdown servers: telnet bridge OSC 8 hyperlinks and OAuth/OIDC identity providers. Bundles the osc8-bridge and oauth-provider skills for ops-focused contributors running a MUDdown server.",
+  "version": "0.1.0",
+  "author": {
+    "name": "MUDdown contributors",
+    "url": "https://github.com/MUDdown/MUDdown"
+  },
+  "homepage": "https://github.com/MUDdown/MUDdown/tree/main/.github/plugins/muddown-operator",
+  "repository": "https://github.com/MUDdown/MUDdown",
+  "license": "MIT"
+}
