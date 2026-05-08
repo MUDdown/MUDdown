@@ -1,0 +1,1 @@
+../../.github/agents/spec-compliance.md

@@ -175,6 +175,16 @@ Tool-use hooks under [`.github/hooks/`](.github/hooks/) (with symlinks at `.clau
 
 Wired up via [`.claude/settings.json`](.claude/settings.json). See [`.github/hooks/README.md`](.github/hooks/README.md) for adding hooks. These are *agent* hooks; the *game-engine* hooks in [`packages/server/src/hooks.ts`](packages/server/src/hooks.ts) are unrelated.
 
+## Agent Subagents
+
+Specialized read-only subagents under [`.github/agents/`](.github/agents/) (with symlinks at `.claude/agents/` for Claude Code) handle focused validation and mapping tasks in their own context window:
+
+- `world-validator.md` — audits `packages/server/world/` for bidirectional-exit violations, frontmatter ↔ container-id mismatches, dangling item/NPC references, recipe references, and orphans. Use after any change under `packages/server/world/**`.
+- `spec-compliance.md` — verifies server output and protocol code stay conformant with `packages/spec/SPECIFICATION.md` (envelope shape, container blocks, link schemes, ARIA mapping). Use when changing wire-protocol or output-generating code.
+- `wiki-sync.md` — maps a code diff to the wiki pages under `MUDdown.wiki/` that need updates per the rules in [Maintaining the Wiki](#maintaining-the-wiki). Use after shipping a feature, command, world content, or protocol change.
+
+All three are read-only auditors: they report findings, they do not modify files. See [`.github/agents/README.md`](.github/agents/README.md) for adding a new subagent. Subagents are loaded at session start — restart Claude Code after adding or editing one.
+
 ## Customization File Layout
 
 Agent customization files live in `.github/` (canonical) with per-agent symlinks elsewhere so a single source of truth is shared across Claude Code, Copilot, and any future agent integration.
@@ -183,6 +193,7 @@ Agent customization files live in `.github/` (canonical) with per-agent symlinks
 |--------------------|--------------------|------------------|
 | `.github/skills/<name>/SKILL.md` | `.claude/skills/<name>/SKILL.md` | Skill markdown (the `SKILL.md` file is symlinked; the directory itself is not, so each agent can drop additional resources alongside) |
 | `.github/hooks/*.sh` | `.claude/hooks/*.sh` | Tool-use hook scripts (per-file symlinks) |
+| `.github/agents/<name>.md` | `.claude/agents/<name>.md` | Subagent definitions (per-file symlinks; YAML frontmatter + Markdown body that becomes the subagent system prompt) |
 | `AGENTS.md` | `CLAUDE.md` | Whole-file symlink (`CLAUDE.md → AGENTS.md`) |
 | `.claude/settings.json` | *(Claude-specific, not symlinked)* | Wires hooks into Claude Code; references canonical `.github/hooks/` paths |
 
@@ -252,6 +263,9 @@ The project wiki lives in a separate Git repository (`MUDdown/MUDdown.wiki`), ty
 |---------|-------|--------|
 | Players | Getting-Started, Command-Reference, World-Guide, Item-Catalog, NPC-Directory, Combat-Guide, FAQ | How to play, commands, world content, items, NPCs, combat |
 | Developers | Architecture-Overview, Adding-Content, Wire-Protocol, MUDdown-Format, LLM-Integration, Deployment-Guide, Contributing, OAuth-Setup | Codebase internals, content authoring, protocols, integrations, ops |
+| Clients | Desktop-App, Desktop-Client, Mobile-App, Mobile-Client, Terminal-App, Terminal-Client, Telnet-Bridge | Per-client documentation; the `*-App.md` and `*-Client.md` pages are distinct — update both when a client change lands |
+| Integrations | MCP-Integration | External integrations (LLM-Integration is listed under Developers above) |
+| Navigation | _Sidebar, Home | Wiki sidebar and landing page — update when adding a new page |
 
 **When to update:**
 

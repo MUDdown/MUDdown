@@ -405,7 +405,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 
 ## Agent Development Kit Adoption
 
-The repo already uses two of the five "ADK" layers (CLAUDE.md/AGENTS.md memory, and Skills). This section tracks adoption of the remaining layers to make the agent-driven workflow deterministic rather than discipline-based. See `.github/hooks/` (canonical, symlinked into `.claude/hooks/`) and any future `.github/agents/` for the implementation.
+The repo already uses two of the five "ADK" layers (CLAUDE.md/AGENTS.md memory, and Skills). This section tracks adoption of the remaining layers to make the agent-driven workflow deterministic rather than discipline-based. See `.github/hooks/` and `.github/agents/` (both canonical, with per-file symlinks under `.claude/hooks/` and `.claude/agents/` for Claude Code) for the implementation.
 
 > Naming note: this repo also has *game-engine hooks* in `packages/server/src/hooks.ts` (NPC/item/room events). The "agent hooks" referenced here are Claude Code tool-use hooks; their canonical home is `.github/hooks/`, with per-file symlinks under `.claude/hooks/` for Claude Code.
 
@@ -425,9 +425,9 @@ Deterministic enforcement of rules currently stated in [AGENTS.md](AGENTS.md).
 
 Beyond the existing `Explore` agent. Each runs in its own context window so the main thread stays focused.
 
-- [ ] `world-validator` — read-only walk of `packages/server/world/`: bidirectional exits, dangling item/npc IDs, frontmatter↔container ID match, recipe references
-- [ ] `spec-compliance` — given a server change, verify output stays compliant with `packages/spec/SPECIFICATION.md` (envelope shape, container blocks, link schemes, ARIA mapping)
-- [ ] `wiki-sync` — given a diff, report which pages in `MUDdown.wiki/` need updates per the rules in AGENTS.md "Maintaining the Wiki"
+- [x] `world-validator` — read-only walk of `packages/server/world/`: bidirectional exits, dangling item/npc IDs, frontmatter↔container ID match, recipe references
+- [x] `spec-compliance` — given a server change, verify output stays compliant with `packages/spec/SPECIFICATION.md` (envelope shape, container blocks, link schemes, ARIA mapping)
+- [x] `wiki-sync` — given a diff, report which pages in `MUDdown.wiki/` need updates per the rules in AGENTS.md "Maintaining the Wiki"
 
 ### Layer 5 — Plugin Packaging (distribution)
 
@@ -438,7 +438,7 @@ Lower priority but aligns with the project's positioning as an open MUDdown spec
 
 ### Layer 1 — Memory split (tidy-up)
 
-- [ ] Move universal preferences (DCO sign-off, no AI co-author trailers, "don't add docstrings to code you didn't change") from project [CLAUDE.md](CLAUDE.md) into the user's global `~/.claude/CLAUDE.md`, leaving the project file purely about MUDdown
+- [x] Universal preferences (DCO sign-off, no AI co-author trailers, "don't add docstrings to code you didn't change", squash-merge / fork-only push hygiene) live in `~/.claude/CLAUDE.md` so every project session inherits them. The project [CLAUDE.md](CLAUDE.md) keeps its own copy of the DCO and AI-attribution rules — those are project policy and must apply to any contributor regardless of their personal user-global memory — but is otherwise free to focus on MUDdown-specific guidance.
 
 ---
 
