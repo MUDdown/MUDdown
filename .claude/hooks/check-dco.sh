@@ -1,0 +1,1 @@
+../../.github/hooks/check-dco.sh

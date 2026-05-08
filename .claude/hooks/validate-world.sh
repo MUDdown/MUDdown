@@ -1,0 +1,1 @@
+../../.github/hooks/validate-world.sh

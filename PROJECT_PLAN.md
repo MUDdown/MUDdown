@@ -403,6 +403,45 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 
 ---
 
+## Agent Development Kit Adoption
+
+The repo already uses two of the five "ADK" layers (CLAUDE.md/AGENTS.md memory, and Skills). This section tracks adoption of the remaining layers to make the agent-driven workflow deterministic rather than discipline-based. See `.github/hooks/` (canonical, symlinked into `.claude/hooks/`) and any future `.github/agents/` for the implementation.
+
+> Naming note: this repo also has *game-engine hooks* in `packages/server/src/hooks.ts` (NPC/item/room events). The "agent hooks" referenced here are Claude Code tool-use hooks; their canonical home is `.github/hooks/`, with per-file symlinks under `.claude/hooks/` for Claude Code.
+
+### Layer 3 — Agent Hooks (guardrails)
+
+Deterministic enforcement of rules currently stated in [AGENTS.md](AGENTS.md).
+
+- [x] `check-dco.sh` (PreToolUse / Bash) — block `git commit` without `Signed-off-by:` trailer
+- [x] `check-dco.sh` — block commits containing forbidden AI-attribution trailers (`Co-Authored-By: Claude|Copilot|ChatGPT`, "Generated with Claude Code", etc.)
+- [x] `block-dangerous.sh` (PreToolUse / Bash) — block `git push --force`, `git reset --hard`, `git commit --no-verify`, `git clean -f` (any `-f` bundle), `git restore .` / `git checkout .` / `git checkout -- …`, `git branch -D`, `npm publish`, and unsafe `rm -rf`
+- [x] `validate-world.sh` (PostToolUse / Write|Edit) — when a file under `packages/server/world/**` is modified, run the world-integrity vitest suite and surface failures
+- [x] All three hooks fail-closed on malformed JSON (jq parse failure → exit 2 / 1 instead of silent pass-through), with `set -uo pipefail` and a non-greedy sed fallback when jq is unavailable
+- [ ] *(future)* PostToolUse `tsc --noEmit` on the touched workspace
+- [ ] *(future)* Stop hook — remind to update test count on `apps/website/src/pages/features.astro` if vitest counts changed
+
+### Layer 4 — Specialized Subagents (delegation)
+
+Beyond the existing `Explore` agent. Each runs in its own context window so the main thread stays focused.
+
+- [ ] `world-validator` — read-only walk of `packages/server/world/`: bidirectional exits, dangling item/npc IDs, frontmatter↔container ID match, recipe references
+- [ ] `spec-compliance` — given a server change, verify output stays compliant with `packages/spec/SPECIFICATION.md` (envelope shape, container blocks, link schemes, ARIA mapping)
+- [ ] `wiki-sync` — given a diff, report which pages in `MUDdown.wiki/` need updates per the rules in AGENTS.md "Maintaining the Wiki"
+
+### Layer 5 — Plugin Packaging (distribution)
+
+Lower priority but aligns with the project's positioning as an open MUDdown spec/platform.
+
+- [ ] Bundle `room-creation` + `item-creation` + `npc-creation` + `muddown-format` skills as a **"MUDdown Content Authoring"** plugin so third-party MUDdown servers can install the authoring workflow without forking
+- [ ] Bundle `osc8-bridge` + `oauth-provider` skills as a **"MUDdown Operator"** plugin for ops-focused contributors
+
+### Layer 1 — Memory split (tidy-up)
+
+- [ ] Move universal preferences (DCO sign-off, no AI co-author trailers, "don't add docstrings to code you didn't change") from project [CLAUDE.md](CLAUDE.md) into the user's global `~/.claude/CLAUDE.md`, leaving the project file purely about MUDdown
+
+---
+
 ## Backlog: Bridge Startup Menu Review (2026-04-26)
 
 Items surfaced during the `feat/bridge-startup-menu` review that were not
