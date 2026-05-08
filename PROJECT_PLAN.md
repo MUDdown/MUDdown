@@ -415,8 +415,9 @@ Deterministic enforcement of rules currently stated in [AGENTS.md](AGENTS.md).
 
 - [x] `check-dco.sh` (PreToolUse / Bash) — block `git commit` without `Signed-off-by:` trailer
 - [x] `check-dco.sh` — block commits containing forbidden AI-attribution trailers (`Co-Authored-By: Claude|Copilot|ChatGPT`, "Generated with Claude Code", etc.)
-- [x] `block-dangerous.sh` (PreToolUse / Bash) — block `git push --force`, `git reset --hard`, unsafe `rm -rf`, accidental `npm publish`
+- [x] `block-dangerous.sh` (PreToolUse / Bash) — block `git push --force`, `git reset --hard`, `git commit --no-verify`, `git clean -f` (any `-f` bundle), `git restore .` / `git checkout .` / `git checkout -- …`, `git branch -D`, `npm publish`, and unsafe `rm -rf`
 - [x] `validate-world.sh` (PostToolUse / Write|Edit) — when a file under `packages/server/world/**` is modified, run the world-integrity vitest suite and surface failures
+- [x] All three hooks fail-closed on malformed JSON (jq parse failure → exit 2 / 1 instead of silent pass-through), with `set -uo pipefail` and a non-greedy sed fallback when jq is unavailable
 - [ ] *(future)* PostToolUse `tsc --noEmit` on the touched workspace
 - [ ] *(future)* Stop hook — remind to update test count on `apps/website/src/pages/features.astro` if vitest counts changed
 

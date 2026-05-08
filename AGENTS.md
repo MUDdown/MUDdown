@@ -170,7 +170,7 @@ The web client applies these roles in `apps/website/src/pages/play.astro`. Do no
 Tool-use hooks under [`.github/hooks/`](.github/hooks/) (with symlinks at `.claude/hooks/` for Claude Code) enforce several rules from this file deterministically:
 
 - `check-dco.sh` (PreToolUse / Bash) — blocks `git commit` without `Signed-off-by:` and rejects forbidden AI-attribution trailers
-- `block-dangerous.sh` (PreToolUse / Bash) — blocks `git push --force`, `git reset --hard`, `git commit --no-verify`, `npm publish`, and unsafe `rm -rf`
+- `block-dangerous.sh` (PreToolUse / Bash) — blocks `git push --force`, `git reset --hard`, `git commit --no-verify`, `git clean -f` (any `-f` bundle: `-f`, `-fd`, `-fx`, `-fdx`, …), `git restore .` / `git checkout .` / `git checkout -- …`, `git branch -D`, `npm publish`, and unsafe `rm -rf`
 - `validate-world.sh` (PostToolUse / Write|Edit) — runs `vitest world-integrity.test.ts` after any edit under `packages/server/world/**`
 
 Wired up via [`.claude/settings.json`](.claude/settings.json). See [`.github/hooks/README.md`](.github/hooks/README.md) for adding hooks. These are *agent* hooks; the *game-engine* hooks in [`packages/server/src/hooks.ts`](packages/server/src/hooks.ts) are unrelated.
