@@ -25,6 +25,12 @@ The `skills/<name>/` entries are **directory-level symlinks** into `.github/skil
 
 > Symlinks vs per-file: the `.claude/skills/<name>/SKILL.md` symlinks (used by Claude Code on the main repo) are per-file so each agent can drop extras alongside. The plugin layout symlinks the whole skill directory because plugins distribute the skill as a single unit.
 
+### Caveat: relative Markdown links inside `SKILL.md`
+
+A few skill files (currently only [`osc8-bridge`](../skills/osc8-bridge/SKILL.md)) use repo-relative links like `../../../packages/bridge/src/telnet.ts`. These resolve correctly when GitHub renders the file at its canonical path under `.github/skills/<skill>/`, but appear one directory deeper when the same `SKILL.md` is viewed via the plugin path under `.github/plugins/<plugin>/skills/<skill>/`, so the links 404 when browsed there.
+
+Runtime is unaffected — Claude Code resolves the symlink and reads the canonical file, so the agent never sees the plugin path. The caveat applies only to humans browsing the file on github.com via the plugin tree. When authoring a new skill that will be bundled into a plugin, prefer **absolute `https://github.com/MUDdown/MUDdown/blob/main/...` links** if the skill cites code in other packages, so it stays navigable in either location.
+
 ## Adding a new plugin
 
 1. `mkdir -p .github/plugins/<plugin-name>/{.claude-plugin,skills}`
