@@ -185,6 +185,15 @@ Specialized read-only subagents under [`.github/agents/`](.github/agents/) (with
 
 All three are read-only auditors: they report findings, they do not modify files. See [`.github/agents/README.md`](.github/agents/README.md) for adding a new subagent. Subagents are loaded at session start — restart Claude Code after adding or editing one.
 
+## Plugins
+
+Claude Code plugins under [`.github/plugins/`](.github/plugins/) bundle MUDdown skills for distribution to third-party MUDdown servers. Each plugin follows the [Claude Code plugin spec](https://code.claude.com/docs/en/plugins-reference#plugin-directory-structure) (`.claude-plugin/plugin.json` + `skills/<name>/` → directory symlinks into `.github/skills/<name>/`):
+
+- [`muddown-content-authoring/`](.github/plugins/muddown-content-authoring/) — bundles `room-creation`, `item-creation`, `npc-creation`, `muddown-format` for content authors on a MUDdown fork.
+- [`muddown-operator/`](.github/plugins/muddown-operator/) — bundles `osc8-bridge`, `oauth-provider` for ops-focused contributors running a MUDdown server.
+
+The `skills/<name>/` entries inside each plugin are **directory-level symlinks** into `.github/skills/<name>/` so the canonical skill files remain the single source of truth. See [`.github/plugins/README.md`](.github/plugins/README.md) for the layout, local-testing command (`claude --plugin-dir .github/plugins/<plugin-name>`), and steps for adding a new plugin.
+
 ## Customization File Layout
 
 Agent customization files live in `.github/` (canonical) with per-agent symlinks elsewhere so a single source of truth is shared across Claude Code, Copilot, and any future agent integration.
@@ -194,6 +203,7 @@ Agent customization files live in `.github/` (canonical) with per-agent symlinks
 | `.github/skills/<name>/SKILL.md` | `.claude/skills/<name>/SKILL.md` | Skill markdown (the `SKILL.md` file is symlinked; the directory itself is not, so each agent can drop additional resources alongside) |
 | `.github/hooks/*.sh` | `.claude/hooks/*.sh` | Tool-use hook scripts (per-file symlinks) |
 | `.github/agents/<name>.md` | `.claude/agents/<name>.md` | Subagent definitions (per-file symlinks; YAML frontmatter + Markdown body that becomes the subagent system prompt) |
+| `.github/plugins/<plugin>/` | *(none — distributed as-is)* | Claude Code plugin bundles (`.claude-plugin/plugin.json` + `skills/<name>/` directory symlinks into `.github/skills/`) |
 | `AGENTS.md` | `CLAUDE.md` | Whole-file symlink (`CLAUDE.md → AGENTS.md`) |
 | `.claude/settings.json` | *(Claude-specific, not symlinked)* | Wires hooks into Claude Code; references canonical `.github/hooks/` paths |
 
@@ -232,6 +242,7 @@ When a milestone feature lands (new system, new content type, new workflow), eva
 - **Update existing skill**: The feature changes conventions already covered by a skill (e.g., new test patterns → update `testing`, new link scheme → update `muddown-format`). Edit the existing `SKILL.md` in place.
 - **No skill needed**: One-off changes, bug fixes, or refactors that don't establish a new repeatable pattern.
 - **Update the table above** and the skills table in CLAUDE.md so the new skill is discoverable in both files.
+- **Bundled skills**: If the skill is included in a plugin under `.github/plugins/`, also update the plugin's `skills/<name>/` directory symlink and the skill table in the plugin's `README.md` when renaming or removing it. Otherwise the plugin will ship a dangling symlink.
 
 ### Maintaining the Features Page
 

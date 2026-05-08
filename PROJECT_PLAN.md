@@ -431,10 +431,10 @@ Beyond the existing `Explore` agent. Each runs in its own context window so the 
 
 ### Layer 5 — Plugin Packaging (distribution)
 
-Lower priority but aligns with the project's positioning as an open MUDdown spec/platform.
+Lower priority but aligns with the project's positioning as an open MUDdown spec/platform. Plugins live under [`.github/plugins/`](.github/plugins/) and follow the [Claude Code plugin spec](https://code.claude.com/docs/en/plugins-reference#plugin-directory-structure) (`.claude-plugin/plugin.json` + `skills/<name>/` → directory symlinks into `.github/skills/<name>/`); this keeps the canonical skill files as the single source of truth.
 
-- [ ] Bundle `room-creation` + `item-creation` + `npc-creation` + `muddown-format` skills as a **"MUDdown Content Authoring"** plugin so third-party MUDdown servers can install the authoring workflow without forking
-- [ ] Bundle `osc8-bridge` + `oauth-provider` skills as a **"MUDdown Operator"** plugin for ops-focused contributors
+- [x] Bundle `room-creation` + `item-creation` + `npc-creation` + `muddown-format` skills as a **"MUDdown Content Authoring"** plugin so third-party MUDdown servers can install the authoring workflow without forking
+- [x] Bundle `osc8-bridge` + `oauth-provider` skills as a **"MUDdown Operator"** plugin for ops-focused contributors
 
 ### Layer 1 — Memory split (tidy-up)
 

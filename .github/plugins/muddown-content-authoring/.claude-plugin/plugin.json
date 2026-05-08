@@ -1,0 +1,12 @@
+{
+  "name": "muddown-content-authoring",
+  "description": "Authoring workflow for MUDdown game content: rooms, items, NPCs, and the MUDdown markup format. Bundles the room-creation, item-creation, npc-creation, and muddown-format skills so third-party MUDdown servers can install the authoring workflow without forking the reference repo.",
+  "version": "0.1.0",
+  "author": {
+    "name": "MUDdown contributors",
+    "url": "https://github.com/MUDdown/MUDdown"
+  },
+  "homepage": "https://github.com/MUDdown/MUDdown/tree/main/.github/plugins/muddown-content-authoring",
+  "repository": "https://github.com/MUDdown/MUDdown",
+  "license": "MIT"
+}
