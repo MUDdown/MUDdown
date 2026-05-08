@@ -87,7 +87,9 @@ if printf '%s' "$cmd" | grep -qE '(^|[[:space:]])git[[:space:]]+clean([[:space:]
   fi
 fi
 
-# Working-tree discard / branch force-delete (AGENTS.md § Git Safety Protocol).
+# Working-tree discard / branch force-delete. AGENTS.md lists these under
+# the operationalSafety / "Agent Hooks" sections as hard-to-reverse and not
+# to be used as shortcuts.
 case "$cmd" in
   *"git restore ."*|*"git restore -- "*)
     block "git restore (working-tree discard) is not allowed via the agent." ;;

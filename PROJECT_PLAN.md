@@ -407,7 +407,7 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 
 The repo already uses two of the five "ADK" layers (CLAUDE.md/AGENTS.md memory, and Skills). This section tracks adoption of the remaining layers to make the agent-driven workflow deterministic rather than discipline-based. See `.github/hooks/` (canonical, symlinked into `.claude/hooks/`) and any future `.github/agents/` for the implementation.
 
-> Naming note: this repo also has *game-engine hooks* in `packages/server/src/hooks.ts` (NPC/item/room events). The "agent hooks" referenced here are Claude Code tool-use hooks and live under `.claude/hooks/`.
+> Naming note: this repo also has *game-engine hooks* in `packages/server/src/hooks.ts` (NPC/item/room events). The "agent hooks" referenced here are Claude Code tool-use hooks; their canonical home is `.github/hooks/`, with per-file symlinks under `.claude/hooks/` for Claude Code.
 
 ### Layer 3 — Agent Hooks (guardrails)
 

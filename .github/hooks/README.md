@@ -11,15 +11,17 @@ Canonical location: `.github/hooks/`. Per-agent symlinks (e.g. `.claude/hooks/`)
 | Script | Event | Matcher | Behavior |
 |--------|-------|---------|----------|
 | `check-dco.sh` | `PreToolUse` | `Bash` | Blocks `git commit` without `Signed-off-by:` and rejects AI-attribution trailers (`Co-Authored-By: Claude\|Copilot\|ChatGPT`, "Generated with Claude Code", etc.) |
-| `block-dangerous.sh` | `PreToolUse` | `Bash` | Blocks `git push --force`, `git reset --hard`, `git commit --no-verify`, `git clean -fdx`, `npm publish`, and `rm -rf` outside build directories |
+| `block-dangerous.sh` | `PreToolUse` | `Bash` | Blocks `git push --force`, `git reset --hard`, `git commit --no-verify`, `git clean -f` (any `-f` bundle: `-f`, `-fd`, `-fx`, `-fdx`, …) / `--force`, `git restore .` / `git restore -- …`, `git checkout .` / `git checkout -- …`, `git branch -D` / `--delete --force`, `npm publish`, and `rm -rf` outside build directories |
 | `validate-world.sh` | `PostToolUse` | `Write\|Edit` | When a file under `packages/server/world/**` is touched, runs `vitest world-integrity.test.ts` and surfaces failures |
 
 Wired up for Claude Code via [`.claude/settings.json`](../../.claude/settings.json), which references the canonical `.github/hooks/*.sh` paths.
 
 ## Conventions
 
-- POSIX `bash`, no Node/Python deps.
-- `jq` is used when present; falls back to a `sed` extractor.
+- POSIX `bash`. The PreToolUse hooks (`check-dco.sh`, `block-dangerous.sh`) have no Node/Python deps.
+- `validate-world.sh` (PostToolUse) additionally invokes `npx --no-install vitest` against `packages/server/tests/world-integrity.test.ts`, so it requires the workspace's installed dev deps.
+- JSON parsing prefers `jq`. `check-dco.sh` and `block-dangerous.sh` fall back to a best-effort `sed` extractor when `jq` is unavailable. `validate-world.sh` falls back to `python3` first (almost always present on macOS/Linux) and then to `sed` as a last resort.
+- All three hooks **fail closed** on malformed JSON: a `jq` parse error exits `2` (PreToolUse) or `1` (PostToolUse) with an `ERROR` line on stderr rather than passing through with an empty payload.
 - Exit `0` to allow, exit `2` with stderr to **block** the tool call (Claude Code surfaces stderr to the agent).
 - `exit 1` is "informational failure" — the call already happened (PostToolUse), the agent just sees the message.
 - Scripts must be executable (`chmod +x`).

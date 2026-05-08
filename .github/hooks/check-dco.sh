@@ -36,11 +36,12 @@ else
   cmd="$(printf '%s' "$payload" | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
 fi
 
-# Pass through anything that isn't a git commit.
-case "$cmd" in
-  *"git commit"*) ;;
-  *) exit 0 ;;
-esac
+# Pass through anything that isn't a `git commit` invocation. Token-boundary
+# match so other subcommands like `git commit-tree` / `git commit-graph` are
+# not falsely treated as commits.
+if ! printf '%s' "$cmd" | grep -qE '(^|[[:space:]])git[[:space:]]+commit([[:space:]]|$)'; then
+  exit 0
+fi
 
 # Skip amend-only / rebase-internal flows that don't introduce new messages.
 case "$cmd" in
