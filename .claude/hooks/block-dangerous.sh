@@ -1,0 +1,1 @@
+../../.github/hooks/block-dangerous.sh

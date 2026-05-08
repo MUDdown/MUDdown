@@ -165,6 +165,36 @@ The spec (§8) requires ARIA role mapping for container blocks:
 
 The web client applies these roles in `apps/website/src/pages/play.astro`. Do not remove them.
 
+## Agent Hooks
+
+Tool-use hooks under [`.github/hooks/`](.github/hooks/) (with symlinks at `.claude/hooks/` for Claude Code) enforce several rules from this file deterministically:
+
+- `check-dco.sh` (PreToolUse / Bash) — blocks `git commit` without `Signed-off-by:` and rejects forbidden AI-attribution trailers
+- `block-dangerous.sh` (PreToolUse / Bash) — blocks `git push --force`, `git reset --hard`, `git commit --no-verify`, `npm publish`, and unsafe `rm -rf`
+- `validate-world.sh` (PostToolUse / Write|Edit) — runs `vitest world-integrity.test.ts` after any edit under `packages/server/world/**`
+
+Wired up via [`.claude/settings.json`](.claude/settings.json). See [`.github/hooks/README.md`](.github/hooks/README.md) for adding hooks. These are *agent* hooks; the *game-engine* hooks in [`packages/server/src/hooks.ts`](packages/server/src/hooks.ts) are unrelated.
+
+## Customization File Layout
+
+Agent customization files live in `.github/` (canonical) with per-agent symlinks elsewhere so a single source of truth is shared across Claude Code, Copilot, and any future agent integration.
+
+| Canonical location | Per-agent symlinks | What lives there |
+|--------------------|--------------------|------------------|
+| `.github/skills/<name>/SKILL.md` | `.claude/skills/<name>/SKILL.md` | Skill markdown (the `SKILL.md` file is symlinked; the directory itself is not, so each agent can drop additional resources alongside) |
+| `.github/hooks/*.sh` | `.claude/hooks/*.sh` | Tool-use hook scripts (per-file symlinks) |
+| `AGENTS.md` | `CLAUDE.md` | Whole-file symlink (`CLAUDE.md → AGENTS.md`) |
+| `.claude/settings.json` | *(Claude-specific, not symlinked)* | Wires hooks into Claude Code; references canonical `.github/hooks/` paths |
+
+Conventions when adding new customization:
+
+- **Always put the source file under `.github/`** so it's tool-agnostic and discoverable to anyone reading the repo on github.com.
+- **Use per-file symlinks**, not directory symlinks, so per-agent extras can sit alongside without polluting the canonical tree (matches the existing `skills/` layout).
+- **Symlink target uses a relative path** like `../../.github/hooks/foo.sh` so the link works regardless of where the repo is cloned.
+- **Tool-specific glue** (e.g. `.claude/settings.json`, future `.github/copilot/*` configs) lives in its agent's own directory and is *not* symlinked — it references the canonical `.github/` paths.
+
+When introducing a new agent integration (e.g. a Copilot-specific config tree), follow the same pattern: canonical content under `.github/`, agent-specific glue under the agent's own directory.
+
 ## Skills
 
 Detailed how-to guides live in `.github/skills/<name>/SKILL.md` (canonical) with symlinks at `.claude/skills/<name>/SKILL.md` for Claude Code. Each skill is a Markdown file with YAML frontmatter (`name`, `description`) in a kebab-case directory.
