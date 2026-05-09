@@ -20,6 +20,29 @@ interface ConnectionLookup {
   get(discordUserId: string): GameplayConnectionLike | undefined;
 }
 
+interface ActivityRecorder {
+  touch(discordUserId: string): boolean;
+}
+
+/**
+ * Conditionally refresh a session's activity timestamp after a successful
+ * inbound action and report when `touch()` returns false (the session
+ * vanished between the dispatch and the activity update). Pure: all I/O
+ * happens through the injected callbacks. Returns the value of `success`
+ * unchanged so callers can short-circuit.
+ */
+export function recordActivityIfDispatched(
+  discordUserId: string,
+  success: boolean,
+  sessions: ActivityRecorder,
+  onMissingSession?: (discordUserId: string) => void,
+): boolean {
+  if (success && !sessions.touch(discordUserId)) {
+    onMissingSession?.(discordUserId);
+  }
+  return success;
+}
+
 export function resolveGameplayInteractionCommand(customId: string, values: string[]): string | undefined {
   const encoded = customId === LINK_SELECT_CUSTOM_ID ? values[0] : customId;
   if (!encoded) return undefined;

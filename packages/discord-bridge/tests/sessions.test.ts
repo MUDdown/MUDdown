@@ -8,6 +8,7 @@ function makeSession(overrides: Partial<DiscordSession> = {}): DiscordSession {
     sessionToken: "session-token-1",
     characterId: null,
     startedAt: new Date("2026-05-08T00:00:00.000Z"),
+    lastActivityAt: new Date("2026-05-08T00:00:00.000Z"),
     ...overrides,
   };
 }
@@ -97,5 +98,57 @@ describe("SessionRegistry", () => {
   it("clear() returns zero when already empty", () => {
     const registry = new SessionRegistry();
     expect(registry.clear()).toBe(0);
+  });
+
+  it("touch() updates lastActivityAt for an open session", () => {
+    const registry = new SessionRegistry();
+    const session = makeSession();
+    registry.open(session);
+    const before = session.lastActivityAt;
+    const next = new Date(before.getTime() + 60_000);
+    expect(registry.touch(session.discordUserId, next)).toBe(true);
+    expect(registry.get(session.discordUserId)?.lastActivityAt).toBe(next);
+  });
+
+  it("touch() defaults to a fresh Date when no timestamp is provided", () => {
+    const registry = new SessionRegistry();
+    const session = makeSession();
+    registry.open(session);
+    const before = session.lastActivityAt.getTime();
+    expect(registry.touch(session.discordUserId)).toBe(true);
+    const updated = registry.get(session.discordUserId)?.lastActivityAt;
+    expect(updated).toBeInstanceOf(Date);
+    expect((updated as Date).getTime()).toBeGreaterThanOrEqual(before);
+  });
+
+  it("touch() repeated calls always overwrite with the latest timestamp", () => {
+    const registry = new SessionRegistry();
+    const session = makeSession();
+    registry.open(session);
+    const first = new Date(session.lastActivityAt.getTime() + 1_000);
+    const second = new Date(session.lastActivityAt.getTime() + 2_000);
+    registry.touch(session.discordUserId, first);
+    registry.touch(session.discordUserId, second);
+    expect(registry.get(session.discordUserId)?.lastActivityAt).toBe(second);
+  });
+
+  it("touch() returns false for unknown or empty IDs", () => {
+    const registry = new SessionRegistry();
+    expect(registry.touch("nobody")).toBe(false);
+    expect(registry.touch("")).toBe(false);
+    expect(registry.touch("   ")).toBe(false);
+  });
+
+  it("values() returns an empty iterator when the registry is empty", () => {
+    const registry = new SessionRegistry();
+    expect(Array.from(registry.values())).toEqual([]);
+  });
+
+  it("values() iterates over open sessions", () => {
+    const registry = new SessionRegistry();
+    registry.open(makeSession({ discordUserId: "1" }));
+    registry.open(makeSession({ discordUserId: "2" }));
+    const ids = Array.from(registry.values()).map((session) => session.discordUserId).sort();
+    expect(ids).toEqual(["1", "2"]);
   });
 });

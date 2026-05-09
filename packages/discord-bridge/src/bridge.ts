@@ -43,6 +43,7 @@ import {
   dispatchGameplayCommand,
   handleReconnectError,
   handleSocketClose,
+  recordActivityIfDispatched,
   refreshReconnectTicket,
   resolveGameplayInteractionCommand,
 } from "./bridge-policy.js";
@@ -52,6 +53,11 @@ import {
   MAX_CONSECUTIVE_DELIVERY_FAILURES,
   nextDeliveryFailure,
 } from "./delivery-policy.js";
+import {
+  IDLE_CHECK_INTERVAL_MS,
+  IDLE_TIMEOUT_MS,
+  runIdleSweep,
+} from "./idle-policy.js";
 
 // @ts-expect-error - @muddown/client uses bare new WebSocket() with no import;
 // Node runtimes without a global WebSocket need a ws polyfill.
@@ -116,6 +122,7 @@ class BridgeLifecycle {
   private readonly connections = new Map<string, MUDdownConnection>();
   private readonly pendingSelections = new Map<string, PendingCharacterSelection>();
   private readonly deliveryFailureStreak = new Map<string, number>();
+  private idleSweepTimer: ReturnType<typeof setInterval> | undefined;
 
   async main(): Promise<void> {
     if (this.isShuttingDown || this.client) return;
@@ -133,12 +140,22 @@ class BridgeLifecycle {
       `[muddown-discord-bridge] starting (server=${config.serverUrl}, guild=${config.guildId ?? "<global>"})`,
     );
 
-    await client.login(config.botToken);
+    this.startIdleSweep();
+
+    try {
+      await client.login(config.botToken);
+    } catch (error) {
+      this.stopIdleSweep();
+      this.client = undefined;
+      this.config = undefined;
+      throw error;
+    }
   }
 
   async shutdown(): Promise<void> {
     if (this.isShuttingDown) return;
     this.isShuttingDown = true;
+    this.stopIdleSweep();
     this.clearPendingSelections();
     this.disposeConnections();
     this.deliveryFailureStreak.clear();
@@ -156,6 +173,7 @@ class BridgeLifecycle {
 
   reset(): void {
     this.isShuttingDown = false;
+    this.stopIdleSweep();
     this.clearPendingSelections();
     this.disposeConnections();
     this.deliveryFailureStreak.clear();
@@ -302,10 +320,18 @@ class BridgeLifecycle {
         return;
       }
 
-      if (!connection.send(content)) {
+      const sent = connection.send(content);
+      if (!sent) {
         await message.reply("Your bridge session is not connected. Use `/play` to start a new session.");
         this.closeSession(message.author.id, false);
+        return;
       }
+      recordActivityIfDispatched(message.author.id, sent, this.sessions, (id) => {
+        // eslint-disable-next-line no-console
+        console.error(
+          `[muddown-discord-bridge] touch() returned false for ${id} after successful DM send`,
+        );
+      });
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error("[muddown-discord-bridge] dm reply failed:", error);
@@ -663,11 +689,11 @@ class BridgeLifecycle {
     let user;
     try {
       user = await this.client?.users.fetch(discordUserId);
-      if (!user) {
-        throw new Error("DM channel unavailable for character selection");
-      }
-    } catch {
-      throw new Error("DM channel unavailable for character selection");
+    } catch (error) {
+      throw new Error(`DM channel unavailable for character selection: ${String(error)}`);
+    }
+    if (!user) {
+      throw new Error("DM channel unavailable for character selection: client returned no user");
     }
 
     await user.send({
@@ -737,12 +763,14 @@ class BridgeLifecycle {
     this.closeSession(discordUserId, false);
 
     this.connections.set(discordUserId, connection);
+    const now = new Date();
     this.sessions.open({
       discordUserId,
       accountId,
       sessionToken,
       characterId: character.id,
-      startedAt: new Date(),
+      startedAt: now,
+      lastActivityAt: now,
     });
 
     connection.connect(ticket);
@@ -765,19 +793,62 @@ class BridgeLifecycle {
         "Your gameplay session ended. Use `/play` to reconnect.",
       ).catch((error) => {
         // eslint-disable-next-line no-console
-        console.error("[muddown-discord-bridge] failed to send disconnect notification:", error);
+        console.error(
+          `[muddown-discord-bridge] failed to send disconnect notification to ${discordUserId}:`,
+          error,
+        );
       });
     }
   }
 
   private sendGameplayCommand(discordUserId: string, command: string): boolean {
-    return dispatchGameplayCommand(
+    const sent = dispatchGameplayCommand(
       discordUserId,
       command,
       this.sessions,
       this.connections,
       (id) => this.closeSession(id, false),
     );
+    return recordActivityIfDispatched(discordUserId, sent, this.sessions, (id) => {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[muddown-discord-bridge] touch() returned false for ${id} after successful gameplay dispatch`,
+      );
+    });
+  }
+
+  private startIdleSweep(): void {
+    if (this.idleSweepTimer) return;
+    this.idleSweepTimer = setInterval(() => {
+      runIdleSweep(
+        Date.now(),
+        this.sessions.values(),
+        IDLE_TIMEOUT_MS,
+        (discordUserId) => {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[muddown-discord-bridge] evicting idle session ${discordUserId} (>=${IDLE_TIMEOUT_MS}ms)`,
+          );
+          this.closeSession(discordUserId, true);
+        },
+        (discordUserId, error) => {
+          // eslint-disable-next-line no-console
+          console.error(
+            `[muddown-discord-bridge] idle sweep: failed to close ${discordUserId}:`,
+            error,
+          );
+        },
+      );
+    }, IDLE_CHECK_INTERVAL_MS);
+    if (typeof this.idleSweepTimer.unref === "function") {
+      this.idleSweepTimer.unref();
+    }
+  }
+
+  private stopIdleSweep(): void {
+    if (!this.idleSweepTimer) return;
+    clearInterval(this.idleSweepTimer);
+    this.idleSweepTimer = undefined;
   }
 
   private disposeConnections(): void {

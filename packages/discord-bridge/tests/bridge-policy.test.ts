@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   dispatchGameplayCommand,
   handleReconnectError,
   handleSocketClose,
+  recordActivityIfDispatched,
   refreshReconnectTicket,
   resolveGameplayInteractionCommand,
 } from "../src/bridge-policy.js";
@@ -136,5 +137,38 @@ describe("handleSocketClose", () => {
     });
 
     expect(calls).toEqual([{ discordUserId: "u1", notify: true }]);
+  });
+});
+
+describe("recordActivityIfDispatched", () => {
+  it("calls touch() and returns true when success is true and the session exists", () => {
+    const touch = vi.fn(() => true);
+    const onMissing = vi.fn();
+    const result = recordActivityIfDispatched("u1", true, { touch }, onMissing);
+    expect(result).toBe(true);
+    expect(touch).toHaveBeenCalledWith("u1");
+    expect(onMissing).not.toHaveBeenCalled();
+  });
+
+  it("invokes onMissingSession when touch() returns false on success", () => {
+    const touch = vi.fn(() => false);
+    const onMissing = vi.fn();
+    const result = recordActivityIfDispatched("u1", true, { touch }, onMissing);
+    expect(result).toBe(true);
+    expect(onMissing).toHaveBeenCalledWith("u1");
+  });
+
+  it("does not call touch() when success is false", () => {
+    const touch = vi.fn(() => true);
+    const onMissing = vi.fn();
+    const result = recordActivityIfDispatched("u1", false, { touch }, onMissing);
+    expect(result).toBe(false);
+    expect(touch).not.toHaveBeenCalled();
+    expect(onMissing).not.toHaveBeenCalled();
+  });
+
+  it("tolerates omitted onMissingSession when touch() returns false", () => {
+    const touch = vi.fn(() => false);
+    expect(() => recordActivityIfDispatched("u1", true, { touch })).not.toThrow();
   });
 });

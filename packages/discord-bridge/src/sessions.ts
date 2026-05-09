@@ -16,8 +16,10 @@ export interface DiscordSession {
   sessionToken: string;
   /** Currently selected character ID — null while the picker is open. */
   characterId: string | null;
-  /** Wall-clock start time, used for idle eviction and play-time tracking. */
+  /** Wall-clock start time, used for play-time tracking. */
   startedAt: Date;
+  /** Wall-clock time of the most recent user-originated activity; refreshed by `touch()`. */
+  lastActivityAt: Date;
 }
 
 export class SessionRegistry {
@@ -38,6 +40,22 @@ export class SessionRegistry {
   close(discordUserId: string): boolean {
     if (!discordUserId.trim()) return false;
     return this.sessions.delete(discordUserId);
+  }
+
+  /**
+   * Mark a user-originated activity for the given session. Returns true when
+   * the session exists and the timestamp was updated, false otherwise.
+   */
+  touch(discordUserId: string, when: Date = new Date()): boolean {
+    if (!discordUserId.trim()) return false;
+    const session = this.sessions.get(discordUserId);
+    if (!session) return false;
+    session.lastActivityAt = when;
+    return true;
+  }
+
+  values(): IterableIterator<DiscordSession> {
+    return this.sessions.values();
   }
 
   size(): number {
