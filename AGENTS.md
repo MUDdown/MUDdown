@@ -16,12 +16,13 @@ Turborepo monorepo with npm workspaces:
 | `packages/server` | WebSocket game server (Node.js + `ws`, port 3300) |
 | `packages/client` | Framework-agnostic client library (renderer, connection, history, links, hints, inventory) |
 | `packages/bridge` | Telnet bridge — TLS proxy to WebSocket game server (port 2323) |
+| `packages/discord-bridge` | Discord bridge — bot proxy that lets Discord users play via DMs/embeds/buttons (no ANSI/OSC 8) |
 | `apps/website` | Astro site: landing page, spec docs, playable web client |
 | `apps/mobile` | Expo React Native app for iOS/Android |
 | `apps/desktop` | Tauri v2 desktop app (macOS, Windows, Linux) |
 | `apps/terminal` | Terminal/CLI client (Node.js, ink) |
 
-Dependency graph: `server` → `shared`; `parser` → `shared`; `client` → `shared`; `bridge` → `client`, `shared`; `mobile` → `client`, `shared`; `desktop` → `client`, `shared`; `terminal` → `client`, `shared`; `website` → `spec` (reads Markdown at build time).
+Dependency graph: `server` → `shared`; `parser` → `shared`; `client` → `shared`; `bridge` → `client`, `shared`; `discord-bridge` → `client`, `parser`, `shared`; `mobile` → `client`, `shared`; `desktop` → `client`, `shared`; `terminal` → `client`, `shared`; `website` → `spec` (reads Markdown at build time).
 
 ## TypeScript Conventions
 
@@ -274,7 +275,7 @@ The project wiki lives in a separate Git repository (`MUDdown/MUDdown.wiki`), ty
 |---------|-------|--------|
 | Players | Getting-Started, Command-Reference, World-Guide, Item-Catalog, NPC-Directory, Combat-Guide, FAQ | How to play, commands, world content, items, NPCs, combat |
 | Developers | Architecture-Overview, Adding-Content, Wire-Protocol, MUDdown-Format, LLM-Integration, Deployment-Guide, Contributing, OAuth-Setup | Codebase internals, content authoring, protocols, integrations, ops |
-| Clients | Desktop-App, Desktop-Client, Mobile-App, Mobile-Client, Terminal-App, Terminal-Client, Telnet-Bridge | Per-client documentation; the `*-App.md` and `*-Client.md` pages are distinct — update both when a client change lands |
+| Clients | Desktop-App, Desktop-Client, Mobile-App, Mobile-Client, Terminal-App, Terminal-Client, Telnet-Bridge, Discord-Bridge | Per-client documentation; the `*-App.md` and `*-Client.md` pages are distinct — update both when a client change lands |
 | Integrations | MCP-Integration | External integrations (LLM-Integration is listed under Developers above) |
 | Navigation | _Sidebar, Home | Wiki sidebar and landing page — update when adding a new page |
 
@@ -308,3 +309,5 @@ The project wiki lives in a separate Git repository (`MUDdown/MUDdown.wiki`), ty
 - Don't use `as` type assertions when a type guard or discriminated union works
 - Don't add optional fields where a discriminated union is clearer
 - Don't break bidirectional exit symmetry in room files
+- Don't treat dual Discord activity signals as a bug: when `discord_rich_presence` is enabled and a user is also playing via the Discord-bridge DM flow, either recommend disabling Rich Presence for single-signal behavior or explicitly document/accept both signals
+- Don't ship changes to Discord bridge DM-session behavior or `discord_rich_presence` without updating `MUDdown.wiki/Discord-Bridge.md` and `MUDdown.wiki/Desktop-App.md`, then checking doc impact with the `wiki-sync` subagent

@@ -411,6 +411,8 @@ A new workspace parallel to `packages/bridge` (telnet) that lets a Discord user 
 
 Channel model: a dedicated `#play` (or `#game`) channel on the MUDdown Discord server is the public hub for slash commands, but the primary play surface is **the bot's DM with each player** (one DM thread per Discord user, one WebSocket session behind it). Public-channel slash commands are convenience entry points that funnel the player into their DM session.
 
+**Discord activity overlap (bridge DM + desktop Rich Presence).** A player can show two Discord-facing signals at the same time: (1) active gameplay via the bridge DM session and (2) desktop Rich Presence from the `discord_rich_presence` setting. This is valid and expected. User guidance should recommend either disabling `discord_rich_presence` while actively playing through Discord DM for a single activity signal, or leaving both enabled if the user wants both surfaces visible.
+
 Mapping (the design choices that need fixing now, not later):
 
 | MUDdown side | Discord side | Notes |
@@ -428,7 +430,7 @@ Mapping (the design choices that need fixing now, not later):
 
 - On first DM, the bridge replies with a list of the linked account's characters as buttons (`Pick a character` embed). Clicking one opens the WebSocket and starts play.
 - `/switch` slash command (or `quit` then re-DM) tears down the session, returns to the picker, and starts a new session under the chosen character.
-- The bridge stores the `lastCharacterId` per Discord user so a fresh DM auto-resumes the most recent character with a "Switch?" button visible at the top of the first room embed.
+- The bridge stores `lastCharacterId` persistently in `GameDatabase` on the Discord identity link row (`identity_links.last_character_id`) so a fresh DM auto-resumes the most recent character with a "Switch?" button visible at the top of the first room embed.
 - Only one active character per Discord user at a time (matches the WebSocket "one session per connection" invariant).
 
 Out of scope (deliberately, like the telnet bridge): voice, lobbies, account creation, world editing.
@@ -441,8 +443,12 @@ Tasks:
 - [ ] Slash commands (`/play`, `/who`, `/switch`, `/quit`) registered globally for the MUDdown guild
 - [ ] DM intake: route plain text from a player's DM to their session as a command line
 - [ ] Button/select handlers: re-inject link URIs as commands; character-picker buttons
-- [ ] Account linking: leverage existing Discord OAuth; persist Discord user ID ↔ account mapping in `GameDatabase` (extend `IdentityLinkRecord` if needed)
-- [ ] Multi-character flow: picker on first DM, `/switch` mid-session, `lastCharacterId` resume
+- [ ] Account linking: leverage existing Discord OAuth; persist Discord user ID ↔ account mapping in `GameDatabase` by extending `IdentityLinkRecord` for Discord links (`provider = "discord"`, `providerId = discord_user_id`) and persisting `lastCharacterId` on the same record (`last_character_id` column)
+- [ ] Multi-character flow: picker on first DM, `/switch` mid-session, resume from persisted `IdentityLinkRecord.lastCharacterId`
+- [ ] DB migration (mandatory for Discord bridge persistence):
+- [ ] Add nullable `last_character_id` to `identity_links` (`ALTER TABLE identity_links ADD COLUMN last_character_id TEXT NULL REFERENCES characters(id) ON DELETE SET NULL`)
+- [ ] Backfill existing rows: keep `last_character_id = NULL` for all existing links (including existing Discord links)
+- [ ] Update `GameDatabase` + SQLite adapter reads/writes so Discord link lookups expose `providerId` as `discord_user_id` and persist/load `lastCharacterId` via `last_character_id`
 - [ ] Tests (`vitest`): renderer fixtures (envelope → expected embed/components shape), connection-manager unit tests, account-linking round trip, character-switch flow
 - [ ] Systemd unit (`deploy/muddown-discord-bridge.service`) parallel to `muddown-bridge.service`
 - [ ] Wiki: new `Discord-Bridge.md` page (sibling to `Telnet-Bridge.md`); link from `_Sidebar.md` and `Home.md`
@@ -495,6 +501,7 @@ Implementation tasks:
 
 - [ ] Update `AGENTS.md` "What NOT to Do" with: "Don't enable Rich Presence by default" and "Don't auto-send Discord messages without explicit user action" (mirrors Discord's policy and ours)
 - [ ] Add `Discord-Bridge.md` and the `Desktop-App.md` Rich Presence section to the `wiki-sync` subagent's awareness so future doc-impact mapping covers them
+- [ ] Document the dual-activity edge case in `Discord-Bridge.md` and `Desktop-App.md` (cross-reference both pages; mention `discord_rich_presence` and DM-session flow) and keep this guidance in `wiki-sync` subagent awareness
 - [ ] World-validator and spec-compliance subagents are unaffected — neither workstream changes the wire protocol or world tree
 
 ---

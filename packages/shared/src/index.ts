@@ -233,6 +233,7 @@ export interface IdentityLinkRecord {
   provider: OAuthProvider;
   providerId: string;     // external user ID (unique per provider)
   providerUsername: string; // e.g., GitHub login
+  lastCharacterId?: string | null; // Discord bridge resume hint (identity_links.last_character_id)
   linkedAt: string;       // ISO 8601
 }
 
