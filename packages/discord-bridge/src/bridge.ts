@@ -397,7 +397,6 @@ class BridgeLifecycle {
       return;
     }
 
-    recordUserInteraction(interaction.user.id, this.sessions);
     const content = formatWhoStatus({
       characterId: session.characterId,
       startedAtMs: session.startedAt.getTime(),
@@ -405,6 +404,9 @@ class BridgeLifecycle {
       connected: connection.connected,
       idleTimeoutMs: IDLE_TIMEOUT_MS,
     });
+    // Refresh activity *after* snapshotting timestamps so /who reports the prior
+    // last-activity age (touching first would always read 0s).
+    recordUserInteraction(interaction.user.id, this.sessions);
     await interaction.reply({
       content,
       flags: interaction.channel?.isDMBased() ? undefined : MessageFlags.Ephemeral,

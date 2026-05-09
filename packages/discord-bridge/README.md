@@ -7,10 +7,13 @@ holding one WebSocket session per linked Discord user.
 
 ## Status
 
-**Runtime slice in place.** The package now starts a real `discord.js` client,
-logs in, registers slash commands, handles DM intake/basic interaction routing,
-and shuts down cleanly. Account linking, character-picker flow, and live
-gameplay transport are still tracked under PROJECT_PLAN.md Phase 9a.
+**Runtime in place.** The package starts a real `discord.js` client, logs in,
+registers slash commands, runs the full Discord-OAuth `/play` link flow with
+character selection, and proxies a live `MUDdownConnection` gameplay session
+(DM text → upstream commands; server envelopes → embeds with button/select
+components). Idle eviction (30 min), reconnect-cycle DMs, the `/who` status
+line, and graceful shutdown are all wired up. See PROJECT_PLAN.md Phase 9a for
+follow-up polish work.
 
 ## Design summary
 
