@@ -6,6 +6,7 @@ import {
   handleReconnectError,
   handleSocketClose,
   recordActivityIfDispatched,
+  recordUserInteraction,
   refreshReconnectTicket,
   resolveGameplayInteractionCommand,
 } from "../src/bridge-policy.js";
@@ -172,6 +173,30 @@ describe("recordActivityIfDispatched", () => {
   it("tolerates omitted onMissingSession when touch() returns false", () => {
     const touch = vi.fn(() => false);
     expect(() => recordActivityIfDispatched("u1", true, { touch })).not.toThrow();
+  });
+});
+
+describe("recordUserInteraction", () => {
+  it("calls touch() and returns true when the session exists", () => {
+    const touch = vi.fn(() => true);
+    const onMissing = vi.fn();
+    const result = recordUserInteraction("u1", { touch }, onMissing);
+    expect(result).toBe(true);
+    expect(touch).toHaveBeenCalledWith("u1");
+    expect(onMissing).not.toHaveBeenCalled();
+  });
+
+  it("returns false and invokes onMissingSession when touch() returns false", () => {
+    const touch = vi.fn(() => false);
+    const onMissing = vi.fn();
+    const result = recordUserInteraction("u1", { touch }, onMissing);
+    expect(result).toBe(false);
+    expect(onMissing).toHaveBeenCalledWith("u1");
+  });
+
+  it("tolerates omitted onMissingSession when no session exists", () => {
+    const touch = vi.fn(() => false);
+    expect(() => recordUserInteraction("u1", { touch })).not.toThrow();
   });
 });
 

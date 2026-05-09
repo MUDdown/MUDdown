@@ -45,6 +45,7 @@ import {
   handleReconnectError,
   handleSocketClose,
   recordActivityIfDispatched,
+  recordUserInteraction,
   refreshReconnectTicket,
   resolveGameplayInteractionCommand,
 } from "./bridge-policy.js";
@@ -396,6 +397,7 @@ class BridgeLifecycle {
       return;
     }
 
+    recordUserInteraction(interaction.user.id, this.sessions);
     const content = formatWhoStatus({
       characterId: session.characterId,
       startedAtMs: session.startedAt.getTime(),
@@ -419,6 +421,7 @@ class BridgeLifecycle {
       return;
     }
 
+    recordUserInteraction(interaction.user.id, this.sessions);
     await interaction.deferReply(
       interaction.channel?.isDMBased() ? undefined : { flags: MessageFlags.Ephemeral },
     );
@@ -504,6 +507,10 @@ class BridgeLifecycle {
       });
       return;
     }
+
+    // Touch the existing session (if any) so the user-initiated pick counts as activity
+    // even if `activateCharacterAndConnect` takes a moment to replace it.
+    recordUserInteraction(interaction.user.id, this.sessions);
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     this.clearPendingSelection(interaction.user.id);

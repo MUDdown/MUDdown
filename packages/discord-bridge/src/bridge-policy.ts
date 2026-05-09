@@ -44,6 +44,26 @@ export function recordActivityIfDispatched(
 }
 
 /**
+ * Unconditionally refresh a session's activity timestamp in response to a
+ * non-gameplay user interaction (a slash command, a character-select pick,
+ * etc.). Returns true if the session existed and was touched, false if no
+ * session was found (the no-session case is silently fine for `/play` etc.;
+ * pass `onMissingSession` if you want to log it for handlers that require an
+ * active session).
+ */
+export function recordUserInteraction(
+  discordUserId: string,
+  sessions: ActivityRecorder,
+  onMissingSession?: (discordUserId: string) => void,
+): boolean {
+  const touched = sessions.touch(discordUserId);
+  if (!touched) {
+    onMissingSession?.(discordUserId);
+  }
+  return touched;
+}
+
+/**
  * Format a "Ns / Nm / Nh" duration string from a non-negative millisecond delta.
  * Used by the `/who` status line. Floors to the nearest unit boundary; clamps
  * negative or non-finite inputs to "0s" so a clock skew can't produce garbage.
