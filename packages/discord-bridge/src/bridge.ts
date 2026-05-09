@@ -59,6 +59,7 @@ import {
   IDLE_TIMEOUT_MS,
   runIdleSweep,
 } from "./idle-policy.js";
+import { ReconnectNotifier } from "./reconnect-notifier.js";
 
 // @ts-expect-error - @muddown/client uses bare new WebSocket() with no import;
 // Node runtimes without a global WebSocket need a ws polyfill.
@@ -123,6 +124,7 @@ class BridgeLifecycle {
   private readonly connections = new Map<string, MUDdownConnection>();
   private readonly pendingSelections = new Map<string, PendingCharacterSelection>();
   private readonly deliveryFailureStreak = new Map<string, number>();
+  private readonly reconnectNotifier = new ReconnectNotifier();
   private idleSweepTimer: ReturnType<typeof setInterval> | undefined;
 
   async main(): Promise<void> {
@@ -160,6 +162,7 @@ class BridgeLifecycle {
     this.clearPendingSelections();
     this.disposeConnections();
     this.deliveryFailureStreak.clear();
+    this.reconnectNotifier.clear();
     const clearedSessions = this.sessions.clear();
     if (clearedSessions > 0) {
       // eslint-disable-next-line no-console
@@ -178,6 +181,7 @@ class BridgeLifecycle {
     this.clearPendingSelections();
     this.disposeConnections();
     this.deliveryFailureStreak.clear();
+    this.reconnectNotifier.clear();
     this.client = undefined;
     this.config = undefined;
     const clearedSessions = this.sessions.clear();
@@ -731,6 +735,20 @@ class BridgeLifecycle {
         autoReconnect: true,
       },
       {
+        onOpen: () => {
+          if (this.reconnectNotifier.markConnected(discordUserId)) {
+            this.sendDirectMessage(
+              discordUserId,
+              "Reconnected to MUDdown. Your session is live again.",
+            ).catch((error) => {
+              // eslint-disable-next-line no-console
+              console.error(
+                `[muddown-discord-bridge] failed to send reconnected DM to ${discordUserId}:`,
+                error,
+              );
+            });
+          }
+        },
         onMessage: (_muddown, _type, raw) => {
           this.sendRenderedEnvelope(discordUserId, raw).catch((error) => {
             // eslint-disable-next-line no-console
@@ -738,6 +756,18 @@ class BridgeLifecycle {
           });
         },
         onClose: (willReconnect) => {
+          if (willReconnect && this.reconnectNotifier.markReconnecting(discordUserId)) {
+            this.sendDirectMessage(
+              discordUserId,
+              "Connection to MUDdown lost — attempting to reconnect...",
+            ).catch((error) => {
+              // eslint-disable-next-line no-console
+              console.error(
+                `[muddown-discord-bridge] failed to send reconnecting DM to ${discordUserId}:`,
+                error,
+              );
+            });
+          }
           handleSocketClose(discordUserId, willReconnect, (id, notify) => this.closeSession(id, notify));
         },
         onError: (event) => {
@@ -786,6 +816,7 @@ class BridgeLifecycle {
   private closeSession(discordUserId: string, notify: boolean): void {
     this.clearPendingSelection(discordUserId);
     this.deliveryFailureStreak.delete(discordUserId);
+    this.reconnectNotifier.forget(discordUserId);
 
     const connection = this.connections.get(discordUserId);
     if (connection) {
