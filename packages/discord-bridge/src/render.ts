@@ -137,7 +137,11 @@ function titleFor(envelope: ServerMessage): string {
 }
 
 function cleanLabel(label: string): string {
-  return label.replace(/\s+/g, " ").trim().slice(0, 80);
+  return label
+    .replace(/\\(.)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
 }
 
 function parseGameLink(match: RegExpMatchArray): RenderedGameLink | undefined {

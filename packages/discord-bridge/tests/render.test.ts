@@ -228,6 +228,7 @@ describe("extractGameLinks", () => {
   it("matches labels containing escaped closing brackets", () => {
     const links = extractGameLinks("[label\\]](go:north)");
     expect(links).toHaveLength(1);
+    expect(links[0]!.label).toBe("label]");
     expect(decodeLinkCustomId(links[0]!.customId)).toBe("go north");
   });
 
