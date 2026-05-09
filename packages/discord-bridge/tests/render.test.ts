@@ -1,11 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { ServerMessage } from "@muddown/shared";
 import {
+  decodeLinkCustomId,
+  DISCORD_LIMITS,
+  extractGameLinks,
+  LINK_SELECT_CUSTOM_ID,
   renderEnvelope,
   stripContainerScaffolding,
   chunkDescription,
   BLOCK_COLORS,
-  DISCORD_LIMITS,
+  type RenderedButton,
 } from "../src/render.js";
 
 function envelope(partial: Partial<ServerMessage> & Pick<ServerMessage, "type" | "muddown">): ServerMessage {
@@ -146,6 +150,124 @@ describe("renderEnvelope", () => {
     // No paragraph or whitespace boundaries in the source, so hard-cuts
     // preserve the full content when joined back.
     expect(result.embeds.map((e) => e.description).join("")).toBe(long);
+  });
+
+  it("renders game links into button components", () => {
+    const result = renderEnvelope(
+      envelope({
+        type: "room",
+        muddown: "- [North](go:north)\n- [Look](cmd:look)",
+      }),
+    );
+
+    expect(result.components).toHaveLength(1);
+    expect(Array.isArray(result.components[0])).toBe(true);
+    const buttonRow = result.components[0];
+    if (!Array.isArray(buttonRow)) {
+      throw new Error("Expected first component to be a button row");
+    }
+    for (const button of buttonRow) {
+      expect(button.type).toBe("button");
+    }
+    const typedButtonRow = buttonRow as RenderedButton[];
+    expect(typedButtonRow.map((button) => button.label)).toEqual(["North", "Look"]);
+    expect(decodeLinkCustomId(typedButtonRow[0]!.customId)).toBe("go north");
+    expect(decodeLinkCustomId(typedButtonRow[1]!.customId)).toBe("look");
+  });
+
+  it("adds overflow select when links exceed button row capacity", () => {
+    const links = Array.from({ length: 26 }, (_, index) => `- [Go ${index}](go:${index})`).join("\n");
+    const result = renderEnvelope(envelope({ type: "room", muddown: links }));
+
+    expect(result.components).toHaveLength(DISCORD_LIMITS.rowsPerMessage);
+    const last = result.components[result.components.length - 1];
+    expect(Array.isArray(last)).toBe(false);
+    expect((last as { customId: string }).customId).toBe(LINK_SELECT_CUSTOM_ID);
+    // 6 = 26 links - 20 buttons (4 rows x 5 buttons).
+    expect((last as { options: unknown[] }).options).toHaveLength(6);
+  });
+
+  it("warns and annotates select placeholder when links are truncated", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const links = Array.from({ length: 60 }, (_, index) => `- [Go ${index}](go:${index})`).join("\n");
+      const result = renderEnvelope(envelope({ type: "room", muddown: links }));
+
+      const last = result.components[result.components.length - 1];
+      expect(Array.isArray(last)).toBe(false);
+      expect((last as { customId: string }).customId).toBe(LINK_SELECT_CUSTOM_ID);
+      expect((last as { placeholder: string }).placeholder).toBe("More actions (showing 45 of 60)");
+
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0]?.[0]).toContain("links dropped due to Discord component limits");
+      expect(warnSpy.mock.calls[0]?.[1]).toMatchObject({
+        totalLinks: 60,
+        shownLinks: 45,
+        dropped: 15,
+      });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});
+
+describe("extractGameLinks", () => {
+  it("deduplicates identical links and ignores unsupported schemes", () => {
+    const links = extractGameLinks(
+      [
+        "[North](go:north)",
+        "[North](go:north)",
+        "[Site](url:https://example.com)",
+      ].join("\n"),
+    );
+    expect(links).toHaveLength(1);
+    expect(links[0]!.label).toBe("North");
+    expect(decodeLinkCustomId(links[0]!.customId)).toBe("go north");
+  });
+
+  it("matches labels containing escaped closing brackets", () => {
+    const links = extractGameLinks("[label\\]](go:north)");
+    expect(links).toHaveLength(1);
+    expect(links[0]!.label).toBe("label]");
+    expect(decodeLinkCustomId(links[0]!.customId)).toBe("go north");
+  });
+
+  it("supports npc and item schemes", () => {
+    const links = extractGameLinks(
+      [
+        "[Blacksmith](npc:blacksmith)",
+        "[Rusty Key](item:rusty-key)",
+      ].join("\n"),
+    );
+
+    expect(links).toHaveLength(2);
+    expect(decodeLinkCustomId(links[0]!.customId)).toBe("talk blacksmith");
+    expect(decodeLinkCustomId(links[1]!.customId)).toBe("examine rusty-key");
+  });
+
+  it("truncates long labels to 80 characters", () => {
+    const label = `${"L".repeat(79)}ABCD`;
+    const links = extractGameLinks(`[${label}](go:north)`);
+
+    expect(links).toHaveLength(1);
+    expect(links[0]!.label).toHaveLength(80);
+    expect(links[0]!.label).toBe(`${"L".repeat(79)}A`);
+  });
+
+  it("drops links whose encoded custom id would exceed Discord limits", () => {
+    const longTarget = "x".repeat(120);
+    const links = extractGameLinks(`[Too Long](cmd:${longTarget})`);
+    expect(links).toEqual([]);
+  });
+
+  it("ignores links with empty labels or targets", () => {
+    const links = extractGameLinks(
+      [
+        "[](go:north)",
+        "[North](go:)",
+      ].join("\n"),
+    );
+    expect(links).toEqual([]);
   });
 });
 

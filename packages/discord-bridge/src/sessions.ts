@@ -5,10 +5,6 @@
  * sockets. One active session per Discord user (matching the WebSocket
  * "one session per connection" invariant); switching characters tears
  * down and rebuilds.
- *
- * This file currently exposes only the type and a minimal in-memory
- * registry — the actual WebSocket lifecycle wiring lands in a
- * follow-up commit alongside the discord.js client integration.
  */
 
 export interface DiscordSession {
@@ -16,10 +12,14 @@ export interface DiscordSession {
   discordUserId: string;
   /** Linked MUDdown account ID (set after OAuth verification). */
   accountId: string;
+  /** Bearer token for authenticated upstream API calls (/auth/me, /auth/characters, /auth/select-character, /auth/ws-ticket). */
+  sessionToken: string;
   /** Currently selected character ID — null while the picker is open. */
   characterId: string | null;
-  /** Wall-clock start time, used for idle eviction and play-time tracking. */
+  /** Wall-clock start time, used for play-time tracking. */
   startedAt: Date;
+  /** Wall-clock time of the most recent user-originated activity; refreshed by `touch()`. */
+  lastActivityAt: Date;
 }
 
 export class SessionRegistry {
@@ -42,7 +42,29 @@ export class SessionRegistry {
     return this.sessions.delete(discordUserId);
   }
 
+  /**
+   * Mark a user-originated activity for the given session. Returns true when
+   * the session exists and the timestamp was updated, false otherwise.
+   */
+  touch(discordUserId: string, when: Date = new Date()): boolean {
+    if (!discordUserId.trim()) return false;
+    const session = this.sessions.get(discordUserId);
+    if (!session) return false;
+    session.lastActivityAt = when;
+    return true;
+  }
+
+  values(): IterableIterator<DiscordSession> {
+    return this.sessions.values();
+  }
+
   size(): number {
     return this.sessions.size;
+  }
+
+  clear(): number {
+    const cleared = this.sessions.size;
+    this.sessions.clear();
+    return cleared;
   }
 }

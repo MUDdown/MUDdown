@@ -1,0 +1,288 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  dispatchGameplayCommand,
+  formatDurationShort,
+  formatWhoStatus,
+  handleReconnectError,
+  handleSocketClose,
+  recordActivityIfDispatched,
+  recordUserInteraction,
+  refreshReconnectTicket,
+  resolveGameplayInteractionCommand,
+} from "../src/bridge-policy.js";
+import { encodeLinkCustomId, LINK_SELECT_CUSTOM_ID } from "../src/render.js";
+
+describe("resolveGameplayInteractionCommand", () => {
+  it("resolves button custom ids", () => {
+    const encoded = encodeLinkCustomId("go north");
+    expect(encoded).toBeDefined();
+    if (encoded == null) {
+      throw new Error("encodeLinkCustomId returned null");
+    }
+    expect(resolveGameplayInteractionCommand(encoded, [])).toBe("go north");
+  });
+
+  it("resolves select-menu values", () => {
+    const encoded = encodeLinkCustomId("look");
+    expect(encoded).toBeDefined();
+    if (encoded == null) {
+      throw new Error("encodeLinkCustomId returned null");
+    }
+    expect(resolveGameplayInteractionCommand(LINK_SELECT_CUSTOM_ID, [encoded])).toBe("look");
+  });
+
+  it("returns undefined for invalid custom ids", () => {
+    expect(resolveGameplayInteractionCommand("invalid", [])).toBeUndefined();
+    expect(resolveGameplayInteractionCommand(LINK_SELECT_CUSTOM_ID, [])).toBeUndefined();
+  });
+});
+
+describe("dispatchGameplayCommand", () => {
+  it("forwards command when session and connection exist", () => {
+    const sessions = { get: (id: string) => (id === "u1" ? { discordUserId: "u1" } : undefined) };
+    const sent: string[] = [];
+    const connections = new Map<string, { send(command: string): boolean }>([
+      [
+        "u1",
+        {
+          send(command: string): boolean {
+            sent.push(command);
+            return true;
+          },
+        },
+      ],
+    ]);
+
+    const closed: string[] = [];
+    const result = dispatchGameplayCommand("u1", "go north", sessions, connections, (id) => closed.push(id));
+    expect(result).toBe(true);
+    expect(sent).toEqual(["go north"]);
+    expect(closed).toEqual([]);
+  });
+
+  it("returns false when session is missing", () => {
+    const sessions = { get: () => undefined };
+    const connections = new Map<string, { send(command: string): boolean }>();
+    const closed: string[] = [];
+    const result = dispatchGameplayCommand("u1", "go north", sessions, connections, (id) => closed.push(id));
+    expect(result).toBe(false);
+    expect(closed).toEqual([]);
+  });
+
+  it("closes session when connection send fails", () => {
+    const sessions = { get: (id: string) => (id === "u1" ? { discordUserId: "u1" } : undefined) };
+    const connections = new Map<string, { send(command: string): boolean }>([
+      ["u1", { send: () => false }],
+    ]);
+    const closed: string[] = [];
+    const result = dispatchGameplayCommand("u1", "look", sessions, connections, (id) => closed.push(id));
+    expect(result).toBe(false);
+    expect(closed).toEqual(["u1"]);
+  });
+});
+
+describe("refreshReconnectTicket", () => {
+  it("returns refreshed ticket when session exists", async () => {
+    const sessions = { get: (id: string) => (id === "u1" ? { sessionToken: "tok-1" } : undefined) };
+    const fetchWsTicket = async (sessionToken: string): Promise<string | undefined> =>
+      sessionToken === "tok-1" ? "ticket-1" : undefined;
+
+    await expect(refreshReconnectTicket("u1", sessions, fetchWsTicket)).resolves.toBe("ticket-1");
+  });
+
+  it("throws when session is missing", async () => {
+    const sessions = { get: () => undefined };
+    const fetchWsTicket = async (): Promise<string | undefined> => "ticket-1";
+
+    await expect(refreshReconnectTicket("u1", sessions, fetchWsTicket)).rejects.toThrow(
+      /No active session available for websocket reconnect/,
+    );
+  });
+
+  it("throws when ticket refresh returns empty", async () => {
+    const sessions = { get: (id: string) => (id === "u1" ? { sessionToken: "tok-1" } : undefined) };
+    const fetchWsTicket = async (): Promise<string | undefined> => undefined;
+
+    await expect(refreshReconnectTicket("u1", sessions, fetchWsTicket)).rejects.toThrow(
+      /Failed to refresh websocket ticket/,
+    );
+  });
+});
+
+describe("handleReconnectError", () => {
+  it("closes session with notification enabled", () => {
+    const calls: Array<{ discordUserId: string; notify: boolean }> = [];
+
+    handleReconnectError("u1", (discordUserId, notify) => {
+      calls.push({ discordUserId, notify });
+    });
+
+    expect(calls).toEqual([{ discordUserId: "u1", notify: true }]);
+  });
+});
+
+describe("handleSocketClose", () => {
+  it("does not close session while reconnecting", () => {
+    const calls: Array<{ discordUserId: string; notify: boolean }> = [];
+
+    handleSocketClose("u1", true, (discordUserId, notify) => {
+      calls.push({ discordUserId, notify });
+    });
+
+    expect(calls).toEqual([]);
+  });
+
+  it("closes session with notification when reconnect is not continuing", () => {
+    const calls: Array<{ discordUserId: string; notify: boolean }> = [];
+
+    handleSocketClose("u1", false, (discordUserId, notify) => {
+      calls.push({ discordUserId, notify });
+    });
+
+    expect(calls).toEqual([{ discordUserId: "u1", notify: true }]);
+  });
+});
+
+describe("recordActivityIfDispatched", () => {
+  it("calls touch() and returns true when success is true and the session exists", () => {
+    const touch = vi.fn(() => true);
+    const onMissing = vi.fn();
+    const result = recordActivityIfDispatched("u1", true, { touch }, onMissing);
+    expect(result).toBe(true);
+    expect(touch).toHaveBeenCalledWith("u1");
+    expect(onMissing).not.toHaveBeenCalled();
+  });
+
+  it("invokes onMissingSession when touch() returns false on success", () => {
+    const touch = vi.fn(() => false);
+    const onMissing = vi.fn();
+    const result = recordActivityIfDispatched("u1", true, { touch }, onMissing);
+    expect(result).toBe(true);
+    expect(onMissing).toHaveBeenCalledWith("u1");
+  });
+
+  it("does not call touch() when success is false", () => {
+    const touch = vi.fn(() => true);
+    const onMissing = vi.fn();
+    const result = recordActivityIfDispatched("u1", false, { touch }, onMissing);
+    expect(result).toBe(false);
+    expect(touch).not.toHaveBeenCalled();
+    expect(onMissing).not.toHaveBeenCalled();
+  });
+
+  it("tolerates omitted onMissingSession when touch() returns false", () => {
+    const touch = vi.fn(() => false);
+    expect(() => recordActivityIfDispatched("u1", true, { touch })).not.toThrow();
+  });
+});
+
+describe("recordUserInteraction", () => {
+  it("calls touch() and returns true when the session exists", () => {
+    const touch = vi.fn(() => true);
+    const onMissing = vi.fn();
+    const result = recordUserInteraction("u1", { touch }, onMissing);
+    expect(result).toBe(true);
+    expect(touch).toHaveBeenCalledWith("u1");
+    expect(onMissing).not.toHaveBeenCalled();
+  });
+
+  it("returns false and invokes onMissingSession when touch() returns false", () => {
+    const touch = vi.fn(() => false);
+    const onMissing = vi.fn();
+    const result = recordUserInteraction("u1", { touch }, onMissing);
+    expect(result).toBe(false);
+    expect(onMissing).toHaveBeenCalledWith("u1");
+  });
+
+  it("tolerates omitted onMissingSession when no session exists", () => {
+    const touch = vi.fn(() => false);
+    expect(() => recordUserInteraction("u1", { touch })).not.toThrow();
+  });
+});
+
+describe("formatDurationShort", () => {
+  it("returns 0s for zero, negative, or non-finite inputs", () => {
+    expect(formatDurationShort(0)).toBe("0s");
+    expect(formatDurationShort(-1)).toBe("0s");
+    expect(formatDurationShort(Number.NaN)).toBe("0s");
+    expect(formatDurationShort(Number.POSITIVE_INFINITY)).toBe("0s");
+  });
+
+  it("rounds down to seconds below one minute", () => {
+    expect(formatDurationShort(999)).toBe("0s");
+    expect(formatDurationShort(1_000)).toBe("1s");
+    expect(formatDurationShort(59_999)).toBe("59s");
+  });
+
+  it("rounds down to minutes below one hour", () => {
+    expect(formatDurationShort(60_000)).toBe("1m");
+    expect(formatDurationShort(59 * 60_000)).toBe("59m");
+  });
+
+  it("rounds down to hours below one day", () => {
+    expect(formatDurationShort(60 * 60_000)).toBe("1h");
+    expect(formatDurationShort(23 * 60 * 60_000)).toBe("23h");
+  });
+
+  it("returns days at and above 24h", () => {
+    expect(formatDurationShort(24 * 60 * 60_000)).toBe("1d");
+    expect(formatDurationShort(3 * 24 * 60 * 60_000)).toBe("3d");
+  });
+});
+
+describe("formatWhoStatus", () => {
+  const now = 10_000_000;
+
+  it("renders character, ws state, uptime, and last-activity age", () => {
+    const status = formatWhoStatus({
+      characterId: "char-1",
+      startedAtMs: now - 5 * 60_000,
+      lastActivityAtMs: now - 30_000,
+      connected: true,
+      idleTimeoutMs: 30 * 60_000,
+      nowMs: now,
+    });
+    expect(status).toBe(
+      "Active session: character char-1, websocket connected, uptime 5m, last activity 30s ago.",
+    );
+  });
+
+  it("shows (none) when characterId is null", () => {
+    const status = formatWhoStatus({
+      characterId: null,
+      startedAtMs: now - 1_000,
+      lastActivityAtMs: now - 1_000,
+      connected: false,
+      idleTimeoutMs: 30 * 60_000,
+      nowMs: now,
+    });
+    expect(status).toContain("character (none)");
+    expect(status).toContain("websocket disconnected");
+  });
+
+  it("appends an idle hint when last activity exceeds the timeout", () => {
+    const idleTimeoutMs = 30 * 60_000;
+    const status = formatWhoStatus({
+      characterId: "char-1",
+      startedAtMs: now - 60 * 60_000,
+      lastActivityAtMs: now - idleTimeoutMs,
+      connected: true,
+      idleTimeoutMs,
+      nowMs: now,
+    });
+    expect(status).toContain("(idle — eligible for eviction)");
+  });
+
+  it("does not append the idle hint when activity is fresher than the timeout", () => {
+    const idleTimeoutMs = 30 * 60_000;
+    const status = formatWhoStatus({
+      characterId: "char-1",
+      startedAtMs: now - 60 * 60_000,
+      lastActivityAtMs: now - (idleTimeoutMs - 1),
+      connected: true,
+      idleTimeoutMs,
+      nowMs: now,
+    });
+    expect(status).not.toContain("(idle");
+  });
+});
