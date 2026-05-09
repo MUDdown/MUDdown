@@ -1,0 +1,40 @@
+{
+  "name": "@muddown/discord-bridge",
+  "version": "0.1.0",
+  "description": "Discord bridge — lets Discord users play MUDdown via a bot account, embeds, and buttons (no ANSI/OSC 8)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MUDdown/MUDdown.git",
+    "directory": "packages/discord-bridge"
+  },
+  "keywords": ["muddown", "discord", "bridge", "mud", "bot"],
+  "type": "module",
+  "bin": {
+    "muddown-discord-bridge": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "dev": "tsx watch src/main.ts",
+    "clean": "rimraf dist",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@muddown/client": "*",
+    "@muddown/parser": "*",
+    "@muddown/shared": "*",
+    "discord.js": "^14.16.3",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.20.6",
+    "vitest": "^4.1.2"
+  },
+  "engines": {
+    "node": ">=22.9.0"
+  }
+}
