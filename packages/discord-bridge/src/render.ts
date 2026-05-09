@@ -95,16 +95,18 @@ export function chunkDescription(text: string, max = DISCORD_LIMITS.embedDescrip
   while (remaining.length > max) {
     // Prefer the last paragraph break before the limit; fall back to the
     // last whitespace boundary so we don't split mid-word; only hard-cut
-    // at `max` when neither boundary is reachable.
+    // at `max` when neither boundary is reachable. Keep the split
+    // delimiter in one chunk so joining chunks reproduces the original
+    // content exactly.
     const slice = remaining.slice(0, max);
     const lastPara = slice.lastIndexOf("\n\n");
     const lastSpace = slice.lastIndexOf(" ");
     let cut: number;
-    if (lastPara > max / 2) cut = lastPara;
-    else if (lastSpace > max / 2) cut = lastSpace;
+    if (lastPara > max / 2) cut = lastPara + 2;
+    else if (lastSpace > max / 2) cut = lastSpace + 1;
     else cut = max;
-    chunks.push(remaining.slice(0, cut).trimEnd());
-    remaining = remaining.slice(cut).trimStart();
+    chunks.push(remaining.slice(0, cut));
+    remaining = remaining.slice(cut);
   }
   if (remaining.length > 0) chunks.push(remaining);
   return chunks;

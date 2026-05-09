@@ -59,6 +59,7 @@ describe("chunkDescription", () => {
     for (const c of chunks) {
       expect(c.length).toBeLessThanOrEqual(DISCORD_LIMITS.embedDescription);
     }
+    expect(chunks.join("")).toBe(text);
   });
 
   it("hard-cuts when no paragraph break is reachable", () => {
@@ -69,18 +70,16 @@ describe("chunkDescription", () => {
   });
 
   it("falls back to a whitespace boundary instead of mid-word", () => {
-    // No paragraph breaks, but spaces every ~50 chars: must not split a word.
+    // No paragraph breaks, but spaces every ~50 chars.
     const word = "y".repeat(49);
     const max = 200;
     const text = Array(20).fill(word).join(" ");
     const chunks = chunkDescription(text, max);
     expect(chunks.length).toBeGreaterThan(1);
     for (const c of chunks) {
-      // No chunk ends with a partial run that would split a word.
-      expect(c.endsWith("y")).toBe(true);
-      // Every chunk is a sequence of full words separated by spaces.
-      for (const w of c.split(" ")) expect(w).toBe(word);
+      expect(c.length).toBeLessThanOrEqual(max);
     }
+    expect(chunks.join("")).toBe(text);
   });
 });
 

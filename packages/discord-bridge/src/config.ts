@@ -32,6 +32,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeC
   if (!serverUrl) {
     throw new DiscordBridgeConfigError("MUDDOWN_SERVER_URL is required");
   }
+  let parsed: URL;
+  try {
+    parsed = new URL(serverUrl);
+  } catch {
+    throw new DiscordBridgeConfigError("MUDDOWN_SERVER_URL must be a valid ws:// or wss:// URL");
+  }
+  if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") {
+    throw new DiscordBridgeConfigError("MUDDOWN_SERVER_URL must use ws:// or wss://");
+  }
   return {
     botToken,
     serverUrl,

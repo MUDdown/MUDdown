@@ -69,13 +69,13 @@ describe("SessionRegistry", () => {
     expect(registry.get("1")).toBeDefined();
   });
 
-  it("open() returns false when replacing an existing user", () => {
+  it("open() returns false and preserves existing session when user already exists", () => {
     const registry = new SessionRegistry();
     const original = makeSession({ accountId: "acct-1" });
     const replacement = makeSession({ accountId: "acct-2" });
     expect(registry.open(original)).toBe(true);
     expect(registry.open(replacement)).toBe(false);
     expect(registry.size()).toBe(1);
-    expect(registry.get(original.discordUserId)).toBe(replacement);
+    expect(registry.get(original.discordUserId)).toBe(original);
   });
 });

@@ -14,20 +14,14 @@ import { SessionRegistry } from "./sessions.js";
 let isShuttingDown = false;
 
 export async function main(): Promise<void> {
-  try {
-    const config = loadConfig();
-    const sessions = new SessionRegistry();
-    void sessions; // wired into the discord.js client in the next commit
-    // eslint-disable-next-line no-console
-    console.log(
-      `[muddown-discord-bridge] starting (server=${config.serverUrl}, guild=${config.guildId ?? "<global>"})`,
-    );
-    // discord.js Client.login() and event handler registration land in the next commit.
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error("[muddown-discord-bridge] startup failed:", err);
-    throw err;
-  }
+  const config = loadConfig();
+  const sessions = new SessionRegistry();
+  void sessions; // wired into the discord.js client in the next commit
+  // eslint-disable-next-line no-console
+  console.log(
+    `[muddown-discord-bridge] starting (server=${config.serverUrl}, guild=${config.guildId ?? "<global>"})`,
+  );
+  // discord.js Client.login() and event handler registration land in the next commit.
 }
 
 export async function shutdown(): Promise<void> {

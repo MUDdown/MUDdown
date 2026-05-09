@@ -47,6 +47,24 @@ describe("loadConfig", () => {
     ).toThrow(/MUDDOWN_SERVER_URL is required/);
   });
 
+  it("throws when MUDDOWN_SERVER_URL is not a valid URL", () => {
+    expect(() =>
+      loadConfig({
+        MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+        MUDDOWN_SERVER_URL: "not-a-url",
+      }),
+    ).toThrow(/MUDDOWN_SERVER_URL must be a valid ws:\/\/ or wss:\/\/ URL/);
+  });
+
+  it("throws when MUDDOWN_SERVER_URL does not use ws/wss", () => {
+    expect(() =>
+      loadConfig({
+        MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+        MUDDOWN_SERVER_URL: "https://muddown.com/ws",
+      }),
+    ).toThrow(/MUDDOWN_SERVER_URL must use ws:\/\/ or wss:\/\//);
+  });
+
   it("returns a populated config when required vars are set", () => {
     const config = loadConfig({
       MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",

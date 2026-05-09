@@ -32,9 +32,9 @@ export class SessionRegistry {
 
   open(session: DiscordSession): boolean {
     if (!session.discordUserId.trim()) return false;
-    const isNewSession = !this.sessions.has(session.discordUserId);
+    if (this.sessions.has(session.discordUserId)) return false;
     this.sessions.set(session.discordUserId, session);
-    return isNewSession;
+    return true;
   }
 
   close(discordUserId: string): boolean {

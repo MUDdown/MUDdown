@@ -233,7 +233,12 @@ export interface IdentityLinkRecord {
   provider: OAuthProvider;
   providerId: string;     // external user ID (unique per provider)
   providerUsername: string; // e.g., GitHub login
-  lastCharacterId?: string | null; // Discord bridge resume hint (identity_links.last_character_id)
+  // Discord bridge resume hint (identity_links.last_character_id).
+  // Semantics are intentionally three-state:
+  // - undefined: link has no Discord bridge state (e.g., non-Discord provider)
+  // - null: Discord link exists and the character picker is open/no selection
+  // - string: last selected character ID for Discord DM resume
+  lastCharacterId?: string | null;
   linkedAt: string;       // ISO 8601
 }
 
