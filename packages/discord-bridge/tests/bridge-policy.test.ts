@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   dispatchGameplayCommand,
+  formatDurationShort,
+  formatWhoStatus,
   handleReconnectError,
   handleSocketClose,
   recordActivityIfDispatched,
@@ -170,5 +172,92 @@ describe("recordActivityIfDispatched", () => {
   it("tolerates omitted onMissingSession when touch() returns false", () => {
     const touch = vi.fn(() => false);
     expect(() => recordActivityIfDispatched("u1", true, { touch })).not.toThrow();
+  });
+});
+
+describe("formatDurationShort", () => {
+  it("returns 0s for zero, negative, or non-finite inputs", () => {
+    expect(formatDurationShort(0)).toBe("0s");
+    expect(formatDurationShort(-1)).toBe("0s");
+    expect(formatDurationShort(Number.NaN)).toBe("0s");
+    expect(formatDurationShort(Number.POSITIVE_INFINITY)).toBe("0s");
+  });
+
+  it("rounds down to seconds below one minute", () => {
+    expect(formatDurationShort(999)).toBe("0s");
+    expect(formatDurationShort(1_000)).toBe("1s");
+    expect(formatDurationShort(59_999)).toBe("59s");
+  });
+
+  it("rounds down to minutes below one hour", () => {
+    expect(formatDurationShort(60_000)).toBe("1m");
+    expect(formatDurationShort(59 * 60_000)).toBe("59m");
+  });
+
+  it("rounds down to hours below one day", () => {
+    expect(formatDurationShort(60 * 60_000)).toBe("1h");
+    expect(formatDurationShort(23 * 60 * 60_000)).toBe("23h");
+  });
+
+  it("returns days at and above 24h", () => {
+    expect(formatDurationShort(24 * 60 * 60_000)).toBe("1d");
+    expect(formatDurationShort(3 * 24 * 60 * 60_000)).toBe("3d");
+  });
+});
+
+describe("formatWhoStatus", () => {
+  const now = 10_000_000;
+
+  it("renders character, ws state, uptime, and last-activity age", () => {
+    const status = formatWhoStatus({
+      characterId: "char-1",
+      startedAtMs: now - 5 * 60_000,
+      lastActivityAtMs: now - 30_000,
+      connected: true,
+      idleTimeoutMs: 30 * 60_000,
+      nowMs: now,
+    });
+    expect(status).toBe(
+      "Active session: character char-1, websocket connected, uptime 5m, last activity 30s ago.",
+    );
+  });
+
+  it("shows (none) when characterId is null", () => {
+    const status = formatWhoStatus({
+      characterId: null,
+      startedAtMs: now - 1_000,
+      lastActivityAtMs: now - 1_000,
+      connected: false,
+      idleTimeoutMs: 30 * 60_000,
+      nowMs: now,
+    });
+    expect(status).toContain("character (none)");
+    expect(status).toContain("websocket disconnected");
+  });
+
+  it("appends an idle hint when last activity exceeds the timeout", () => {
+    const idleTimeoutMs = 30 * 60_000;
+    const status = formatWhoStatus({
+      characterId: "char-1",
+      startedAtMs: now - 60 * 60_000,
+      lastActivityAtMs: now - idleTimeoutMs,
+      connected: true,
+      idleTimeoutMs,
+      nowMs: now,
+    });
+    expect(status).toContain("(idle — eligible for eviction)");
+  });
+
+  it("does not append the idle hint when activity is fresher than the timeout", () => {
+    const idleTimeoutMs = 30 * 60_000;
+    const status = formatWhoStatus({
+      characterId: "char-1",
+      startedAtMs: now - 60 * 60_000,
+      lastActivityAtMs: now - (idleTimeoutMs - 1),
+      connected: true,
+      idleTimeoutMs,
+      nowMs: now,
+    });
+    expect(status).not.toContain("(idle");
   });
 });

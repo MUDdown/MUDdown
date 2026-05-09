@@ -41,6 +41,7 @@ import type { DiscordSession } from "./sessions.js";
 import { LINK_SELECT_CUSTOM_ID, renderEnvelope } from "./render.js";
 import {
   dispatchGameplayCommand,
+  formatWhoStatus,
   handleReconnectError,
   handleSocketClose,
   recordActivityIfDispatched,
@@ -391,9 +392,15 @@ class BridgeLifecycle {
       return;
     }
 
-    const uptimeSeconds = Math.max(1, Math.floor((Date.now() - session.startedAt.getTime()) / 1000));
+    const content = formatWhoStatus({
+      characterId: session.characterId,
+      startedAtMs: session.startedAt.getTime(),
+      lastActivityAtMs: session.lastActivityAt.getTime(),
+      connected: connection.connected,
+      idleTimeoutMs: IDLE_TIMEOUT_MS,
+    });
     await interaction.reply({
-      content: `Active session: character ${session.characterId ?? "(none)"}, websocket ${connection.connected ? "connected" : "disconnected"}, uptime ${uptimeSeconds}s.`,
+      content,
       flags: interaction.channel?.isDMBased() ? undefined : MessageFlags.Ephemeral,
     });
   }

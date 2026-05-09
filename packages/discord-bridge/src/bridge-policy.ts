@@ -43,6 +43,49 @@ export function recordActivityIfDispatched(
   return success;
 }
 
+/**
+ * Format a "Ns / Nm / Nh" duration string from a non-negative millisecond delta.
+ * Used by the `/who` status line. Floors to the nearest unit boundary; clamps
+ * negative or non-finite inputs to "0s" so a clock skew can't produce garbage.
+ */
+export function formatDurationShort(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "0s";
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
+
+export interface WhoStatusInput {
+  characterId: string | null;
+  startedAtMs: number;
+  lastActivityAtMs: number;
+  connected: boolean;
+  /** Idle threshold in milliseconds; activity older than this is shown with an "(idle)" hint. */
+  idleTimeoutMs: number;
+  /** Wall-clock reference, defaults to Date.now(). Injected for tests. */
+  nowMs?: number;
+}
+
+/**
+ * Render the `/who` status line. Pure: no I/O, no Date.now() unless `nowMs`
+ * is omitted at the call site.
+ */
+export function formatWhoStatus(input: WhoStatusInput): string {
+  const now = input.nowMs ?? Date.now();
+  const uptime = formatDurationShort(now - input.startedAtMs);
+  const idleAge = now - input.lastActivityAtMs;
+  const idle = formatDurationShort(idleAge);
+  const wsState = input.connected ? "connected" : "disconnected";
+  const character = input.characterId ?? "(none)";
+  const idleSuffix = idleAge >= input.idleTimeoutMs ? " (idle — eligible for eviction)" : "";
+  return `Active session: character ${character}, websocket ${wsState}, uptime ${uptime}, last activity ${idle} ago${idleSuffix}.`;
+}
+
 export function resolveGameplayInteractionCommand(customId: string, values: string[]): string | undefined {
   const encoded = customId === LINK_SELECT_CUSTOM_ID ? values[0] : customId;
   if (!encoded) return undefined;
