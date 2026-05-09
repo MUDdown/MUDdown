@@ -5,6 +5,7 @@ function makeSession(overrides: Partial<DiscordSession> = {}): DiscordSession {
   return {
     discordUserId: "111111111111111111",
     accountId: "acct-1",
+    sessionToken: "session-token-1",
     characterId: null,
     startedAt: new Date("2026-05-08T00:00:00.000Z"),
     ...overrides,
@@ -79,5 +80,22 @@ describe("SessionRegistry", () => {
     expect(registry.open(replacement)).toBe(false);
     expect(registry.size()).toBe(1);
     expect(registry.get(original.discordUserId)).toBe(original);
+  });
+
+  it("clear() removes all open sessions", () => {
+    const registry = new SessionRegistry();
+    expect(registry.open(makeSession({ discordUserId: "1" }))).toBe(true);
+    expect(registry.open(makeSession({ discordUserId: "2" }))).toBe(true);
+    expect(registry.size()).toBe(2);
+    expect(registry.clear()).toBe(2);
+    expect(registry.size()).toBe(0);
+    expect(registry.get("1")).toBeUndefined();
+    expect(registry.get("2")).toBeUndefined();
+    expect(registry.open(makeSession({ discordUserId: "1" }))).toBe(true);
+  });
+
+  it("clear() returns zero when already empty", () => {
+    const registry = new SessionRegistry();
+    expect(registry.clear()).toBe(0);
   });
 });

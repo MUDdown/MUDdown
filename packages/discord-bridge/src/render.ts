@@ -14,6 +14,7 @@
  */
 
 import type { ServerMessage } from "@muddown/shared";
+import { resolveGameLink } from "@muddown/client";
 
 /** Discord embed colors, by ServerMessage.type, mirroring ARIA-role intent. */
 export const BLOCK_COLORS: Readonly<Record<ServerMessage["type"], number>> = Object.freeze({
@@ -30,7 +31,20 @@ export const DISCORD_LIMITS = Object.freeze({
   buttonsPerRow: 5,
   rowsPerMessage: 5,
   customIdLength: 100,
+  selectOptions: 25,
 });
+
+export const LINK_CUSTOM_ID_PREFIX = "muddown-link:";
+export const LINK_SELECT_CUSTOM_ID = "muddown-link-select";
+
+const logger = {
+  warn: (...args: unknown[]): void => {
+    // eslint-disable-next-line no-console
+    console.warn(...args);
+  },
+};
+
+const SUPPORTED_LINK_SCHEMES = new Set(["go", "cmd", "item", "npc", "player", "help"]);
 
 /** Subset of the discord.js APIEmbed shape — kept local so tests don't need discord.js. */
 export interface RenderedEmbed {
@@ -54,6 +68,11 @@ export interface RenderedSelect {
   customId: string;
   placeholder: string;
   options: Array<{ label: string; value: string }>;
+}
+
+export interface RenderedGameLink {
+  label: string;
+  customId: string;
 }
 
 export interface RenderedMessage {
@@ -117,6 +136,111 @@ function titleFor(envelope: ServerMessage): string {
   return envelope.type.charAt(0).toUpperCase() + envelope.type.slice(1);
 }
 
+function cleanLabel(label: string): string {
+  return label.replace(/\s+/g, " ").trim().slice(0, 80);
+}
+
+function parseGameLink(match: RegExpMatchArray): RenderedGameLink | undefined {
+  const label = cleanLabel(match[1] ?? "");
+  const scheme = (match[2] ?? "").toLowerCase();
+  const rawTarget = (match[3] ?? "").trim();
+  if (!label || !SUPPORTED_LINK_SCHEMES.has(scheme) || !rawTarget) return undefined;
+  const resolved = resolveGameLink(scheme, rawTarget);
+  if (!resolved) return undefined;
+
+  const customId = encodeLinkCustomId(resolved);
+  if (!customId) return undefined;
+  return { label, customId };
+}
+
+export function extractGameLinks(muddown: string): RenderedGameLink[] {
+  const links: RenderedGameLink[] = [];
+  const dedupe = new Set<string>();
+  // Allow escaped characters in labels (for example: `[label\]](go:north)`).
+  const regex = /\[((?:\\.|[^\]])+)\]\(([^:()\s]+):([^\)]+)\)/g;
+  for (const match of muddown.matchAll(regex)) {
+    const parsed = parseGameLink(match);
+    if (!parsed) continue;
+    const key = `${parsed.label}|${parsed.customId}`;
+    if (dedupe.has(key)) continue;
+    dedupe.add(key);
+    links.push(parsed);
+  }
+  return links;
+}
+
+export function encodeLinkCustomId(command: string): string | undefined {
+  const encoded = `${LINK_CUSTOM_ID_PREFIX}${encodeURIComponent(command)}`;
+  return encoded.length <= DISCORD_LIMITS.customIdLength ? encoded : undefined;
+}
+
+export function decodeLinkCustomId(customId: string): string | undefined {
+  if (!customId.startsWith(LINK_CUSTOM_ID_PREFIX)) return undefined;
+  const encoded = customId.slice(LINK_CUSTOM_ID_PREFIX.length);
+  if (!encoded) return undefined;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return undefined;
+  }
+}
+
+function buildComponents(links: RenderedGameLink[]): Array<RenderedButton[] | RenderedSelect> {
+  if (links.length === 0) return [];
+
+  const fullButtonCapacity = DISCORD_LIMITS.buttonsPerRow * DISCORD_LIMITS.rowsPerMessage;
+  const needsOverflowSelect = links.length > fullButtonCapacity;
+  const maxButtonRows = needsOverflowSelect
+    ? DISCORD_LIMITS.rowsPerMessage - 1
+    : DISCORD_LIMITS.rowsPerMessage;
+  const maxButtons = DISCORD_LIMITS.buttonsPerRow * maxButtonRows;
+  const buttonLinks = links.slice(0, maxButtons);
+  const overflowLinks = links.slice(maxButtons, maxButtons + DISCORD_LIMITS.selectOptions);
+  const shownLinks = maxButtons + overflowLinks.length;
+  const dropped = Math.max(0, links.length - shownLinks);
+
+  if (dropped > 0) {
+    logger.warn("[muddown-discord-bridge] links dropped due to Discord component limits", {
+      totalLinks: links.length,
+      fullButtonCapacity,
+      maxButtons,
+      overflowOptions: overflowLinks.length,
+      shownLinks,
+      dropped,
+    });
+  }
+
+  const rows: RenderedButton[][] = [];
+  for (let index = 0; index < buttonLinks.length; index += DISCORD_LIMITS.buttonsPerRow) {
+    rows.push(
+      buttonLinks.slice(index, index + DISCORD_LIMITS.buttonsPerRow).map((link) => ({
+        type: "button",
+        label: link.label,
+        customId: link.customId,
+        style: 2,
+      })),
+    );
+  }
+
+  const components: Array<RenderedButton[] | RenderedSelect> = [...rows];
+  if (overflowLinks.length > 0) {
+    const placeholder = dropped > 0
+      ? `More actions (showing ${shownLinks} of ${links.length})`
+      : "More actions";
+    components.push({
+      type: "select",
+      customId: LINK_SELECT_CUSTOM_ID,
+      placeholder,
+      options: overflowLinks.map((link) => ({
+        label: link.label,
+        value: link.customId,
+      })),
+    });
+  }
+
+  return components;
+}
+
 /**
  * Render a server envelope into the Discord-ready shape.
  *
@@ -126,19 +250,20 @@ function titleFor(envelope: ServerMessage): string {
  * always an empty array.
  */
 export function renderEnvelope(envelope: ServerMessage): RenderedMessage {
-  const body = stripContainerScaffolding(envelope.muddown);
+  const rawBody = stripContainerScaffolding(envelope.muddown);
+  const links = extractGameLinks(rawBody);
   // Discord rejects embeds with an empty description (HTTP 400). Drop
   // the message entirely when the envelope contains only container
   // scaffolding so the bot doesn't fail silently.
-  if (!body) return { embeds: [], components: [] };
+  if (!rawBody) return { embeds: [], components: [] };
   // BLOCK_COLORS is exhaustive over ServerMessage["type"] — TypeScript
   // guarantees a hit; no runtime fallback needed.
   const color = BLOCK_COLORS[envelope.type];
   const title = titleFor(envelope);
-  const embeds = chunkDescription(body).map((description) => ({
+  const embeds = chunkDescription(rawBody).map((description) => ({
     title,
     description,
     color,
   }));
-  return { embeds, components: [] };
+  return { embeds, components: buildComponents(links) };
 }

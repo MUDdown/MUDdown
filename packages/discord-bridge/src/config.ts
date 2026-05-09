@@ -6,11 +6,13 @@
  * surfaces at startup rather than on the first DM.
  */
 
+export type WebSocketUrl = `ws://${string}` | `wss://${string}`;
+
 export interface DiscordBridgeConfig {
   /** Bot token from the Discord developer portal. */
   botToken: string;
   /** WebSocket URL of the upstream MUDdown game server. */
-  serverUrl: string;
+  serverUrl: WebSocketUrl;
   /** Optional guild for guild-scoped slash-command registration during development. */
   guildId: string | undefined;
 }
@@ -43,7 +45,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeC
   }
   return {
     botToken,
-    serverUrl,
+    serverUrl: serverUrl as WebSocketUrl,
     guildId,
   };
 }

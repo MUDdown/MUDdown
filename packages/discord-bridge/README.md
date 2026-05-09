@@ -7,10 +7,10 @@ holding one WebSocket session per linked Discord user.
 
 ## Status
 
-**Scaffold.** The package layout, build, tests, and renderer skeleton are
-in place; the `discord.js` client wiring, slash-command registration, and
-character-picker flow are tracked under PROJECT_PLAN.md Phase 9a and will
-land in follow-up commits on this branch.
+**Runtime slice in place.** The package now starts a real `discord.js` client,
+logs in, registers slash commands, handles DM intake/basic interaction routing,
+and shuts down cleanly. Account linking, character-picker flow, and live
+gameplay transport are still tracked under PROJECT_PLAN.md Phase 9a.
 
 ## Design summary
 
@@ -34,8 +34,8 @@ No ANSI, no OSC 8 — Discord components replace clickable telnet links.
 
 ## Deployment
 
-A systemd unit (`deploy/muddown-discord-bridge.service`) parallel to
-`muddown-bridge.service` will be added when the bot wiring lands.
+A systemd unit now lives at `deploy/muddown-discord-bridge.service`, parallel to
+`muddown-bridge.service`.
 
 ### Shutdown behavior (operators)
 

@@ -1,0 +1,45 @@
+[Unit]
+Description=MUDdown Discord Bridge
+Documentation=https://github.com/MUDdown/MUDdown
+After=network-online.target muddown-server.service
+Wants=network-online.target muddown-server.service
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=muddown
+Group=muddown
+WorkingDirectory=/opt/muddown/packages/discord-bridge
+EnvironmentFile=-/opt/muddown/packages/discord-bridge/.env
+ExecStart=/usr/bin/node dist/main.js
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+Restart=on-failure
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadOnlyPaths=/opt/muddown/packages/discord-bridge
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=~@module @mount @reboot @swap
+
+# Resource limits
+LimitNOFILE=65535
+LimitNPROC=256
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=muddown-discord-bridge
+
+[Install]
+WantedBy=multi-user.target
