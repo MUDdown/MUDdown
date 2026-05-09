@@ -43,8 +43,10 @@ describe("SessionRegistry", () => {
 
   it("size() tracks open and close across multiple users", () => {
     const registry = new SessionRegistry();
-    registry.open(makeSession({ discordUserId: "1" }));
-    registry.open(makeSession({ discordUserId: "2" }));
+    const s1 = registry.open(makeSession({ discordUserId: "1" }));
+    const s2 = registry.open(makeSession({ discordUserId: "2" }));
+    expect(s1).toBe(true);
+    expect(s2).toBe(true);
     expect(registry.size()).toBe(2);
     registry.close("1");
     expect(registry.size()).toBe(1);

@@ -11,21 +11,41 @@
 import { loadConfig } from "./config.js";
 import { SessionRegistry } from "./sessions.js";
 
-let isShuttingDown = false;
+class BridgeLifecycle {
+  private isShuttingDown = false;
+
+  async main(): Promise<void> {
+    const config = loadConfig();
+    const sessions = new SessionRegistry();
+    void sessions; // wired into the discord.js client in the next commit
+    // eslint-disable-next-line no-console
+    console.log(
+      `[muddown-discord-bridge] starting (server=${config.serverUrl}, guild=${config.guildId ?? "<global>"})`,
+    );
+    // discord.js Client.login() and event handler registration land in the next commit.
+  }
+
+  async shutdown(): Promise<void> {
+    if (this.isShuttingDown) return;
+    this.isShuttingDown = true;
+    // discord.js client and upstream socket teardown wiring land in the next commit.
+  }
+
+  reset(): void {
+    this.isShuttingDown = false;
+  }
+}
+
+const bridgeLifecycle = new BridgeLifecycle();
 
 export async function main(): Promise<void> {
-  const config = loadConfig();
-  const sessions = new SessionRegistry();
-  void sessions; // wired into the discord.js client in the next commit
-  // eslint-disable-next-line no-console
-  console.log(
-    `[muddown-discord-bridge] starting (server=${config.serverUrl}, guild=${config.guildId ?? "<global>"})`,
-  );
-  // discord.js Client.login() and event handler registration land in the next commit.
+  await bridgeLifecycle.main();
 }
 
 export async function shutdown(): Promise<void> {
-  if (isShuttingDown) return;
-  isShuttingDown = true;
-  // discord.js client and upstream socket teardown wiring land in the next commit.
+  await bridgeLifecycle.shutdown();
+}
+
+export function resetBridgeForTests(): void {
+  bridgeLifecycle.reset();
 }

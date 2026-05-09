@@ -37,6 +37,23 @@ No ANSI, no OSC 8 — Discord components replace clickable telnet links.
 A systemd unit (`deploy/muddown-discord-bridge.service`) parallel to
 `muddown-bridge.service` will be added when the bot wiring lands.
 
+### Shutdown behavior (operators)
+
+The bridge entrypoint handles `SIGTERM` and `SIGINT` with a two-stage shutdown flow:
+
+- First signal: logs a graceful-shutdown message and calls the bridge `shutdown()` export (wired through the entrypoint's shutdown bridge hook) before exiting.
+- Second signal during shutdown: logs a force-exit message and exits immediately with a non-zero status.
+
+This matches container/system supervisors that send one termination signal and escalate if the process does not exit before timeout.
+
+### Orchestration guidance
+
+- Send a single termination signal first (`SIGTERM` preferred).
+- Configure stop/termination grace periods long enough for bridge cleanup (Discord gateway close, upstream WebSocket close, pending message flush once wiring lands).
+- Use escalation (`SIGKILL` or equivalent) only after the graceful timeout expires.
+- Prefer lifecycle hooks (`preStop`, systemd `ExecStop`) that trigger one graceful signal rather than repeated signals in quick succession.
+- Health checks should expect the process to exit during shutdown/restart windows; treat transient restart periods as expected behavior.
+
 ## Out of scope
 
 Voice, lobbies, account creation, world editing — same exclusions as the
