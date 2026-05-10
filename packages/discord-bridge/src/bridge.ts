@@ -50,16 +50,10 @@ import {
   resolveGameplayInteractionCommand,
 } from "./bridge-policy.js";
 import {
-  GAMEPLAY_DELIVERY_RETRIES,
   gameplayDeliveryBackoffMs,
-  MAX_CONSECUTIVE_DELIVERY_FAILURES,
   nextDeliveryFailure,
 } from "./delivery-policy.js";
-import {
-  IDLE_CHECK_INTERVAL_MS,
-  IDLE_TIMEOUT_MS,
-  runIdleSweep,
-} from "./idle-policy.js";
+import { runIdleSweep } from "./idle-policy.js";
 import { ReconnectNotifier } from "./reconnect-notifier.js";
 
 // @ts-expect-error - @muddown/client uses bare new WebSocket() with no import;
@@ -402,7 +396,7 @@ class BridgeLifecycle {
       startedAtMs: session.startedAt.getTime(),
       lastActivityAtMs: session.lastActivityAt.getTime(),
       connected: connection.connected,
-      idleTimeoutMs: IDLE_TIMEOUT_MS,
+      idleTimeoutMs: this.requireConfig().tunables.idleTimeoutMs,
     });
     // Refresh activity *after* snapshotting timestamps so /who reports the prior
     // last-activity age (touching first would always read 0s).
@@ -866,15 +860,16 @@ class BridgeLifecycle {
 
   private startIdleSweep(): void {
     if (this.idleSweepTimer) return;
+    const { idleTimeoutMs, idleCheckIntervalMs } = this.requireConfig().tunables;
     this.idleSweepTimer = setInterval(() => {
       runIdleSweep(
         Date.now(),
         this.sessions.values(),
-        IDLE_TIMEOUT_MS,
+        idleTimeoutMs,
         (discordUserId) => {
           // eslint-disable-next-line no-console
           console.log(
-            `[muddown-discord-bridge] evicting idle session ${discordUserId} (>=${IDLE_TIMEOUT_MS}ms)`,
+            `[muddown-discord-bridge] evicting idle session ${discordUserId} (>=${idleTimeoutMs}ms)`,
           );
           this.closeSession(discordUserId, true);
         },
@@ -886,7 +881,7 @@ class BridgeLifecycle {
           );
         },
       );
-    }, IDLE_CHECK_INTERVAL_MS);
+    }, idleCheckIntervalMs);
     if (typeof this.idleSweepTimer.unref === "function") {
       this.idleSweepTimer.unref();
     }
@@ -976,8 +971,9 @@ class BridgeLifecycle {
       return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
     });
 
-    // Invariant: GAMEPLAY_DELIVERY_RETRIES is at least 1.
-    for (let attempt = 1; attempt <= GAMEPLAY_DELIVERY_RETRIES; attempt++) {
+    const { deliveryRetries, deliveryBackoffMs, maxDeliveryBackoffMs } = this.requireConfig().tunables;
+    // Invariant: deliveryRetries is at least 1 (validated by loadConfig).
+    for (let attempt = 1; attempt <= deliveryRetries; attempt++) {
       try {
         await user.send({
           embeds: rendered.embeds.map((embed) => ({
@@ -990,23 +986,27 @@ class BridgeLifecycle {
         this.deliveryFailureStreak.delete(discordUserId);
         return;
       } catch (error) {
-        if (attempt >= GAMEPLAY_DELIVERY_RETRIES) {
+        if (attempt >= deliveryRetries) {
           this.handleDeliveryFailure(discordUserId, error);
           return;
         }
-        await new Promise((resolve) => setTimeout(resolve, gameplayDeliveryBackoffMs(attempt)));
+        await new Promise((resolve) =>
+          setTimeout(resolve, gameplayDeliveryBackoffMs(attempt, deliveryBackoffMs, maxDeliveryBackoffMs)),
+        );
       }
     }
   }
 
   private handleDeliveryFailure(discordUserId: string, error: unknown): void {
+    const { maxConsecutiveDeliveryFailures } = this.requireConfig().tunables;
     const { failures, shouldTerminate } = nextDeliveryFailure(
       this.deliveryFailureStreak.get(discordUserId),
+      maxConsecutiveDeliveryFailures,
     );
     this.deliveryFailureStreak.set(discordUserId, failures);
     // eslint-disable-next-line no-console
     console.error(
-      `[muddown-discord-bridge] gameplay delivery failed (${failures}/${MAX_CONSECUTIVE_DELIVERY_FAILURES}):`,
+      `[muddown-discord-bridge] gameplay delivery failed (${failures}/${maxConsecutiveDeliveryFailures}):`,
       error,
     );
 
