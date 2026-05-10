@@ -135,9 +135,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeC
   };
 
   // Cross-field invariants. Both represent operator misconfigurations that
-  // would silently degrade behavior (the idle sweep would run on every tick;
-  // the backoff cap would clamp the very first retry below its base) rather
-  // than fail at startup, so we surface them here.
+  // would silently degrade behavior (the idle sweep would run less often than
+  // the timeout, so idle sessions could linger up to a full extra check
+  // interval before eviction; the backoff cap would clamp the very first
+  // retry below its base) rather than fail at startup, so we surface them
+  // here.
   if (tunables.idleCheckIntervalMs >= tunables.idleTimeoutMs) {
     throw new DiscordBridgeConfigError(
       `MUDDOWN_DISCORD_IDLE_CHECK_INTERVAL_MS (${tunables.idleCheckIntervalMs}) must be less than MUDDOWN_DISCORD_IDLE_TIMEOUT_MS (${tunables.idleTimeoutMs})`,

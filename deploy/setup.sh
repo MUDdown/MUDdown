@@ -308,9 +308,10 @@ ENVEOF
 fi
 
 # Discord bridge .env template (optional, opt-in)
-# Copy the in-repo .env.example verbatim. The operator must populate the bot
-# token and serverUrl, then `systemctl enable --now muddown-discord-bridge`.
-# We never prompt for the token here and never echo secret values.
+# Copy the in-repo .env.example verbatim. The operator must populate
+# MUDDOWN_DISCORD_BOT_TOKEN and MUDDOWN_SERVER_URL, then
+# `systemctl enable --now muddown-discord-bridge`. We never prompt for the
+# token here and never echo secret values.
 DISCORD_BRIDGE_DIR="${INSTALL_DIR}/packages/discord-bridge"
 DISCORD_BRIDGE_ENV="${DISCORD_BRIDGE_DIR}/.env"
 DISCORD_BRIDGE_EXAMPLE="${DISCORD_BRIDGE_DIR}/.env.example"
@@ -350,6 +351,8 @@ if [[ -f "${INSTALL_DIR}/deploy/muddown-discord-bridge.service" ]]; then
   cp "${INSTALL_DIR}/deploy/muddown-discord-bridge.service" /etc/systemd/system/
 elif [[ -f "${SCRIPT_DIR}/muddown-discord-bridge.service" ]]; then
   cp "${SCRIPT_DIR}/muddown-discord-bridge.service" /etc/systemd/system/
+else
+  echo "WARNING: muddown-discord-bridge.service not found — Discord bridge will not be installed." >&2
 fi
 
 systemctl daemon-reload
