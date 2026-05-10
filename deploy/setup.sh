@@ -307,6 +307,20 @@ ENVEOF
   echo "    Created ${BRIDGE_ENV}"
 fi
 
+# Discord bridge .env template (optional, opt-in)
+# Copy the in-repo .env.example verbatim. The operator must populate the bot
+# token and serverUrl, then `systemctl enable --now muddown-discord-bridge`.
+# We never prompt for the token here and never echo secret values.
+DISCORD_BRIDGE_DIR="${INSTALL_DIR}/packages/discord-bridge"
+DISCORD_BRIDGE_ENV="${DISCORD_BRIDGE_DIR}/.env"
+DISCORD_BRIDGE_EXAMPLE="${DISCORD_BRIDGE_DIR}/.env.example"
+if [[ -d "${DISCORD_BRIDGE_DIR}" && ! -f "${DISCORD_BRIDGE_ENV}" && -f "${DISCORD_BRIDGE_EXAMPLE}" ]]; then
+  cp "${DISCORD_BRIDGE_EXAMPLE}" "${DISCORD_BRIDGE_ENV}"
+  chown "${SERVICE_USER}:${SERVICE_USER}" "${DISCORD_BRIDGE_ENV}"
+  chmod 600 "${DISCORD_BRIDGE_ENV}"
+  echo "    Created ${DISCORD_BRIDGE_ENV} (copy of .env.example — populate before enabling)."
+fi
+
 # ── 12. Install systemd services ─────────────────────────────────────────────
 
 echo "==> Installing systemd services..."
@@ -331,6 +345,13 @@ else
   echo "WARNING: muddown-bridge.service not found — telnet bridge will not be installed." >&2
 fi
 
+# Discord bridge (optional — installed but left DISABLED until operator opts in)
+if [[ -f "${INSTALL_DIR}/deploy/muddown-discord-bridge.service" ]]; then
+  cp "${INSTALL_DIR}/deploy/muddown-discord-bridge.service" /etc/systemd/system/
+elif [[ -f "${SCRIPT_DIR}/muddown-discord-bridge.service" ]]; then
+  cp "${SCRIPT_DIR}/muddown-discord-bridge.service" /etc/systemd/system/
+fi
+
 systemctl daemon-reload
 systemctl enable muddown-server
 
@@ -345,6 +366,13 @@ if [[ -f /etc/systemd/system/muddown-bridge.service ]]; then
   else
     echo "WARNING: muddown-bridge.service failed validation — check unit file syntax." >&2
   fi
+fi
+
+# Discord bridge: installed but left DISABLED. Operators must populate
+# packages/discord-bridge/.env first, then run:
+#   systemctl enable --now muddown-discord-bridge
+if [[ -f /etc/systemd/system/muddown-discord-bridge.service ]]; then
+  echo "  muddown-discord-bridge installed (disabled — populate .env, then enable manually)."
 fi
 
 # ── 13. Configure nginx ──────────────────────────────────────────────────────
@@ -448,6 +476,13 @@ echo ""
 echo "  Point DNS:         muddown.com → ${SERVER_IP}"
 echo "  Enable TLS:        certbot --nginx -d muddown.com -d www.muddown.com"
 echo "  Grant certs:       chgrp -R ${SERVICE_USER} /etc/letsencrypt/{live,archive} && chmod -R g+rX /etc/letsencrypt/{live,archive}"
+if [[ -f /etc/systemd/system/muddown-discord-bridge.service ]]; then
+  echo ""
+  echo "  Discord bridge (optional):"
+  echo "    1. Edit ${DISCORD_BRIDGE_ENV:-${INSTALL_DIR}/packages/discord-bridge/.env} — set MUDDOWN_DISCORD_BOT_TOKEN and MUDDOWN_SERVER_URL."
+  echo "    2. Enable + start: systemctl enable --now muddown-discord-bridge"
+  echo "    3. See wiki: Deployment-Guide → Discord bridge."
+fi
 echo ""
 if [[ "${SSH_PORT}" != "22" ]]; then
   echo "  SSH port changed to ${SSH_PORT}. Reconnect with:"
