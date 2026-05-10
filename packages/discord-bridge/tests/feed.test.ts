@@ -138,17 +138,35 @@ describe("isWorldScopeEnvelope", () => {
     ).toBe(true);
   });
 
+  it("accepts unquoted scope=world (parseAttributes supports unquoted values)", () => {
+    expect(
+      isWorldScopeEnvelope(
+        envelope({ muddown: ':::system{scope=world}\nrebooting\n:::' }),
+      ),
+    ).toBe(true);
+  });
+
+  it('rejects `scope = "world"` with whitespace around the `=`', () => {
+    // Documents parseAttributes' whitespace contract explicitly: `=` must be
+    // adjacent to the key and value. Spaces around it leave `scope` unset on
+    // the parsed attribute map, which falls back to player per spec §3.6.
+    expect(
+      isWorldScopeEnvelope(
+        envelope({ muddown: ':::system{scope = "world"}\nbroken\n:::' }),
+      ),
+    ).toBe(false);
+  });
+
   it("fails closed when attribute parsing throws", () => {
-    // parseAttributes treats certain odd inputs as throws; even if it didn't,
-    // the contract here is fail-closed: never broadcast on a parse error.
-    // We pick a deliberately weird shape that exercises the catch path
-    // without depending on parser internals — if parseAttributes ever
-    // changes to be more permissive, the worst case is the test still
-    // rejects via the scope!=="world" branch, which is still correct.
+    // parseAttributes rejects unquoted values containing `=`, `"`, `{`, or `}`.
+    // `scope={` reaches the validator (the outer fence regex captures up to
+    // the next `}`, so `:::system{scope={}` parses as the inner attr string
+    // `scope={`) and triggers the throw. The contract here is fail-closed:
+    // never broadcast on a parse error.
     expect(
       isWorldScopeEnvelope(
         envelope({
-          muddown: ':::system{scope=\u0000}\nbroken\n:::',
+          muddown: ':::system{scope={}\nbroken\n:::',
         }),
       ),
     ).toBe(false);

@@ -30,5 +30,11 @@ describe("buildWorldBroadcastBlock", () => {
     // Count of ::: that appear at the very start of a line: outer-open + outer-close = 2.
     const fenceLines = block.split("\n").filter((l) => /^:{3,}/.test(l));
     expect(fenceLines).toHaveLength(2);
+    // The injected lines are preserved (prefixed with U+200B), not stripped —
+    // pin that so a future swap from "prefix" to "delete" surfaces as a
+    // regression. The hostile inner-open and inner-close fences both appear
+    // with a leading zero-width space.
+    expect(block).toMatch(/\u200b:::system\{scope="player"\}/);
+    expect(/\u200b:::\s*$/m.test(block)).toBe(true);
   });
 });

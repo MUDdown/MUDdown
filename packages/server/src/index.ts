@@ -1916,9 +1916,10 @@ function broadcastToRoom(roomId: string, exclude: PlayerSession, message: string
  *
  * Returns a Promise that resolves once every per-socket `ws.send()` callback
  * has settled (success or error). Callers that need delivery confirmation
- * before tearing the socket down — most importantly the shutdown handler
- * — should `await` this; fire-and-forget callers can ignore the return
- * value without functional change.
+ * before tearing the socket down — most importantly the shutdown handler,
+ * which races this against a `setTimeout` cap so a wedged socket cannot
+ * stall process exit — should `await` this; fire-and-forget callers can
+ * ignore the return value without functional change.
  */
 function broadcastWorld(
   text: string,
@@ -2041,9 +2042,11 @@ async function shutdown(): Promise<void> {
   console.log("Shutting down — saving all state...");
 
   // Notify connected sessions before tearing down the WebSocket layer so the
-  // envelope actually flushes. World-scope so external feeds (Discord channel)
-  // see it too. Awaited (with a short cap) so a momentarily congested send
-  // buffer doesn't lose the race against the close-loop below.
+  // send is enqueued before the socket close-loop runs. (TCP delivery is not
+  // guaranteed once we exit; we just make sure the close frame doesn't beat
+  // our payload into the kernel send buffer.) World-scope so external feeds
+  // (Discord channel) see it too. Awaited with a 1-second cap so a wedged
+  // socket can't stall the rest of the shutdown path.
   try {
     const broadcast = broadcastWorld(
       "**Server**: shutting down. Reconnect in a moment.",

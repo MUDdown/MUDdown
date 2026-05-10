@@ -60,9 +60,10 @@ export function isWorldScopeEnvelope(envelope: ServerMessage): boolean {
   if (!match) return false;
 
   // Require the fence to be on the very first line of the (post-frontmatter,
-  // post-leading-blank-line) body. Without this, a hostile inner narrative
-  // line beginning with ":::system{scope=\"world\"}" inside a per-player
-  // envelope could route the wrong way.
+  // post-leading-blank-line) body. Without this guard, the multiline `^` in
+  // SYSTEM_OPEN_FENCE would also match a fence on any later line — e.g. a
+  // per-player envelope whose narrative section begins a line with
+  // `:::system{scope="world"}` — and incorrectly route it to the public feed.
   if (match.index !== 0) return false;
 
   try {

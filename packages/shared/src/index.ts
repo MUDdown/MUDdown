@@ -71,9 +71,12 @@ export interface SystemAttributes extends BlockAttributes {
   /**
    * Audience selector. `player` (default) means the single recipient session.
    * `world` means broadcast-eligible — every connected session plus subscribed
-   * external feeds (Discord channel, IRC bridge, …). Unknown values MUST be
-   * treated as `player` so forward-compat clients never accidentally broadcast.
-   * See SPECIFICATION.md §3.6.
+   * external feeds (Discord channel, IRC bridge, …).
+   *
+   * The forward-compatibility rule (unknown values fall back to `player`) is
+   * enforced by transports, not by this type — see
+   * `isWorldScopeEnvelope` in @muddown/discord-bridge for the canonical
+   * implementation. SPECIFICATION.md §3.6 is the normative reference.
    */
   scope?: "player" | "world";
 }

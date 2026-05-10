@@ -102,16 +102,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeC
   const guildId = env.MUDDOWN_DISCORD_GUILD_ID?.trim() || undefined;
   const feedChannelIdRaw = env.MUDDOWN_DISCORD_FEED_CHANNEL_ID?.trim();
   const feedChannelId = feedChannelIdRaw || undefined;
-  if (feedChannelId !== undefined && !DISCORD_SNOWFLAKE.test(feedChannelId)) {
-    throw new DiscordBridgeConfigError(
-      `MUDDOWN_DISCORD_FEED_CHANNEL_ID must be a Discord snowflake (17–20 digits, no leading zero); got ${JSON.stringify(feedChannelIdRaw)}`,
-    );
-  }
+  // Required-field guards run before optional-field validation so an operator
+  // who has misconfigured both a missing required var and a malformed optional
+  // one sees the more important error first.
   if (!botToken) {
     throw new DiscordBridgeConfigError("MUDDOWN_DISCORD_BOT_TOKEN is required");
   }
   if (!serverUrl) {
     throw new DiscordBridgeConfigError("MUDDOWN_SERVER_URL is required");
+  }
+  if (feedChannelId !== undefined && !DISCORD_SNOWFLAKE.test(feedChannelId)) {
+    throw new DiscordBridgeConfigError(
+      `MUDDOWN_DISCORD_FEED_CHANNEL_ID must be a Discord snowflake (17–20 digits, no leading zero); got ${JSON.stringify(feedChannelIdRaw)}`,
+    );
   }
   let parsed: URL;
   try {

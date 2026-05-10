@@ -126,6 +126,14 @@ The guard blinks and reaches for his sword.
 :::
 ```
 
+A world-scope broadcast (visible to every connected session and any subscribed external feed):
+
+```markdown
+:::system{type="notification" scope="world"}
+**Server**: rebooting in 5 minutes.
+:::
+```
+
 **Optional attributes**: `type`, `scope`
 
 The `scope` attribute identifies the audience of the message and lets transports route it independently of its envelope `type`:
