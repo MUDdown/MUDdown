@@ -480,11 +480,6 @@ function handleLogin(url: URL, req: IncomingMessage, res: ServerResponse, config
   }
   const loginOriginIp = loginNonce ? (getClientIp(req) ?? undefined) : undefined;
   pendingOAuth.set(state, { provider, createdAt: Date.now(), mobileRedirect, loginNonce, loginOriginIp });
-  console.log(
-    `[handleLogin] provider=${provider} state=${state.slice(0, 8)}… ` +
-    `login_nonce=${loginNonce ? loginNonce.slice(0, 8) + "…" : "<none>"} ` +
-    `mobileRedirect=${mobileRedirect ? "yes" : "<none>"}`,
-  );
 
   const authorizeUrl = buildAuthorizeUrl(provider, providerCfg, state);
   res.writeHead(302, { Location: authorizeUrl });
@@ -612,13 +607,6 @@ async function handleCallback(
       completedLogins.set(pending.loginNonce, { token: sessionToken, createdAt: Date.now(), originIp: pending.loginOriginIp });
       console.log(`[handleCallback] Stored completed login for nonce ${pending.loginNonce.slice(0, 8)}… at=${new Date().toISOString()}`);
     }
-
-    console.log(
-      `[handleCallback] state=${state.slice(0, 8)}… ` +
-      `login_nonce=${pending.loginNonce ? pending.loginNonce.slice(0, 8) + "…" : "<none>"} ` +
-      `mobileRedirect=${pending.mobileRedirect ? "yes" : "<none>"} ` +
-      `branch=${pending.loginNonce && !pending.mobileRedirect ? "close-tab" : pending.mobileRedirect ? "app-deep-link" : "cookie+/play"}`,
-    );
 
     // Token-poll clients (terminal, desktop) — don't redirect to /play.
     // The token is already stored in completedLogins; show a "close this tab" page.

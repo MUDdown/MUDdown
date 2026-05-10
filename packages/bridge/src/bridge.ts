@@ -1081,11 +1081,6 @@ export class TelnetSession {
     // than leave the server's completedLogins entry to age out.
     this.currentLoginHttpBase = httpBase;
     this.currentLoginNonce = nonce;
-    console.log(
-      `[bridge] [${this.id}] handleLogin: mode=${mode} httpBase=${httpBase} ` +
-      `publicBase=${publicBase} nonce=${nonce.slice(0, 8)}… ` +
-      `providers=[${providers.join(", ")}] hyperlinks=${hyperlinkEnabled}`,
-    );
 
     let provider: string;
     // Track whether OAuth completed via a clicked picker hyperlink so we
