@@ -8,6 +8,81 @@ export const dirAliases: Record<string, string> = {
   ne: "northeast", nw: "northwest", se: "southeast", sw: "southwest",
 };
 
+// ─── Session Displacement ────────────────────────────────────────────────────
+
+/**
+ * Find existing sessions that should be displaced because a new connection
+ * is logging in with the same `characterId`. Returns the matching entries
+ * (excluding `newWs` itself) so the caller can save state, notify the old
+ * client, and close the WebSocket. Guests (`characterId === null`) never
+ * displace anyone — multiple anonymous players are allowed.
+ */
+export function findDisplacedSessions<W, S extends { characterId: string | null }>(
+  sessions: Map<W, S>,
+  newWs: W,
+  newCharacterId: string | null,
+): Array<{ ws: W; session: S }> {
+  if (!newCharacterId) return [];
+  const out: Array<{ ws: W; session: S }> = [];
+  for (const [existingWs, existing] of sessions) {
+    if (existing.characterId === newCharacterId && existingWs !== newWs) {
+      out.push({ ws: existingWs, session: existing });
+    }
+  }
+  return out;
+}
+
+/**
+ * Run the displacement effect for one stale session: save state, remove
+ * from the registry, send the player-facing notice, then close the
+ * WebSocket with `WS_CLOSE_DISPLACED`. Side effects are injected so the
+ * caller can swap in real DB / WebSocket implementations and tests can
+ * assert ordering with no transport.
+ *
+ * Ordering invariant: `delete` happens *before* `close` so the old
+ * connection's `ws.on("close")` handler (which fires when `close()` is
+ * processed) sees an empty lookup and skips its own redundant save.
+ */
+export function displaceSession<W, S extends { characterId: string | null }>(
+  match: { ws: W; session: S },
+  effects: {
+    save: (s: S) => boolean;
+    deleteFromRegistry: (ws: W) => void;
+    notify: (ws: W) => void;
+    close: (ws: W) => void;
+    onSaveFailed?: (s: S) => void;
+  },
+): void {
+  const { ws, session } = match;
+  // All four effects are best-effort: a misbehaving DB, socket, or
+  // registry entry must not stall eviction, since the new connection has
+  // already claimed the character.
+  let saveOk = false;
+  try {
+    saveOk = effects.save(session);
+  } catch (err) {
+    console.warn("Error saving displaced session state:", err);
+  }
+  if (!saveOk) {
+    effects.onSaveFailed?.(session);
+  }
+  try {
+    effects.deleteFromRegistry(ws);
+  } catch (err) {
+    console.warn("Error removing displaced session from registry:", err);
+  }
+  try {
+    effects.notify(ws);
+  } catch (err) {
+    console.warn("Error notifying displaced WebSocket:", err);
+  }
+  try {
+    effects.close(ws);
+  } catch (err) {
+    console.warn("Error closing displaced WebSocket:", err);
+  }
+}
+
 // ─── Item Lookup ─────────────────────────────────────────────────────────────
 
 export function findItemByName(

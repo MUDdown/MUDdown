@@ -442,6 +442,33 @@ import Base from "../layouts/Base.astro";
         },
         onInventory: (state) => renderInventoryState(state),
         onReconnecting: async () => (isGuest ? undefined : refreshTicket()),
+        onDisplaced: () => {
+          appendMessage(
+            "**Your character was claimed by another client.** This session is closed. " +
+            "Reload to reclaim your character.",
+            "system",
+          );
+          // Render an explicit Reload action so users don't have to know the
+          // browser shortcut. Built via DOM (not innerHTML) to keep the
+          // listener bound and avoid script-injection surface.
+          const actions = document.createElement("div");
+          actions.className = "system";
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.textContent = "Reload to reclaim";
+          btn.addEventListener("click", () => window.location.reload());
+          actions.appendChild(btn);
+          output.appendChild(actions);
+          requestAnimationFrame(() => { output.scrollTop = output.scrollHeight; });
+          // Lock the input so the user cannot type into a dead session.
+          input.disabled = true;
+          input.placeholder = "Session closed — reload to reclaim";
+          // Belt-and-braces: dispose the connection so no further reconnect
+          // or close handlers can fire even if state somehow changes later.
+          // (The client already suppresses auto-reconnect on 4002 and clears
+          // the socket; dispose() also flips `disposed = true`.)
+          conn.dispose();
+        },
         onClose: (willReconnect) => {
           if (willReconnect) {
             appendMessage("*Disconnected. Reconnecting in 3s...*", "system");

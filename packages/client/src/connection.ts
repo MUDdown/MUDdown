@@ -6,7 +6,7 @@
  * consume server messages without knowing about the wire protocol.
  */
 
-import { WS_CLOSE_QUIT } from "@muddown/shared";
+import { WS_CLOSE_QUIT, WS_CLOSE_DISPLACED } from "@muddown/shared";
 import type { ServerMessage } from "@muddown/shared";
 import type { InvState } from "./inventory.js";
 import { isInvState } from "./inventory.js";
@@ -27,6 +27,18 @@ export interface ConnectionEvents {
   onClose?: (willReconnect: boolean) => void;
   /** Fired on WebSocket error. */
   onError?: (event: Event) => void;
+  /**
+   * Fired when the server closes this connection because another client
+   * logged in with the same character (close code
+   * {@link WS_CLOSE_DISPLACED}). Auto-reconnect is suppressed and this
+   * fires *instead of* {@link onClose}, so a consumer that wires both
+   * sees only one notification on displacement. The connection is
+   * disconnected (the underlying socket is closed and cleared) but the
+   * instance is not disposed; a consumer can still call
+   * {@link MUDdownConnection.connect} with a fresh ticket to reclaim the
+   * character.
+   */
+  onDisplaced?: () => void;
   /**
    * Fired when a token-refresh or reconnect attempt fails (distinct from a
    * WebSocket-level error).  Receives the thrown error directly.  Falls back
@@ -114,7 +126,24 @@ export class MUDdownConnection {
     };
 
     this.ws.onclose = (event: CloseEvent) => {
-      const willReconnect = this.opts.autoReconnect && !this.disposed && event.code !== WS_CLOSE_QUIT;
+      const isQuit = event.code === WS_CLOSE_QUIT;
+      const isDisplaced = event.code === WS_CLOSE_DISPLACED;
+      if (isDisplaced) {
+        // Another client claimed this character. Tear down the socket
+        // first so any later dispose() call is a no-op, suppress
+        // auto-reconnect (the server would just kick us again, or kick
+        // the new — intentional — connection in a ping-pong loop), and
+        // fire onDisplaced *instead of* onClose so consumers that wire
+        // both don't double-notify the player.
+        this.cleanup();
+        try {
+          this.events.onDisplaced?.();
+        } catch (err) {
+          console.error("[muddown] MUDdownConnection: onDisplaced handler threw", err);
+        }
+        return;
+      }
+      const willReconnect = this.opts.autoReconnect && !this.disposed && !isQuit;
       this.events.onClose?.(willReconnect);
       if (willReconnect) {
         this.reconnectTimer = setTimeout(() => void this.reconnect(), this.opts.reconnectDelay);

@@ -3,6 +3,14 @@
 /** Close code sent by the server when a player explicitly quits. */
 export const WS_CLOSE_QUIT = 4001;
 
+/**
+ * Close code sent by the server when an existing connection is being
+ * displaced by a new login for the same character (e.g. the player opens
+ * a second client with the same character). Clients receiving this code
+ * MUST NOT auto-reconnect — the new connection is the active one.
+ */
+export const WS_CLOSE_DISPLACED = 4002;
+
 // ─── Container Block Types ───────────────────────────────────────────────────
 
 export type BlockType =
