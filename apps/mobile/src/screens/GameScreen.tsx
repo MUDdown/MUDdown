@@ -12,6 +12,7 @@ import {
   MUDdownConnection,
   CommandHistory,
   resolveGameLink,
+  makeTicketRefresh,
 } from "@muddown/client";
 import type { ConnectionEvents } from "@muddown/client";
 import type { ServerMessage } from "@muddown/shared";
@@ -20,12 +21,15 @@ import type { GameScreenProps } from "../types.js";
 import { colors } from "../theme.js";
 import { MuddownView } from "../components/MuddownView.js";
 import { CommandInput } from "../components/CommandInput.js";
+import { SERVER_URL } from "../constants.js";
+import { authFetch } from "../auth.js";
 
 type GameMessage = Pick<ServerMessage, "id" | "type" | "muddown">;
 
 export function GameScreen({ route }: GameScreenProps) {
   const { wsUrl } = route.params;
   const ticket = route.params.mode === "authenticated" ? route.params.ticket : undefined;
+  const isAuthenticated = route.params.mode === "authenticated";
 
   const [messages, setMessages] = useState<GameMessage[]>([]);
   const [connected, setConnected] = useState(false);
@@ -50,6 +54,12 @@ export function GameScreen({ route }: GameScreenProps) {
         setConnected(false);
         setStatusMessage(willReconnect ? "Reconnecting…" : "Disconnected");
       },
+      // Refetch a fresh ws-ticket on reconnect so a server reboot resumes
+      // the player's authenticated session instead of dropping to guest.
+      // Guest sessions short-circuit and reconnect without a ticket.
+      onReconnecting: isAuthenticated
+        ? makeTicketRefresh({ apiBase: SERVER_URL, fetchImpl: authFetch })
+        : undefined,
       onError() {
         console.error("[GameScreen] WebSocket error");
         setMessages((prev) => [
@@ -71,7 +81,7 @@ export function GameScreen({ route }: GameScreenProps) {
     connRef.current = conn;
 
     return () => conn.dispose();
-  }, [wsUrl, ticket]);
+  }, [wsUrl, ticket, isAuthenticated]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {

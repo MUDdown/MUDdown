@@ -7,6 +7,8 @@ export { isInvState } from "./inventory.js";
 export type { InvItem, InvState } from "./inventory.js";
 export { MUDdownConnection, buildWsUrl } from "./connection.js";
 export type { ConnectionEvents, ConnectionOptions } from "./connection.js";
+export { makeTicketRefresh } from "./ticket.js";
+export type { TicketRefreshOptions, FetchLike } from "./ticket.js";
 export { renderTerminal, wordWrap, darkTheme, plainTheme } from "./terminal-renderer.js";
 export type {
   TerminalTheme,

@@ -124,7 +124,7 @@ import Base from "../layouts/Base.astro";
   </section>
 
   <script>
-    import { escapeHtml, renderMuddown, CommandHistory, resolveGameLink, MUDdownConnection, buildWsUrl } from "@muddown/client";
+    import { escapeHtml, renderMuddown, CommandHistory, resolveGameLink, MUDdownConnection, buildWsUrl, makeTicketRefresh } from "@muddown/client";
     import type { InvState } from "@muddown/client";
 
     const API_BASE = import.meta.env.PUBLIC_API_BASE || (location.port ? `${location.protocol}//${location.hostname}:3300` : location.origin);
@@ -425,6 +425,12 @@ import Base from "../layouts/Base.astro";
 
     // ── WebSocket connection (via @muddown/client) ─────────────────────
 
+    // Cookie-auth flow: refetch a ws-ticket on every reconnect so a server
+    // reboot resumes the player's authenticated session instead of dropping
+    // them to a guest. For guest sessions there's no cookie and the fetch
+    // returns 401 → undefined, which is the correct fallback.
+    const refreshTicket = makeTicketRefresh({ apiBase: API_BASE, withCredentials: true });
+
     const conn = new MUDdownConnection(
       { wsUrl: buildWsUrl(API_BASE) },
       {
@@ -435,6 +441,7 @@ import Base from "../layouts/Base.astro";
           if (currentHintMode === "off") applyHintMode("persistent");
         },
         onInventory: (state) => renderInventoryState(state),
+        onReconnecting: async () => (isGuest ? undefined : refreshTicket()),
         onClose: (willReconnect) => {
           if (willReconnect) {
             appendMessage("*Disconnected. Reconnecting in 3s...*", "system");

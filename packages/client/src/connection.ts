@@ -50,12 +50,19 @@ export interface ConnectionOptions {
   reconnectDelay?: number;
   /** Set to false to disable automatic reconnection (default true). */
   autoReconnect?: boolean;
+  /**
+   * Opt out of the constructor warning that fires when `autoReconnect=true`
+   * and no `onReconnecting` handler is supplied. Set this for clients that
+   * intentionally reconnect unauthenticated (e.g. test harnesses, the public
+   * guest landing page). Has no effect on reconnect behaviour.
+   */
+  reconnectAsGuest?: boolean;
 }
 
 export class MUDdownConnection {
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-  private opts: Required<ConnectionOptions>;
+  private opts: Required<Omit<ConnectionOptions, "reconnectAsGuest">>;
   private events: ConnectionEvents;
   private disposed = false;
 
@@ -66,6 +73,26 @@ export class MUDdownConnection {
       autoReconnect: options.autoReconnect ?? true,
     };
     this.events = events;
+
+    // Catch silent guest-fallback bugs. If a consumer enables auto-reconnect
+    // (the default) but doesn't supply onReconnecting, the second and later
+    // connection attempts will be unauthenticated — which on a server reboot
+    // looks exactly like "the player got dropped to a guest session". The
+    // warning fires once per instance and only when the consumer is at risk
+    // of hitting that path. Consumers that *intend* to reconnect as guest
+    // can pass `reconnectAsGuest: true` to silence this.
+    if (
+      this.opts.autoReconnect &&
+      !this.events.onReconnecting &&
+      !options.reconnectAsGuest
+    ) {
+      console.warn(
+        "[muddown] MUDdownConnection: autoReconnect=true but no onReconnecting handler — " +
+        "reconnect attempts will be unauthenticated and players will drop to a guest session " +
+        "on server reboot. Wire onReconnecting (e.g. via makeTicketRefresh), or pass " +
+        "reconnectAsGuest: true if this is intentional.",
+      );
+    }
   }
 
   /** Open the WebSocket connection, optionally with a single-use auth ticket. */
@@ -107,14 +134,34 @@ export class MUDdownConnection {
     try {
       ticket = await this.events.onReconnecting?.();
     } catch (e) {
-      console.warn("MUDdownConnection: token refresh failed — reconnecting as guest", e);
+      // A token-refresh failure means the player is about to silently drop
+      // to a guest session — that's a session downgrade, not a debug-level
+      // event, so log at error.
+      console.error(
+        "[muddown] MUDdownConnection: token refresh failed \u2014 reconnecting as guest",
+        e,
+      );
       try {
         if (this.events.onReconnectError) {
           this.events.onReconnectError(e);
-        } else {
-          this.events.onError?.(new Event("token-refresh-failed"));
+        } else if (this.events.onError) {
+          // Pass the original error through as the Event-shaped argument so
+          // consumers that only wired onError can still see the cause. We
+          // build the Event-like object as a plain object rather than via
+          // `new Event(...)` because: (a) some runtimes (notably React
+          // Native / Hermes) may not expose the `Event` constructor, and
+          // (b) some Event polyfills produce non-extensible instances that
+          // would throw on `evt.error = e`. The shape is duck-typed:
+          // { type, error }.
+          const evt = { type: "token-refresh-failed", error: e } as unknown as Event;
+          this.events.onError(evt);
         }
-      } catch { /* don't let a callback exception block reconnect */ }
+      } catch (callbackErr) {
+        console.error(
+          "[muddown] MUDdownConnection: onReconnectError/onError handler threw",
+          callbackErr,
+        );
+      }
       // ticket remains undefined; reconnect proceeds without auth
     }
     if (this.disposed) return;
