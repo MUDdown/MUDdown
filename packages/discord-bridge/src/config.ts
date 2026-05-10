@@ -23,17 +23,16 @@ export type WebSocketUrl = `ws://${string}` | `wss://${string}`;
  */
 export interface DiscordBridgeTunables {
   /** Inactivity threshold before a session is evicted by the idle sweep. */
-  idleTimeoutMs: number;
-  /** How often the idle sweep runs. */
-  idleCheckIntervalMs: number;
+  readonly idleTimeoutMs: number;
+  readonly idleCheckIntervalMs: number;
   /** Per-envelope retry attempts when DM delivery fails. */
-  deliveryRetries: number;
+  readonly deliveryRetries: number;
   /** Linear-backoff base between retries (`backoff = base × attempt`). */
-  deliveryBackoffMs: number;
+  readonly deliveryBackoffMs: number;
   /** Hard cap on per-attempt backoff. */
-  maxDeliveryBackoffMs: number;
+  readonly maxDeliveryBackoffMs: number;
   /** Consecutive envelope failures that terminate the session. */
-  maxConsecutiveDeliveryFailures: number;
+  readonly maxConsecutiveDeliveryFailures: number;
 }
 
 export interface DiscordBridgeConfig {
@@ -55,9 +54,11 @@ export class DiscordBridgeConfigError extends Error {
 }
 
 /**
- * Parse a positive-integer env var. Returns the default when the var is unset
- * or empty; throws `DiscordBridgeConfigError` on any other invalid value
- * (non-numeric, negative, zero, non-integer, non-finite).
+ * Parse a positive-integer env var. The raw value is trimmed first; an unset
+ * variable, an empty string, or a whitespace-only string returns the default.
+ * Any other value must parse as a positive finite integer; otherwise this
+ * throws `DiscordBridgeConfigError` (rejects non-numeric, zero, negative,
+ * non-integer, and non-finite inputs).
  */
 export function parsePositiveIntEnv(
   name: string,
@@ -127,6 +128,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeC
       MAX_CONSECUTIVE_DELIVERY_FAILURES,
     ),
   };
+
+  // Cross-field invariants. Both represent operator misconfigurations that
+  // would silently degrade behavior (the idle sweep would run on every tick;
+  // the backoff cap would clamp the very first retry below its base) rather
+  // than fail at startup, so we surface them here.
+  if (tunables.idleCheckIntervalMs >= tunables.idleTimeoutMs) {
+    throw new DiscordBridgeConfigError(
+      `MUDDOWN_DISCORD_IDLE_CHECK_INTERVAL_MS (${tunables.idleCheckIntervalMs}) must be less than MUDDOWN_DISCORD_IDLE_TIMEOUT_MS (${tunables.idleTimeoutMs})`,
+    );
+  }
+  if (tunables.deliveryBackoffMs > tunables.maxDeliveryBackoffMs) {
+    throw new DiscordBridgeConfigError(
+      `MUDDOWN_DISCORD_DELIVERY_BACKOFF_MS (${tunables.deliveryBackoffMs}) must not exceed MUDDOWN_DISCORD_MAX_DELIVERY_BACKOFF_MS (${tunables.maxDeliveryBackoffMs})`,
+    );
+  }
 
   return {
     botToken,

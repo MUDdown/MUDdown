@@ -32,6 +32,18 @@ describe("gameplayDeliveryBackoffMs", () => {
   it("caps very large attempts at the max backoff", () => {
     expect(gameplayDeliveryBackoffMs(10_000)).toBe(MAX_GAMEPLAY_DELIVERY_BACKOFF_MS);
   });
+
+  it("honours operator-overridden backoff base and cap", () => {
+    expect(gameplayDeliveryBackoffMs(1, 100, 500)).toBe(100);
+    expect(gameplayDeliveryBackoffMs(3, 100, 500)).toBe(300);
+    expect(gameplayDeliveryBackoffMs(6, 100, 500)).toBe(500); // capped at custom max
+  });
+
+  it("clamps the first attempt when the cap is below the base", () => {
+    // Operator-misconfig case (also rejected at startup by loadConfig's
+    // cross-field check, but the helper itself must remain monotonic).
+    expect(gameplayDeliveryBackoffMs(1, 100, 50)).toBe(50);
+  });
 });
 
 describe("nextDeliveryFailure", () => {
@@ -62,5 +74,10 @@ describe("nextDeliveryFailure", () => {
 
   it("continues terminating when failures already exceed threshold", () => {
     expect(nextDeliveryFailure(3)).toEqual({ failures: 4, shouldTerminate: true });
+  });
+
+  it("honours an operator-overridden maxConsecutive threshold", () => {
+    expect(nextDeliveryFailure(1, 2)).toEqual({ failures: 2, shouldTerminate: true });
+    expect(nextDeliveryFailure(1, 3)).toEqual({ failures: 2, shouldTerminate: false });
   });
 });

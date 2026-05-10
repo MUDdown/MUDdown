@@ -211,7 +211,37 @@ describe("loadConfig tunables", () => {
     expect(config.tunables.deliveryRetries).toBe(4);
   });
 
-  for (const invalid of ["0", "-1", "abc", "Infinity", "NaN", "1.5"]) {
+  it("accepts integer-valued floats like \"2.0\"", () => {
+    // Number.isInteger(2.0) === true; this case must remain accepted so a
+    // future swap to a regex-based parser would surface as a regression.
+    const config = loadConfig({
+      ...REQUIRED_ENV,
+      MUDDOWN_DISCORD_DELIVERY_RETRIES: "2.0",
+    });
+    expect(config.tunables.deliveryRetries).toBe(2);
+  });
+
+  const REJECTION_CASES: ReadonlyArray<readonly [string, string]> = [
+    ["MUDDOWN_DISCORD_IDLE_TIMEOUT_MS", "0"],
+    ["MUDDOWN_DISCORD_IDLE_CHECK_INTERVAL_MS", "0"],
+    ["MUDDOWN_DISCORD_DELIVERY_RETRIES", "-1"],
+    ["MUDDOWN_DISCORD_DELIVERY_BACKOFF_MS", "abc"],
+    ["MUDDOWN_DISCORD_MAX_DELIVERY_BACKOFF_MS", "NaN"],
+    ["MUDDOWN_DISCORD_MAX_CONSECUTIVE_DELIVERY_FAILURES", "1.5"],
+  ];
+
+  for (const [name, invalid] of REJECTION_CASES) {
+    it(`rejects ${JSON.stringify(invalid)} for ${name}`, () => {
+      expect(() =>
+        loadConfig({
+          ...REQUIRED_ENV,
+          [name]: invalid,
+        }),
+      ).toThrow(DiscordBridgeConfigError);
+    });
+  }
+
+  for (const invalid of ["-1", "abc", "Infinity", "NaN", "1.5"]) {
     it(`rejects ${JSON.stringify(invalid)} for MUDDOWN_DISCORD_IDLE_TIMEOUT_MS`, () => {
       expect(() =>
         loadConfig({
@@ -234,5 +264,52 @@ describe("loadConfig tunables", () => {
       expect((err as Error).message).toMatch(/MUDDOWN_DISCORD_DELIVERY_RETRIES/);
       expect((err as Error).message).toMatch(/positive integer/);
     }
+  });
+
+  it("rejects idleCheckIntervalMs >= idleTimeoutMs (would sweep on every tick)", () => {
+    expect(() =>
+      loadConfig({
+        ...REQUIRED_ENV,
+        MUDDOWN_DISCORD_IDLE_TIMEOUT_MS: "10000",
+        MUDDOWN_DISCORD_IDLE_CHECK_INTERVAL_MS: "10000",
+      }),
+    ).toThrow(/must be less than/);
+    expect(() =>
+      loadConfig({
+        ...REQUIRED_ENV,
+        MUDDOWN_DISCORD_IDLE_TIMEOUT_MS: "10000",
+        MUDDOWN_DISCORD_IDLE_CHECK_INTERVAL_MS: "20000",
+      }),
+    ).toThrow(/IDLE_CHECK_INTERVAL_MS/);
+  });
+
+  it("accepts idleCheckIntervalMs strictly less than idleTimeoutMs", () => {
+    expect(() =>
+      loadConfig({
+        ...REQUIRED_ENV,
+        MUDDOWN_DISCORD_IDLE_TIMEOUT_MS: "10000",
+        MUDDOWN_DISCORD_IDLE_CHECK_INTERVAL_MS: "9999",
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects deliveryBackoffMs > maxDeliveryBackoffMs (cap below first retry)", () => {
+    expect(() =>
+      loadConfig({
+        ...REQUIRED_ENV,
+        MUDDOWN_DISCORD_DELIVERY_BACKOFF_MS: "1000",
+        MUDDOWN_DISCORD_MAX_DELIVERY_BACKOFF_MS: "500",
+      }),
+    ).toThrow(/must not exceed/);
+  });
+
+  it("accepts deliveryBackoffMs equal to maxDeliveryBackoffMs", () => {
+    expect(() =>
+      loadConfig({
+        ...REQUIRED_ENV,
+        MUDDOWN_DISCORD_DELIVERY_BACKOFF_MS: "500",
+        MUDDOWN_DISCORD_MAX_DELIVERY_BACKOFF_MS: "500",
+      }),
+    ).not.toThrow();
   });
 });
