@@ -796,6 +796,10 @@ export function getClientIp(
  * - `capTotal` bounds the global feed-subscriber count.
  * - `capPerIp` bounds connections from any single client IP.
  *
+ * A cap value `<= 0` is treated as "no limit" so an accidental zero/negative
+ * config does not silently deny all feed traffic. Operators who want to
+ * disable the endpoint entirely should not bind the route in the first place.
+ *
  * Returns `{ ok: true }` to admit, otherwise `{ ok: false, reason }` so
  * callers can distinguish global vs. per-IP refusal in close codes / logs.
  */
@@ -810,9 +814,9 @@ export function canAcceptFeedConnection(
   capPerIp: number,
   capTotal: number,
 ): FeedAdmitResult {
-  if (totalCount >= capTotal) return { ok: false, reason: "global-cap" };
+  if (capTotal > 0 && totalCount >= capTotal) return { ok: false, reason: "global-cap" };
   const perIp = perIpCounts.get(ip) ?? 0;
-  if (perIp >= capPerIp) return { ok: false, reason: "per-ip-cap" };
+  if (capPerIp > 0 && perIp >= capPerIp) return { ok: false, reason: "per-ip-cap" };
   return { ok: true };
 }
 

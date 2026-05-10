@@ -204,6 +204,14 @@ describe("stripInteractiveLinks", () => {
     ).toBe("See [docs](https://muddown.com/docs) for help.");
   });
 
+  it("strips interactive links but preserves external links on the same line", () => {
+    expect(
+      stripInteractiveLinks(
+        "Go [north](go:north) or read the [docs](https://muddown.com/docs).",
+      ),
+    ).toBe("Go north or read the [docs](https://muddown.com/docs).");
+  });
+
   it("leaves plain Markdown without links untouched", () => {
     const text = "**Bold** and *italic* with `code` and a list:\n- one\n- two";
     expect(stripInteractiveLinks(text)).toBe(text);
@@ -211,5 +219,17 @@ describe("stripInteractiveLinks", () => {
 
   it("is a no-op when no interactive links appear", () => {
     expect(stripInteractiveLinks("nothing to strip")).toBe("nothing to strip");
+  });
+
+  it("strips an interactive link with an empty target", () => {
+    // `[north](go:)` — the visible text is preserved even when the target is missing.
+    expect(stripInteractiveLinks("Head [north](go:) please.")).toBe("Head north please.");
+  });
+
+  it("matches schemes case-sensitively (uppercase scheme is left intact)", () => {
+    // The MUDdown spec defines lowercase scheme prefixes; uppercase variants
+    // are not interactive links and must not be rewritten.
+    expect(stripInteractiveLinks("[North](GO:north)")).toBe("[North](GO:north)");
+    expect(stripInteractiveLinks("[north](go:north)")).toBe("north");
   });
 });

@@ -79,4 +79,24 @@ describe("canAcceptFeedConnection", () => {
       reason: "per-ip-cap",
     });
   });
+
+  it("admits exactly at one-below the global cap and rejects at the global cap", () => {
+    expect(canAcceptFeedConnection("1.2.3.4", new Map(), 99, 4, 100)).toEqual({ ok: true });
+    expect(canAcceptFeedConnection("1.2.3.4", new Map(), 100, 4, 100)).toEqual({
+      ok: false,
+      reason: "global-cap",
+    });
+  });
+
+  it("treats non-positive caps as 'no limit' rather than deny-all", () => {
+    const counts = new Map([["1.2.3.4", 9999]]);
+    // capTotal <= 0 → global cap disabled
+    expect(canAcceptFeedConnection("fresh", new Map(), 1_000_000, 4, 0)).toEqual({ ok: true });
+    expect(canAcceptFeedConnection("fresh", new Map(), 1_000_000, 4, -1)).toEqual({ ok: true });
+    // capPerIp <= 0 → per-IP cap disabled
+    expect(canAcceptFeedConnection("1.2.3.4", counts, 50, 0, 100)).toEqual({ ok: true });
+    expect(canAcceptFeedConnection("1.2.3.4", counts, 50, -1, 100)).toEqual({ ok: true });
+    // Both disabled → admits regardless of counts
+    expect(canAcceptFeedConnection("1.2.3.4", counts, 1_000_000, 0, 0)).toEqual({ ok: true });
+  });
 });

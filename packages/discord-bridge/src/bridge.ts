@@ -162,7 +162,12 @@ class BridgeLifecycle {
     this.deliveryFailureStreak.clear();
     this.reconnectNotifier.clear();
     if (this.feedSubscriber) {
-      this.feedSubscriber.stop();
+      try {
+        this.feedSubscriber.stop();
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn("[muddown-discord-bridge] feed subscriber stop() failed during shutdown:", error);
+      }
       this.feedSubscriber = undefined;
     }
     const clearedSessions = this.sessions.clear();
@@ -185,7 +190,12 @@ class BridgeLifecycle {
     this.deliveryFailureStreak.clear();
     this.reconnectNotifier.clear();
     if (this.feedSubscriber) {
-      this.feedSubscriber.stop();
+      try {
+        this.feedSubscriber.stop();
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn("[muddown-discord-bridge] feed subscriber stop() failed during reset:", error);
+      }
       this.feedSubscriber = undefined;
     }
     this.client = undefined;
@@ -289,11 +299,21 @@ class BridgeLifecycle {
       return;
     }
     const sendable: FeedChannel = channel;
-    this.feedSubscriber = new FeedSubscriber({
-      serverUrl: config.serverUrl,
-      channel: sendable,
-    });
-    this.feedSubscriber.start();
+    try {
+      this.feedSubscriber = new FeedSubscriber({
+        serverUrl: config.serverUrl,
+        channel: sendable,
+      });
+      this.feedSubscriber.start();
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[muddown-discord-bridge] feed subscriber failed to start (channel=${config.feedChannelId}) — feed channel is DISABLED until bot restart:`,
+        error,
+      );
+      this.feedSubscriber = undefined;
+      return;
+    }
     // eslint-disable-next-line no-console
     console.log(`[muddown-discord-bridge] feed subscriber started (channel=${config.feedChannelId})`);
   }

@@ -47,8 +47,22 @@ const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_CAP_MS = 30_000;
 
 /**
- * Build the `/feed` URL from a gameplay server URL by overwriting the path.
- * Exported for tests.
+ * Build the `/feed` URL from a gameplay server URL.
+ *
+ * Three things happen, in order:
+ *
+ * 1. The pathname is overwritten to `/feed` (the public read-only endpoint).
+ * 2. The query string (`url.search`) is cleared. Gameplay URLs may carry a
+ *    `?ticket=…` from the single-use auth flow (§6.3.1 of the spec); that
+ *    ticket is for the authenticated `/` endpoint and MUST NOT be sent to
+ *    `/feed`, which is unauthenticated.
+ * 3. The fragment (`url.hash`) is cleared. Fragments are never transmitted
+ *    over the wire by browsers, but Node's `ws` client does forward them on
+ *    upgrade — stripping it keeps the URL canonical and avoids surprising
+ *    server logs.
+ *
+ * Callers should therefore expect any query params or fragment on the input
+ * to be dropped. Exported for tests.
  */
 export function deriveFeedUrl(serverUrl: string): string {
   const url = new URL(serverUrl);

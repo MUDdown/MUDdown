@@ -86,7 +86,7 @@ console.log(`[rate-limit] burst=${RATE_LIMIT_BURST} refill=${RATE_LIMIT_REFILL}/
 // exhaustion. Set FEED_TRUST_PROXY=1 only when running behind a reverse proxy
 // that appends the real client IP to X-Forwarded-For; otherwise the header is
 // ignored and the socket peer is used.
-const FEED_CAP_PER_IP   = envInt("FEED_CAP_PER_IP", 4);
+const FEED_CAP_PER_IP   = envInt("FEED_CAP_PER_IP", 8);
 const FEED_CAP_TOTAL    = envInt("FEED_CAP_TOTAL", 100);
 const FEED_PING_MS      = envInt("FEED_PING_MS", 30_000);
 const FEED_TRUST_PROXY  = process.env.FEED_TRUST_PROXY === "1";
@@ -2209,18 +2209,22 @@ async function shutdown(): Promise<void> {
     }
   }
 
-  wss.close(() => {
-    console.log("WebSocket server closed.");
-    feedWss.close(() => {
-      console.log("Feed WebSocket server closed.");
-      server.close(() => {
-        console.log("HTTP server closed.");
-        db.close();
-        clearTimeout(forceExitTimer);
-        process.exit(0);
-      });
+  const closeAsync = (
+    fn: (cb: (err?: Error | null) => void) => unknown,
+  ): Promise<void> =>
+    new Promise((resolve, reject) => {
+      fn((err) => (err ? reject(err) : resolve()));
     });
-  });
+
+  await closeAsync((cb) => wss.close(cb));
+  console.log("WebSocket server closed.");
+  await closeAsync((cb) => feedWss.close(cb));
+  console.log("Feed WebSocket server closed.");
+  await closeAsync((cb) => server.close(cb));
+  console.log("HTTP server closed.");
+  db.close();
+  clearTimeout(forceExitTimer);
+  process.exit(0);
 }
 
 process.on("SIGTERM", shutdown);
