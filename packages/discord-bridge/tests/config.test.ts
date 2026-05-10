@@ -153,6 +153,23 @@ describe("loadConfig", () => {
     expect(config.feedChannelId).toBe("987654321098765432");
   });
 
+  // Pin both ends of /^[1-9]\d{16,19}$/ so a future tightening (e.g. fixing
+  // length to exactly 18) would surface as a regression rather than silently
+  // rejecting historical or far-future Discord IDs.
+  for (const good of [
+    "12345678901234567",    // 17 digits (minimum)
+    "12345678901234567890", // 20 digits (maximum)
+  ]) {
+    it(`accepts feedChannelId ${JSON.stringify(good)} at the snowflake length boundary`, () => {
+      const config = loadConfig({
+        MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+        MUDDOWN_SERVER_URL: "ws://localhost:3300",
+        MUDDOWN_DISCORD_FEED_CHANNEL_ID: good,
+      });
+      expect(config.feedChannelId).toBe(good);
+    });
+  }
+
   it("trims surrounding whitespace from feedChannelId", () => {
     const config = loadConfig({
       MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",

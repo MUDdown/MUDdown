@@ -22,9 +22,12 @@ import type { ServerMessage } from "@muddown/shared";
 
 /**
  * Match the opening `:::system{...}` fence at the start of a line and
- * capture the attribute body. Anchored with `^` (multiline) so only an
- * actual outer system block controls routing; a `:::system{...}` substring
- * embedded mid-line in narrative text or quoted documentation cannot match.
+ * capture the attribute body. The `m` flag makes `^` match any line start,
+ * so this regex on its own can still match a fence on a non-first line —
+ * the caller MUST verify `match.index === 0` to reject inner fences (see
+ * the guard in {@link isWorldScopeEnvelope} immediately below `exec()`).
+ * The `^` anchor only rules out `:::system{...}` substrings that appear
+ * mid-line in narrative text.
  */
 const SYSTEM_OPEN_FENCE = /^:::system\{([^}]*)\}/m;
 

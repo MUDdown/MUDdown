@@ -124,6 +124,20 @@ describe("isWorldScopeEnvelope", () => {
     ).toBe(true);
   });
 
+  it("tolerates 3+ leading blank lines before the system fence", () => {
+    // The `/^\s*\n/` strip is greedy and consumes runs of blank lines in one
+    // pass. Pin that behavior so a future "simplification" to `/^\n/` (which
+    // would only strip one blank line) breaks loudly instead of silently
+    // routing legitimate world broadcasts to the floor.
+    expect(
+      isWorldScopeEnvelope(
+        envelope({
+          muddown: '\n\n\n:::system{scope="world"}\nrebooting\n:::',
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it("fails closed when attribute parsing throws", () => {
     // parseAttributes treats certain odd inputs as throws; even if it didn't,
     // the contract here is fail-closed: never broadcast on a parse error.

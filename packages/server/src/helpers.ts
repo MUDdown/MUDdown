@@ -731,9 +731,10 @@ export function buildLoreBlock(answer: string, sources: string[]): string {
  * channel. Use only for content safe to share publicly: server lifecycle,
  * scheduled downtime, public events.
  *
- * `systemType` defaults to `notification` and is restricted here to a small
- * allowlist so a typo (or future enum drift) can't write something the spec
- * doesn't recognize.
+ * `systemType` defaults to `notification` and is narrowed at compile time to
+ * a small allowlist so a typo (or future enum drift) can't write something
+ * the spec doesn't recognize. No runtime validation is performed; a JS caller
+ * could pass any string, so prefer this helper from TypeScript callers only.
  */
 export function buildWorldBroadcastBlock(
   text: string,
