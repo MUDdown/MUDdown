@@ -1,3 +1,6 @@
+#[cfg(desktop)]
+mod discord_presence;
+
 use tauri::{
     image::Image,
     menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder},
@@ -45,7 +48,7 @@ pub fn run() {
         }));
     }
 
-    builder
+    builder = builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -55,8 +58,33 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_updater::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![set_window_title, send_notification, set_tray_tooltip])
+        .plugin(tauri_plugin_updater::Builder::default().build());
+
+    // Discord Rich Presence speaks the local Discord IPC protocol, which only
+    // exists on desktop OSes. Skip the state + commands on mobile builds.
+    #[cfg(desktop)]
+    {
+        builder = builder
+            .manage(discord_presence::initial_state())
+            .invoke_handler(tauri::generate_handler![
+                set_window_title,
+                send_notification,
+                set_tray_tooltip,
+                discord_presence::discord_presence_set_enabled,
+                discord_presence::discord_presence_update,
+                discord_presence::discord_presence_clear,
+            ]);
+    }
+    #[cfg(not(desktop))]
+    {
+        builder = builder.invoke_handler(tauri::generate_handler![
+            set_window_title,
+            send_notification,
+            set_tray_tooltip,
+        ]);
+    }
+
+    builder
         .setup(|app| {
             let handle = app.handle();
 

@@ -310,5 +310,7 @@ The project wiki lives in a separate Git repository (`MUDdown/MUDdown.wiki`), ty
 - Don't use `as` type assertions when a type guard or discriminated union works
 - Don't add optional fields where a discriminated union is clearer
 - Don't break bidirectional exit symmetry in room files
+- Don't enable Discord Rich Presence by default — it must remain opt-in via the desktop Settings panel (`discord_rich_presence` preference, default `false`)
+- Don't auto-send Discord messages or activity updates without an explicit user action (toggling the setting on, sending a command, etc.) — mirrors Discord's platform policy and ours
 - Don't treat dual Discord activity signals as a bug: when `discord_rich_presence` is enabled and a user is also playing via the Discord-bridge DM flow, either recommend disabling Rich Presence for single-signal behavior or explicitly document/accept both signals
 - Don't ship changes to Discord bridge DM-session behavior or `discord_rich_presence` without updating `MUDdown.wiki/Discord-Bridge.md` and `MUDdown.wiki/Desktop-App.md`, then checking doc impact with the `wiki-sync` subagent

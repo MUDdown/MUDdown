@@ -493,38 +493,40 @@ Surface design (uses every Rich Presence field productively, since they only dis
 | `start` timestamp | Session start time | Renders as `00:14:32 elapsed` — gives the playing-time field for free |
 | `large_image` | MUDdown logo asset (uploaded to the Discord developer portal) | Profile expanded view |
 | `large_text` | `MUDdown — open Markdown MUD platform` | Tooltip on logo hover |
-| `small_image` | Lighting/region icon (`bright`, `dim`, `dark`, `magical`) keyed off the room's `lighting` frontmatter | Profile expanded view, badge on logo |
-| `small_text` | `<region> · <lighting>` (e.g. "Greenhaven · bright") | Tooltip on small icon |
+| `small_image` | **Deferred to v1.1.** v1 ships with `large_image` only and does not populate the `small_image` slot. The follow-up adds a lighting/region icon keyed off the room's `lighting` frontmatter (`bright`, `dim`, `dark`, `magical`) | Profile expanded view, badge on logo |
+| `small_text` | **Deferred to v1.1.** v1 does not populate `small_text`. The lighting label (e.g. "Bright", "Dim", "Dark", "Magical") lands together with `small_image` in v1.1 | Tooltip on small icon |
 | `buttons` (max 2) | `[Play in browser → muddown.com/play]`, `[Get MUDdown → muddown.com]` | Profile expanded view, click-through |
 | `party.size` | `[1, 1]` for solo, `[N, room.capacity]` if/when parties land | Profile expanded view |
 
 Things to **deliberately not** include: character name (privacy — character names can be RP-sensitive and a player may not want their Discord friends to know their alt's name), inventory, combat status, raw coordinates.
 
 Investigation tasks (worth confirming before locking the design):
-- [ ] Confirm Discord's current RPC update rate limit (documented as "max 1 update per 15 seconds" historically; verify in 2026 docs and treat as a debounce floor)
-- [ ] Confirm `buttons` URLs don't require domain verification in the developer portal (some apps have hit a verification gate)
-- [ ] Test behaviour when the user has multiple Discord accounts logged into the desktop client (RPC connects to whichever instance opens its socket first — document the implication)
-- [ ] Decide whether `small_image` lighting icons require uploading 4+ assets to the dev portal or whether one neutral asset is sufficient for v1
+- [x] Confirm Discord's current RPC update rate limit — 2026 docs publish no numerical ceiling for `SET_ACTIVITY` over RPC. Retain the historical "1 update per 15 seconds" guidance as a self-imposed debounce floor; updates faster than that are wasted RPC traffic since friend-list propagation is gated by Discord's own gateway broadcast cadence.
+- [x] Confirm `buttons` URLs don't require domain verification in the developer portal — the 2026 "Setting Buttons" section documents `label` + `url` only, with no verification gate. The Social SDK examples use arbitrary external URLs (Steam store, `discord.gg`). Caveat: buttons render only for *other* viewers, never for the presence owner — testing requires a second account or a friend.
+- [x] Test behaviour when the user has multiple Discord accounts logged into the desktop client — the IPC path is `discord-ipc-{n}` for `n ∈ 0..9`. Multiple Discord clients claim consecutive slots in launch order. Standard implementation iterates `n = 0..9` and connects to the first slot that accepts the handshake, so presence appears on whichever client opened slot 0 (typically the user's primary). Document this in the settings UI copy; not a bug.
+- [x] Decide whether `small_image` lighting icons require uploading 4+ assets to the dev portal or whether one neutral asset is sufficient for v1 — **defer the small-image slot to v1.1** and ship v1 with `large_image` only. Once the toggle and core integration ship, lighting icons (uploaded to the dev portal or hosted on `muddown.com/assets/rich-presence/`) become a polish follow-up.
+
+> Auth model decision (locked): Discord's "Rich Presence Without Authentication" flow — `SetApplicationId` + `SET_ACTIVITY` over the local IPC socket. No `Connect`/`AUTHORIZE`/OAuth round-trip, no MUDdown server involvement. Requires only a running Discord desktop client and a registered Application ID. Mobile, console, and web Discord clients are unsupported by the RPC transport (also documented).
 
 Implementation tasks:
-- [ ] Add `discord_rich_presence` setting to the desktop preferences store, default `false`
-- [ ] Settings UI: toggle in the existing preferences pane with copy explaining exactly what is shared (region, room title, session elapsed time, lighting icon) and that it goes only to the local Discord client, never to MUDdown's servers
-- [ ] Tauri-side IPC client (Rust crate, e.g. `discord-rich-presence`, or a hand-rolled minimal client — evaluate during scaffolding) gated behind the setting
-- [ ] Wire the renderer's "current room" signal to the presence updater; debounce to ≥15 s per Discord's RPC limit
-- [ ] Graceful no-op when Discord isn't running locally (don't error, don't retry-spam)
-- [ ] Toggle off → immediate `ClearActivity` so nothing lingers on the profile
-- [ ] Tests: setting persistence, IPC payload shape, debounce behaviour, no-Discord fallback, clear-on-off
-- [ ] Privacy: add a row in the privacy policy listing Rich Presence as off-by-default and listing exactly what it shares when enabled — coordinate with the [`privacy` skill](.github/skills/privacy/SKILL.md)
-- [ ] Wiki: extend `Desktop-App.md` with a "Discord Rich Presence" section documenting the opt-in and field map
-- [ ] Features page: add an "Optional Discord Rich Presence (opt-in)" entry under the Desktop section
-- [ ] Skill: extend `.github/skills/desktop-app/SKILL.md` with the RPC integration pattern (or a new `discord-rich-presence` skill if it grows large enough)
+- [x] Add `discord_rich_presence` setting to the desktop preferences store, default `false`
+- [x] Settings UI: toggle in the existing preferences pane with copy explaining exactly what is shared (region, room title, session elapsed time, lighting icon) and that it goes only to the local Discord client, never to MUDdown's servers
+- [x] Tauri-side IPC client (Rust crate, e.g. `discord-rich-presence`, or a hand-rolled minimal client — evaluate during scaffolding) gated behind the setting
+- [x] Wire the renderer's "current room" signal to the presence updater; debounce to ≥15 s per Discord's RPC limit
+- [x] Graceful no-op when Discord isn't running locally (don't error, don't retry-spam)
+- [x] Toggle off → immediate `ClearActivity` so nothing lingers on the profile
+- [x] Tests: setting persistence, IPC payload shape, debounce behaviour, no-Discord fallback, clear-on-off
+- [x] Privacy: add a row in the privacy policy listing Rich Presence as off-by-default and listing exactly what it shares when enabled — coordinate with the [`privacy` skill](.github/skills/privacy/SKILL.md)
+- [x] Wiki: extend `Desktop-App.md` with a "Discord Rich Presence" section documenting the opt-in and field map
+- [x] Features page: add an "Optional Discord Rich Presence (opt-in)" entry under the Desktop section
+- [x] Skill: extend `.github/skills/desktop-app/SKILL.md` with the RPC integration pattern (or a new `discord-rich-presence` skill if it grows large enough)
 
 #### 9c. Cross-cutting
 
-- [ ] Update `AGENTS.md` "What NOT to Do" with: "Don't enable Rich Presence by default" and "Don't auto-send Discord messages without explicit user action" (mirrors Discord's policy and ours)
-- [ ] Add `Discord-Bridge.md` and the `Desktop-App.md` Rich Presence section to the `wiki-sync` subagent's awareness so future doc-impact mapping covers them
-- [ ] Document the dual-activity edge case in `Discord-Bridge.md` and `Desktop-App.md` (cross-reference both pages; mention `discord_rich_presence` and DM-session flow) and keep this guidance in `wiki-sync` subagent awareness
-- [ ] World-validator and spec-compliance subagents are unaffected — neither workstream changes the wire protocol or world tree
+- [x] Update `AGENTS.md` "What NOT to Do" with: "Don't enable Rich Presence by default" and "Don't auto-send Discord messages without explicit user action" (mirrors Discord's policy and ours)
+- [x] Add `Discord-Bridge.md` and the `Desktop-App.md` Rich Presence section to the `wiki-sync` subagent's awareness so future doc-impact mapping covers them
+- [x] Document the dual-activity edge case in `Discord-Bridge.md` and `Desktop-App.md` (cross-reference both pages; mention `discord_rich_presence` and DM-session flow) and keep this guidance in `wiki-sync` subagent awareness
+- [x] World-validator and spec-compliance subagents are unaffected — neither workstream changes the wire protocol or world tree
 
 ---
 

@@ -57,8 +57,19 @@ import Base from "../layouts/Base.astro";
       <ul>
         <li><strong>Session cookie</strong> (<code>muddown_session</code>): An HTTP-only cookie used to maintain your authenticated session. It expires after 7 days. This cookie is only set if you sign in via an OAuth provider.</li>
         <li><strong>Local storage</strong>: We store UI preferences (such as inventory and hint panel display mode and position) in your browser's local storage. This data never leaves your device and is not transmitted to our servers.</li>
+        <li><strong>Desktop preferences</strong> (desktop app only): The MUDdown desktop application stores your preferences (such as the optional Discord Rich Presence toggle) in a local file managed by the operating system's application data directory. These preferences are kept on your device and are not transmitted to our servers.</li>
       </ul>
       <p>We do not use web beacons, tracking pixels, analytics services, or any other automatic data collection tools beyond the cookie and local storage described above.</p>
+
+      <h3>Optional Discord Rich Presence (Desktop App)</h3>
+      <p>The MUDdown desktop application includes an optional Discord Rich Presence integration that is <strong>off by default</strong>. You can enable it from the desktop app's Settings panel. When enabled, the desktop app communicates with the Discord desktop client running on your own machine over its local IPC socket; <strong>no data is sent to MUDdown's servers</strong> as part of this feature, and Discord's RPC transport is local-only — it does not work without the Discord desktop client installed and running.</p>
+      <p>While Rich Presence is enabled, the following details are sent to your local Discord client and visible on your Discord profile and friends list:</p>
+      <ul>
+        <li>The current region name (e.g. "Greenhaven") and the current room title (e.g. "Town Square").</li>
+        <li>The session start time, which Discord renders as the elapsed playing time.</li>
+        <li>A static MUDdown logo and a pair of buttons linking to <code>muddown.com</code> for visitors to your profile.</li>
+      </ul>
+      <p>The integration deliberately does <strong>not</strong> share your character name, inventory, combat status, exact coordinates, or any account identifiers. Toggling the setting off immediately clears any active presence from your Discord profile.</p>
 
       <h3>Linked Websites</h3>
       <p>We may provide links to other third-party websites and services that are outside our control and not covered by this Privacy Statement. We encourage you to review the privacy statements posted on the websites you visit.</p>
@@ -82,7 +93,7 @@ import Base from "../layouts/Base.astro";
 
       <h3>Updates to this Privacy Statement</h3>
       <p>We may update this Privacy Statement from time to time. If we modify our Privacy Statement, we will post the revised version here, with an updated revision date. You agree to visit these pages periodically to be aware of and review any such revisions. If we make material changes to our Privacy Statement, we may also notify you by other means prior to the changes taking effect, such as by posting a notice on our websites or sending you a notification. By continuing to use our website after such revisions are in effect, you accept and agree to the revisions and to abide by them.</p>
-      <p>The MUDdown Privacy Statement was revised and effective as of March 28, 2026.</p>
+      <p>The MUDdown Privacy Statement was revised and effective as of May 10, 2026.</p>
     </div>
   </section>
 </Base>

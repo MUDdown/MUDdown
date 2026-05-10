@@ -28,7 +28,35 @@
         <button id="guest-play-btn" class="panel-btn">Play as Guest</button>
         <button id="login-play-btn" class="panel-btn panel-btn-secondary">Login &amp; Play</button>
         <div id="provider-buttons" style="display: none" class="provider-buttons"></div>
+        <button id="open-settings-btn" class="panel-btn panel-btn-secondary" style="margin-top: 1rem">⚙ Settings</button>
       </div>
+
+      <!-- Settings -->
+      <div id="settings-panel" class="panel" role="region" aria-labelledby="settings-heading" style="display: none">
+        <h2 id="settings-heading">Settings</h2>
+
+        <section class="settings-section">
+          <h3>Discord Rich Presence</h3>
+          <label class="settings-toggle">
+            <input id="discord-rp-toggle" type="checkbox" />
+            <span>Show MUDdown activity on my Discord profile</span>
+          </label>
+          <p class="settings-help">
+            When enabled, MUDdown sends your current region, room title, and
+            session elapsed time to your local Discord desktop client only —
+            never to MUDdown's servers. If Discord isn't running, this does
+            nothing. Off by default.
+          </p>
+          <p class="settings-help settings-help-muted">
+            Note: if you have multiple Discord accounts logged into the desktop
+            client, presence appears on whichever client opened first. Buttons
+            on your presence are visible to your friends, not to you.
+          </p>
+        </section>
+
+        <button id="settings-back-btn" class="panel-btn panel-btn-secondary">Back</button>
+      </div>
+
 
       <!-- Character selection -->
       <div id="character-panel" class="panel" style="display: none">

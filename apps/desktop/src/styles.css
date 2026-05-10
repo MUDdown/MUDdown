@@ -96,6 +96,37 @@ code {
 .panel-btn-sm { padding: 0.35rem 0.85rem; font-size: 0.85rem; }
 .panel-divider { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 
+/* Settings panel */
+.settings-section {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.settings-section:last-of-type { border-bottom: none; }
+.settings-section h3 { margin-bottom: 0.75rem; }
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+.settings-toggle:hover { color: var(--accent); }
+.settings-toggle input[type="checkbox"] { width: 1rem; height: 1rem; cursor: pointer; }
+.settings-toggle input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.settings-help {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  margin-bottom: 0.5rem;
+}
+.settings-help-muted { font-size: 0.8rem; opacity: 0.85; }
+
 /* Provider login buttons */
 .provider-buttons {
   margin-top: 1rem;

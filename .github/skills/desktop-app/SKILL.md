@@ -155,6 +155,95 @@ Define accelerators on menu items:
 
 Handle via the menu-action event flow (Rust emits → JS listens).
 
+### Discord Rich Presence (Opt-In)
+
+The desktop app integrates Discord Rich Presence via direct local IPC to the Discord desktop client. **It is off by default** and gated behind a per-user preference (`discord_rich_presence` in `prefs.json`). No OAuth, no MUDdown-server involvement — the integration uses Discord's "Rich Presence Without Authentication" mode (`SetApplicationId` + `SET_ACTIVITY` only).
+
+#### Crate
+
+```toml
+# Cargo.toml
+discord-rich-presence = "0.2"   # vionya/discord-rich-presence, MIT
+```
+
+#### Rust state pattern (`src-tauri/src/discord_presence.rs`)
+
+```rust
+pub struct PresenceState {
+    pub enabled: bool,
+    pub client: Option<DiscordIpcClient>,
+    pub session_start: Option<i64>,
+}
+pub fn initial_state() -> Mutex<PresenceState> { /* enabled: false */ }
+```
+
+Register in `lib.rs`:
+```rust
+.manage(discord_presence::initial_state())
+.invoke_handler(tauri::generate_handler![
+    discord_presence_set_enabled,
+    discord_presence_update,
+    discord_presence_clear,
+    /* ... */
+])
+```
+
+#### Command contract
+
+`discord_presence_update` and `discord_presence_clear` early-return when `state.enabled == false`. `discord_presence_set_enabled` is the toggle itself, so it always runs and is idempotent against the cached `enabled` value. `discord_presence_update` lazily calls `ensure_connected()` — connection failures (Discord not running) are silent no-ops, not errors. On `set_activity` failure, drop the client so the next call retries a fresh connection. Toggling off via `discord_presence_set_enabled(false)` calls `ClearActivity` then closes the IPC client.
+
+#### JS scheduler pattern (`src/discord-presence.ts`)
+
+The presence updater runs through `createPresenceScheduler({ invoke, debounceMs: 15000, ... })` which exposes `{ schedule, clear, flushForTesting }`. Key invariants:
+
+- **Leading-edge fire**: First call after `clear()` (or first call ever) invokes immediately. Critical: initialize `lastSentAt = Number.NEGATIVE_INFINITY` (not `0`) so the leading-edge check `(now - lastSentAt) >= debounceMs` is true at `t=0`. Reset to `NEGATIVE_INFINITY` inside `clear()`.
+- **Trailing flush**: Calls inside the 15-second window are coalesced into a single trailing invocation with the latest payload.
+- **Non-room messages ignored**: `parseRoomPresence` returns `null` for envelopes without `:::room` + H1 title; the scheduler drops those silently.
+- **15s floor**: Self-imposed throttle. Discord's published RPC docs recommend ≤1 update per 15s.
+
+#### Wiring into game flow
+
+In `main.ts`:
+- Call `discord_presence_set_enabled` at startup with the persisted pref.
+- In the room-message handler (`appendMessage` where `className === "room"`), call `presenceScheduler.schedule(muddown)`.
+- On `onDisplaced` and on `onClose(willReconnect=false)`, call `presenceScheduler.clear()`.
+- The Settings panel toggle persists the pref *and* invokes `discord_presence_set_enabled` *and* calls `presenceScheduler.clear()` when disabling.
+
+#### What is shared / not shared
+
+Shared: region name, room title, session start timestamp, MUDdown logo + tooltip, two profile buttons. Deliberately **not** shared: character names, inventory, equipment, combat status, room IDs, account identifiers. Document any change to this list in `MUDdown.wiki/Desktop-App.md` and `apps/website/src/pages/privacy.astro`.
+
+#### Multi-account caveat
+
+Discord exposes IPC slots `discord-ipc-0` … `discord-ipc-9`; first-accept-wins. With multiple Discord accounts logged into the desktop client, presence appears on whichever account opened the slot first. Document, don't fight it.
+
+#### Application ID
+
+`APPLICATION_ID` in `discord_presence.rs` must match a Discord developer-portal application registered to MUDdown. Asset keys (`large_image: "muddown-logo"`) must be uploaded under that app's Rich Presence asset list.
+
+#### Testing
+
+Tests live in `apps/desktop/tests/discord-presence.test.ts` (vitest) and `apps/desktop/src-tauri/src/discord_presence.rs` (`#[cfg(test)] mod tests`). Run with `npm test` and `cargo test --lib` respectively.
+
+JS unit coverage:
+- `parseRoomPresence`: room envelope yields `{ region, title }`; non-room envelopes (`:::system`, etc.) return `null`; rooms missing the H1 title return `null`; missing `region` attribute defaults to `"Unknown"`.
+- `createPresenceScheduler`: leading-edge fire at `t=0` (relies on `lastSentAt = Number.NEGATIVE_INFINITY`); trailing-flush coalescing of multiple `schedule()` calls inside the 15 s window into one `discord_presence_update`; non-room envelopes ignored; `clear()` invokes `discord_presence_clear`, cancels any pending timer, and resets state so the next `schedule()` fires immediately again; `onError("update", err)` and `onError("clear", err)` paths; failure does not advance `lastSentAt` (next schedule still leading-edges); `flushForTesting()` drains a queued trailing flush without advancing the clock.
+
+Use a fake clock (`makeFakeClock()` in the test file) to drive `now`, `setTimeout`, and `clearTimeout` deterministically. Microtask flushing for rejected `invoke` mocks needs two `await Promise.resolve()` hops.
+
+Rust unit coverage (`cargo test --lib`):
+- `update_is_noop_when_disabled`: `discord_presence_update` returns immediately when `enabled == false`; no client is constructed.
+- `disable_clears_session_start`: toggling `enabled` from `true` → `false` clears `session_start` and `last_connect_failure`.
+- `ensure_connected_respects_cooldown`: a stamped `last_connect_failure` within `RECONNECT_COOLDOWN_SECS` causes `ensure_connected` to short-circuit so no IPC connect is attempted.
+
+Manual smoke checklist before shipping any presence change:
+- Toggle on with Discord **not** running → no error log, scheduler still fires `schedule()` quietly, presence absent on profile.
+- Toggle on with Discord running → "Playing MUDdown / Exploring &lt;region&gt; / &lt;Room Title&gt;" appears within ~1 s, elapsed timer counts up, MUDdown logo + tooltip render on the profile expanded view.
+- Move between rooms rapidly → at most one update per 15 s window; final room title is what appears after the trailing flush.
+- Toggle off → activity disappears from profile within a couple of seconds.
+- Quit Discord while presence is live → integration silently no-ops, no retry-spam in the log; reconnect attempts cool down for 30 s.
+- Verify the Application ID (`1490036207340748960`) and asset key (`muddown-logo`) match the Discord developer portal — a typo in either field renders presence with a blank logo.
+
 ## ARIA Accessibility
 
 Apply ARIA roles per the MUDdown spec (§8) when rendering messages:

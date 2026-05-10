@@ -15,6 +15,7 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { load as loadStore } from "@tauri-apps/plugin-store";
+import { createPresenceScheduler } from "./discord-presence.js";
 
 // ── DOM Elements ──────────────────────────────────────────────────
 
@@ -31,6 +32,10 @@ const hintText = document.getElementById("hint-text")!;
 const hintCommands = document.getElementById("hint-commands")!;
 const hintStatus = document.getElementById("hint-status")!;
 const serverUrlInput = document.getElementById("server-url")! as HTMLInputElement;
+const settingsPanel = document.getElementById("settings-panel")!;
+const openSettingsBtn = document.getElementById("open-settings-btn")! as HTMLButtonElement;
+const settingsBackBtn = document.getElementById("settings-back-btn")! as HTMLButtonElement;
+const discordRpToggle = document.getElementById("discord-rp-toggle")! as HTMLInputElement;
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -89,6 +94,56 @@ async function clearStoredToken(): Promise<void> {
   }
 }
 
+// ── Preferences (opt-in features, off by default) ─────────────────
+
+const PREFS_STORE_PATH = "prefs.json";
+const PREF_DISCORD_RICH_PRESENCE = "discord_rich_presence";
+
+/**
+ * Load the Discord Rich Presence opt-in preference. Defaults to `false`
+ * (off). Failures fall back to `false` so a corrupted store never silently
+ * enables the feature.
+ */
+async function getDiscordRichPresence(): Promise<boolean> {
+  try {
+    const store = await loadStore(PREFS_STORE_PATH);
+    const value = await store.get<boolean>(PREF_DISCORD_RICH_PRESENCE);
+    return value === true;
+  } catch (err) {
+    console.warn("[prefs] Could not read discord_rich_presence:", err);
+    return false;
+  }
+}
+
+/**
+ * Persist the Discord Rich Presence opt-in preference and notify the Rust
+ * IPC client so it connects/disconnects to the local Discord client
+ * immediately.
+ */
+async function setDiscordRichPresence(enabled: boolean): Promise<void> {
+  try {
+    const store = await loadStore(PREFS_STORE_PATH);
+    await store.set(PREF_DISCORD_RICH_PRESENCE, enabled);
+    await store.save();
+  } catch (err) {
+    console.error("[prefs] Could not persist discord_rich_presence:", err);
+  }
+  try {
+    await invoke("discord_presence_set_enabled", { enabled });
+  } catch (err) {
+    console.warn("[prefs] discord_presence_set_enabled failed:", err);
+  }
+  if (!enabled) {
+    // Drop any queued JS-side flush so we don't fire a stale update if the
+    // user re-enables the toggle later. We always run this regardless of
+    // whether the set_enabled IPC above succeeded — if the IPC failed the
+    // Rust side may not have cleared its activity, but the scheduler-level
+    // clear() at minimum keeps the JS timer state truthful and ensures the
+    // next toggle-on starts from a clean slate.
+    presenceScheduler.clear();
+  }
+}
+
 /** Build fetch init with bearer auth token if available. */
 function authInit(init?: RequestInit): RequestInit {
   const headers = new Headers(init?.headers);
@@ -114,10 +169,25 @@ async function setTrayTooltip(tooltip: string): Promise<void> {
 
 // ── View helpers ──────────────────────────────────────────────────
 
-function showView(view: "auth" | "character" | "game"): void {
+type View = "auth" | "character" | "game" | "settings";
+
+/// View that was active immediately before the settings panel was opened, so
+/// the back button can restore it. Defaults to "auth" for the cold-start case
+/// (settings opened from the auth gate before sign-in).
+let preSettingsView: Exclude<View, "settings"> = "auth";
+
+/// Source of truth for the currently-shown panel. Updated by showView() so
+/// non-presentation code (e.g. the settings button) doesn't have to peek at
+/// element.style.display. Initialized to "auth" because that's the cold-start
+/// view shown before any showView() call.
+let currentView: View = "auth";
+
+function showView(view: View): void {
   authGate.style.display = view === "auth" ? "" : "none";
   characterPanel.style.display = view === "character" ? "" : "none";
   gameArea.style.display = view === "game" ? "" : "none";
+  settingsPanel.style.display = view === "settings" ? "" : "none";
+  currentView = view;
   if (view === "game") {
     applyInvMode(currentInvMode);
     applyHintMode(currentHintMode);
@@ -523,6 +593,7 @@ function appendMessage(muddown: string, className: string): void {
     if (h1?.textContent) {
       setWindowTitle(`MUDdown — ${h1.textContent}`).catch((err) => console.error("[appendMessage] setWindowTitle failed:", err));
     }
+    schedulePresenceUpdate(muddown);
   }
 
   // Notify on mentions & combat when window is not focused
@@ -550,6 +621,28 @@ function appendRawHtml(html: string, className: string): void {
   requestAnimationFrame(() => {
     output.scrollTop = output.scrollHeight;
   });
+}
+
+// ── Discord Rich Presence (room → activity) ───────────────────────
+//
+// The Rust IPC client gates everything on the `enabled` flag, so these
+// helpers can be called unconditionally — they're cheap when the user has
+// the toggle off. Discord's RPC guidance is "no more than 1 update per 15
+// seconds"; we honour that as a self-imposed debounce floor.
+
+const presenceScheduler = createPresenceScheduler({
+  invoke: (cmd, args) => invoke(cmd, args),
+  onError: (where, err) => {
+    console.warn(`[discord-presence] ${where} failed:`, err);
+  },
+});
+
+function schedulePresenceUpdate(muddown: string): void {
+  presenceScheduler.schedule(muddown);
+}
+
+function clearPresence(): void {
+  presenceScheduler.clear();
 }
 
 // ── Game link handler ─────────────────────────────────────────────
@@ -628,6 +721,7 @@ function connectToServer(ticket?: string): void {
           "system",
         );
         setTrayTooltip("MUDdown — Displaced (reload to reclaim)").catch((err) => console.warn("[tray] tooltip update failed:", err));
+        clearPresence();
       },
       onClose: (willReconnect) => {
         if (willReconnect) {
@@ -636,6 +730,7 @@ function connectToServer(ticket?: string): void {
         } else {
           appendMessage("*Disconnected.*", "system");
           setTrayTooltip("MUDdown — Disconnected").catch((err) => console.warn("[tray] tooltip update failed:", err));
+          clearPresence();
         }
       },
       onError: (event) => {
@@ -1022,6 +1117,42 @@ loadToken().then(async (token) => {
   }
 }).catch((err) => {
   console.error("[init] Failed to load stored token:", err);
+});
+
+// Push the persisted Discord Rich Presence preference to the Rust IPC client
+// so it connects/disconnects on startup. Default `false`; the Rust side is a
+// no-op until this is set.
+getDiscordRichPresence().then(async (enabled) => {
+  discordRpToggle.checked = enabled;
+  try {
+    await invoke("discord_presence_set_enabled", { enabled });
+  } catch (err) {
+    console.warn("[init] discord_presence_set_enabled failed:", err);
+  }
+}).catch((err) => {
+  console.warn("[init] Failed to read discord_rich_presence pref:", err);
+});
+
+// ── Settings panel wiring ─────────────────────────────────────────
+
+openSettingsBtn.addEventListener("click", () => {
+  // Remember which view we came from so the back button can restore it.
+  // Read from the routing state rather than DOM display so we're not
+  // coupling routing to presentation. The click shouldn't fire while the
+  // settings panel is already showing (the button lives outside it), but
+  // if it does we keep the previously-stashed value.
+  if (currentView !== "settings") {
+    preSettingsView = currentView;
+  }
+  showView("settings");
+});
+
+settingsBackBtn.addEventListener("click", () => {
+  showView(preSettingsView);
+});
+
+discordRpToggle.addEventListener("change", () => {
+  void setDiscordRichPresence(discordRpToggle.checked);
 });
 
 // Check for updates on launch (non-blocking; failures are logged to console only)
