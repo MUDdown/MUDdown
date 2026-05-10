@@ -13,10 +13,15 @@ The primary play surface is the bot's **DM with each player**. Public-channel sl
 
 | File | Responsibility |
 |------|----------------|
+| `src/main.ts` | Entry point — dynamic import of `bridge.ts` |
 | `src/bridge.ts` | Discord client lifecycle, interaction handlers, DM intake, slash commands, `feedSubscriber` wiring |
+| `src/bridge-policy.ts` | Pure policy functions extracted from `bridge.ts` for unit testability: `resolveGameplayInteractionCommand`, `dispatchGameplayCommand`, `formatWhoStatus`, `recordActivityIfDispatched`, `refreshReconnectTicket`, `handleSocketClose`, `handleReconnectError` |
 | `src/render.ts` | Pure `ServerMessage` → `RenderedMessage` (embeds + components). No discord.js coupling — exercised in unit tests by inspecting the returned shape |
-| `src/sessions.ts` | Discord user ID ↔ MUDdownConnection map, idle eviction |
+| `src/sessions.ts` | Discord user ID → `DiscordSession` registry (`open`/`close`/`touch`/`values`). Connection objects are held separately in `bridge.ts` |
 | `src/commands.ts` | Slash-command registration (`/play`, `/who`, `/switch`, `/quit`) |
+| `src/idle-policy.ts` | Idle-sweep logic and tunable defaults (`IDLE_TIMEOUT_MS`, `IDLE_CHECK_INTERVAL_MS`, `findIdleSessions`) |
+| `src/delivery-policy.ts` | Envelope delivery retry logic and defaults (`gameplayDeliveryBackoffMs`, `nextDeliveryFailure`) |
+| `src/reconnect-notifier.ts` | Per-user reconnect state tracking |
 | `src/feed.ts` | `isWorldScopeEnvelope()` defense-in-depth filter and `stripInteractiveLinks()` |
 | `src/feed-subscriber.ts` | Read-only WS client to `/feed`, full-jitter backoff, posts world-scope envelopes to `feedChannelId` |
 | `src/config.ts` | Env parsing, snowflake validation, `feedChannelId` opt-in |
@@ -33,7 +38,7 @@ The primary play surface is the bot's **DM with each player**. Public-channel sl
   - `dialogue` → green `0x22c55e`
   - `narrative` → neutral gray `0x9ca3af`
 - **Hard limits** (from Discord's API; codified in `DISCORD_LIMITS`):
-  - Embed description: 4096 chars (chunk via `chunkDescription`, prefer paragraph breaks then whitespace)
+  - Embed description: 4096 chars (chunk via `chunkDescription`, prefer paragraph breaks then whitespace; falls back to a hard cut at 4096 when neither a `\n\n` nor a space boundary exists past the midpoint)
   - Buttons per action row: 5
   - Action rows per message: 5 (25 buttons total; overflow → select menu)
   - Button `custom_id`: ≤ 100 chars
@@ -53,7 +58,7 @@ Encode with `encodeLinkCustomId(command)` and decode with `decodeLinkCustomId(cu
 
 The character picker uses a separate, non-collision-prone literal: `muddown-character-select`. Don't reuse `muddown-link:` for non-game-link interactions.
 
-When more than 25 game links would render in one envelope, the renderer collapses **all** of them into a single string-select component with `customId = "muddown-link-select"` and the same `muddown-link:<…>` value per option. The bridge interaction handler in `bridge.ts` resolves both shapes via `resolveGameplayInteractionCommand`.
+When more than 25 game links are present, the renderer places the first 20 as buttons (4 rows × 5) and the next up to 25 in a string-select component with `customId = "muddown-link-select"` and the same `muddown-link:<…>` value per option. Links beyond 45 total are dropped with a `console.warn`. Both shapes are resolved via `resolveGameplayInteractionCommand` (defined in `bridge-policy.ts`, called from `bridge.ts`).
 
 ## No-auto-message rule
 
@@ -68,14 +73,14 @@ This is a hard constraint, not a courtesy. Discord aggressively rate-limits and 
 
 ## Multi-character picker flow
 
-The bridge supports the same multi-character account model as the rest of MUDdown (`CharacterRecord`, `getCharacterById`).
+The bridge supports a multi-character account model via `CharacterEntry` (local interface in `bridge.ts`). Characters are fetched from the server's `/auth/characters` endpoint.
 
-- **First DM**: bridge sends a `Pick a character` embed with one button per character on the linked account. Picking one opens the WebSocket session.
+- **First DM**: bridge sends a "Select the character to play:" embed with a string-select menu, one option per character on the linked account. Selecting one opens the WebSocket session.
 - **`/switch`** (or sending `quit` then re-DMing): tears down the active session, returns to the picker, and starts a new session under the chosen character.
-- **Resume**: `lastCharacterId` is persisted on the Discord identity-link row (`identity_links.last_character_id`). A fresh DM auto-resumes the most recent character with a "Switch?" button visible at the top of the first room embed.
 - **Single-active invariant**: only one active character per Discord user at a time, matching the WebSocket "one session per connection" rule on the server.
+- **Single-character accounts** skip the picker entirely and open the session directly.
 
-The picker uses the `muddown-character-select` `custom_id` (see above). Character IDs travel as the option `value`, not encoded into the `custom_id`, because Discord's 100-char `custom_id` limit is too tight for multi-character UUIDs.
+The picker uses `CHARACTER_SELECT_CUSTOM_ID = "muddown-character-select"`. Character IDs travel as the option `value`, not encoded into the `custom_id`, because Discord's 100-char `custom_id` limit is too tight for multi-character UUIDs.
 
 ## Public feed channel
 
@@ -85,11 +90,11 @@ The picker uses the `muddown-character-select` `custom_id` (see above). Characte
 - **Interactive links are stripped** by `stripInteractiveLinks()` before the embed is built — the public channel has no per-user session, so buttons would resolve to nothing. Visible link text is retained; the `components` array is discarded.
 - **Backoff**: exponential 1s → 30s with full jitter. The client never spams reconnects.
 - **URL hygiene**: `deriveFeedUrl()` clears `search` (prevents `?ticket=…` leakage to the unauthenticated endpoint per spec §6.3.1) and `hash`, and rewrites pathname to `/feed`.
-- **Lifecycle race guard**: in `bridge.ts`, after `await client.channels.fetch(config.feedChannelId)`, verify `this.client !== client` is **false** before assigning `this.feedSubscriber`. If a `shutdown()` or `reset()` ran during the fetch, bail out — otherwise the subscriber is orphaned and posts forever.
+- **Lifecycle race guard**: in `bridge.ts`, after `await client.channels.fetch(config.feedChannelId)`, check `if (this.client !== client)` — if true, bail out without creating the subscriber. This guards against a `shutdown()` or `reset()` that ran during the fetch.
 
 ## Testing
 
-Vitest. 230+ tests across 11 files at last count.
+Vitest. 200+ tests across 11 files.
 
 - `tests/render.test.ts` — fixture-driven envelope → expected embed/components shape
 - `tests/sessions.test.ts` — connection manager, idle eviction
