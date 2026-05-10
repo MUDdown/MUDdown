@@ -476,10 +476,11 @@ echo ""
 echo "  Point DNS:         muddown.com → ${SERVER_IP}"
 echo "  Enable TLS:        certbot --nginx -d muddown.com -d www.muddown.com"
 echo "  Grant certs:       chgrp -R ${SERVICE_USER} /etc/letsencrypt/{live,archive} && chmod -R g+rX /etc/letsencrypt/{live,archive}"
-if [[ -f /etc/systemd/system/muddown-discord-bridge.service ]]; then
+DISCORD_BRIDGE_ENV_PATH="${DISCORD_BRIDGE_ENV:-${INSTALL_DIR}/packages/discord-bridge/.env}"
+if [[ -f "${DISCORD_BRIDGE_ENV_PATH}" ]]; then
   echo ""
   echo "  Discord bridge (optional):"
-  echo "    1. Edit ${DISCORD_BRIDGE_ENV:-${INSTALL_DIR}/packages/discord-bridge/.env} — set MUDDOWN_DISCORD_BOT_TOKEN and MUDDOWN_SERVER_URL."
+  echo "    1. Edit ${DISCORD_BRIDGE_ENV_PATH} — set MUDDOWN_DISCORD_BOT_TOKEN and MUDDOWN_SERVER_URL."
   echo "    2. Enable + start: systemctl enable --now muddown-discord-bridge"
   echo "    3. See wiki: Deployment-Guide → Discord bridge."
 fi
