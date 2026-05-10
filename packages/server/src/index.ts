@@ -10,6 +10,7 @@ import {
   resolveAttack, formatAttackLine, getPlayerAttackBonus, getPlayerDamage, getPlayerAc,
   resetPlayerAfterDefeat, stripHtmlComments, buildInventoryState, TokenBucket,
   getHelpEntry, helpEntries, buildHelpBlock, buildHelpTable, buildHintBlock, buildLoreBlock,
+  buildWorldBroadcastBlock,
   isValidCommand, buildHintContext, extractNarrativeDescription,
   sanitizeRoomDescription, buildNarrativeImpression,
   buildTalkFillerMessages, buildStatsPayload,
@@ -1901,6 +1902,39 @@ function broadcastToRoom(roomId: string, exclude: PlayerSession, message: string
   }
 }
 
+/**
+ * Send a world-scope system announcement to every connected session.
+ *
+ * Emits a `:::system{type=<systemType> scope="world"}` block per
+ * SPECIFICATION.md §3.6 so external transports (Discord feed channel, IRC
+ * bridge) can route the message to a shared channel; in-game clients render
+ * it the same as any other system block.
+ *
+ * Use only for content that is safe to share publicly: server lifecycle
+ * (boot, scheduled reboot, shutdown), public events, world-state
+ * announcements. Per-player state MUST NOT use this path.
+ */
+function broadcastWorld(
+  text: string,
+  systemType: "notification" | "shutdown" | "boot" | "event" = "notification",
+): void {
+  const envelope: ServerMessage = {
+    v: 1,
+    id: randomUUID(),
+    type: "system",
+    timestamp: new Date().toISOString(),
+    muddown: buildWorldBroadcastBlock(text, systemType),
+  };
+  const payload = JSON.stringify(envelope);
+  for (const ws of sessions.keys()) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(payload, (err) => {
+        if (err) console.warn("broadcastWorld: send error:", err.message);
+      });
+    }
+  }
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function send(ws: WebSocket, msg: ServerMessage): void {
@@ -1993,6 +2027,16 @@ complianceTimer.unref();
 
 async function shutdown(): Promise<void> {
   console.log("Shutting down — saving all state...");
+
+  // Notify connected sessions before tearing down the WebSocket layer so the
+  // envelope actually flushes. World-scope so external feeds (Discord channel)
+  // see it too.
+  try {
+    broadcastWorld("**Server**: shutting down. Reconnect in a moment.", "shutdown");
+  } catch (err) {
+    console.warn("Error broadcasting shutdown notice:", err);
+  }
+
   clearInterval(respawnTimer);
   clearInterval(saveTimer);
   clearTimeout(complianceInitialTimer);

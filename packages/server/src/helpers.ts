@@ -723,6 +723,26 @@ export function buildLoreBlock(answer: string, sources: string[]): string {
   return `:::system{type="lore"}\n${safeAnswer}${sourceSection}\n:::`;
 }
 
+/**
+ * Build the MUDdown content string for a world-scope system broadcast block.
+ *
+ * Marks the envelope as `scope="world"` per SPECIFICATION.md §3.6 so external
+ * transports (Discord feed channel, IRC bridge) can route it to a shared
+ * channel. Use only for content safe to share publicly: server lifecycle,
+ * scheduled downtime, public events.
+ *
+ * `systemType` defaults to `notification` and is restricted here to a small
+ * allowlist so a typo (or future enum drift) can't write something the spec
+ * doesn't recognize.
+ */
+export function buildWorldBroadcastBlock(
+  text: string,
+  systemType: "notification" | "shutdown" | "boot" | "event" = "notification",
+): string {
+  const safeText = sanitizeBlockContent(text);
+  return `:::system{type="${systemType}" scope="world"}\n${safeText}\n:::`;
+}
+
 // ─── Hint Context Builder ────────────────────────────────────────────────────
 
 export interface BuildHintContextInput {
