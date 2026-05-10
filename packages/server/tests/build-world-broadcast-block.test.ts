@@ -51,4 +51,23 @@ describe("buildWorldBroadcastBlock", () => {
     expect(block).toMatch(/\u200b:::system\{scope="player"\}/);
     expect(/\u200b:::\s*$/m.test(block)).toBe(true);
   });
+
+  // Edge cases that pin the structural invariant — outer fences only, no
+  // matter how degenerate the input. The shared assertion is: the block
+  // starts with the canonical opening fence, ends with `\n:::`, and exactly
+  // two lines match `/^:{3,}/` (the outer open and outer close).
+  for (const [label, input] of [
+    ["empty message", ""],
+    ["message that is exactly ':::'", ":::"],
+    ["multiple consecutive embedded fence lines", "text\n:::\n:::\nmore"],
+    ["message that already contains a U+200B-prefixed fence", "pre\n\u200b:::system{scope=\"player\"}\npost"],
+  ] as const) {
+    it(`preserves the outer-fence invariant for ${label}`, () => {
+      const block = buildWorldBroadcastBlock(input);
+      expect(block.startsWith(':::system{type="notification" scope="world"}\n')).toBe(true);
+      expect(block.endsWith("\n:::")).toBe(true);
+      const fenceLines = block.split("\n").filter((l) => /^:{3,}/.test(l));
+      expect(fenceLines).toHaveLength(2);
+    });
+  }
 });

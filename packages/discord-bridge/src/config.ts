@@ -99,7 +99,8 @@ const DISCORD_SNOWFLAKE = /^[1-9]\d{16,19}$/;
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeConfig {
   const botToken = env.MUDDOWN_DISCORD_BOT_TOKEN?.trim();
   const serverUrl = env.MUDDOWN_SERVER_URL?.trim();
-  const guildId = env.MUDDOWN_DISCORD_GUILD_ID?.trim() || undefined;
+  const guildIdRaw = env.MUDDOWN_DISCORD_GUILD_ID?.trim();
+  const guildId = guildIdRaw || undefined;
   const feedChannelIdRaw = env.MUDDOWN_DISCORD_FEED_CHANNEL_ID?.trim();
   const feedChannelId = feedChannelIdRaw || undefined;
   // Required-field guards run before optional-field validation so an operator
@@ -110,6 +111,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeC
   }
   if (!serverUrl) {
     throw new DiscordBridgeConfigError("MUDDOWN_SERVER_URL is required");
+  }
+  if (guildId !== undefined && !DISCORD_SNOWFLAKE.test(guildId)) {
+    throw new DiscordBridgeConfigError(
+      `MUDDOWN_DISCORD_GUILD_ID must be a Discord snowflake (17–20 digits, no leading zero); got ${JSON.stringify(guildIdRaw)}`,
+    );
   }
   if (feedChannelId !== undefined && !DISCORD_SNOWFLAKE.test(feedChannelId)) {
     throw new DiscordBridgeConfigError(

@@ -144,6 +144,41 @@ describe("loadConfig", () => {
     expect(config.guildId).toBeUndefined();
   });
 
+  // Same snowflake regex as feedChannelId. A typo in MUDDOWN_DISCORD_GUILD_ID
+  // would otherwise fail late on the first guild-scoped slash-command
+  // registration with an opaque DiscordAPIError[10004]: Unknown Guild.
+  for (const bad of [
+    "abc",
+    "0123456789012345678",
+    "1234567890123456",
+    "123456789012345678901",
+    "12345 67890123456789",
+    "123456789012345678a",
+  ]) {
+    it(`rejects guildId ${JSON.stringify(bad)} as not a snowflake`, () => {
+      expect(() =>
+        loadConfig({
+          MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+          MUDDOWN_SERVER_URL: "ws://localhost:3300",
+          MUDDOWN_DISCORD_GUILD_ID: bad,
+        }),
+      ).toThrow(/MUDDOWN_DISCORD_GUILD_ID must be a Discord snowflake/);
+    });
+  }
+  for (const good of [
+    "12345678901234567",
+    "12345678901234567890",
+  ]) {
+    it(`accepts guildId ${JSON.stringify(good)} at the snowflake length boundary`, () => {
+      const config = loadConfig({
+        MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+        MUDDOWN_SERVER_URL: "ws://localhost:3300",
+        MUDDOWN_DISCORD_GUILD_ID: good,
+      });
+      expect(config.guildId).toBe(good);
+    });
+  }
+
   it("includes feedChannelId when MUDDOWN_DISCORD_FEED_CHANNEL_ID is a valid snowflake", () => {
     const config = loadConfig({
       MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
