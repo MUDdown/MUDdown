@@ -284,6 +284,18 @@ class BridgeLifecycle {
       );
       return;
     }
+    // Re-check lifecycle after the await: if shutdown() or reset() ran while
+    // the channel fetch was in flight, this.client has been cleared (or
+    // replaced by a subsequent login). Bail out without starting the
+    // subscriber; otherwise we'd write an orphaned FeedSubscriber back into
+    // this.feedSubscriber that no future stop() call could ever reach.
+    if (this.client !== client) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[muddown-discord-bridge] bridge lifecycle changed during feed channel fetch — feed subscriber not started`,
+      );
+      return;
+    }
     if (channel === null) {
       // eslint-disable-next-line no-console
       console.error(
