@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { ServerMessage } from "@muddown/shared";
-import { isWorldScopeEnvelope } from "../src/feed.js";
+import { isWorldScopeEnvelope, stripInteractiveLinks } from "../src/feed.js";
 
 function envelope(overrides: Partial<ServerMessage> = {}): ServerMessage {
   return {
@@ -170,5 +170,66 @@ describe("isWorldScopeEnvelope", () => {
         }),
       ),
     ).toBe(false);
+  });
+});
+
+describe("stripInteractiveLinks", () => {
+  it("replaces a `go:` link with its visible text", () => {
+    expect(stripInteractiveLinks("Head [north](go:north) to leave.")).toBe(
+      "Head north to leave.",
+    );
+  });
+
+  it("strips every MUDdown interactive scheme", () => {
+    const input = [
+      "[a](go:a)",
+      "[b](cmd:look)",
+      "[c](item:rusty-key)",
+      "[d](npc:crier)",
+      "[e](player:Alice)",
+      "[f](help:combat)",
+    ].join(" ");
+    expect(stripInteractiveLinks(input)).toBe("a b c d e f");
+  });
+
+  it("strips multiple links on the same line", () => {
+    expect(
+      stripInteractiveLinks("Try [north](go:north), [east](go:east), or [south](go:south)."),
+    ).toBe("Try north, east, or south.");
+  });
+
+  it("leaves external https:// links alone", () => {
+    expect(
+      stripInteractiveLinks("See [docs](https://muddown.com/docs) for help."),
+    ).toBe("See [docs](https://muddown.com/docs) for help.");
+  });
+
+  it("strips interactive links but preserves external links on the same line", () => {
+    expect(
+      stripInteractiveLinks(
+        "Go [north](go:north) or read the [docs](https://muddown.com/docs).",
+      ),
+    ).toBe("Go north or read the [docs](https://muddown.com/docs).");
+  });
+
+  it("leaves plain Markdown without links untouched", () => {
+    const text = "**Bold** and *italic* with `code` and a list:\n- one\n- two";
+    expect(stripInteractiveLinks(text)).toBe(text);
+  });
+
+  it("is a no-op when no interactive links appear", () => {
+    expect(stripInteractiveLinks("nothing to strip")).toBe("nothing to strip");
+  });
+
+  it("strips an interactive link with an empty target", () => {
+    // `[north](go:)` — the visible text is preserved even when the target is missing.
+    expect(stripInteractiveLinks("Head [north](go:) please.")).toBe("Head north please.");
+  });
+
+  it("matches schemes case-sensitively (uppercase scheme is left intact)", () => {
+    // The MUDdown spec defines lowercase scheme prefixes; uppercase variants
+    // are not interactive links and must not be rewritten.
+    expect(stripInteractiveLinks("[North](GO:north)")).toBe("[North](GO:north)");
+    expect(stripInteractiveLinks("[north](go:north)")).toBe("north");
   });
 });

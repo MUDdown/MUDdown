@@ -243,6 +243,105 @@ MUDdown messages are transmitted over WebSocket as JSON envelopes containing MUD
 | `input` | C→S | Dialogue/prompt response |
 | `ping`/`pong` | Both | Keepalive |
 
+### 6.3 Endpoints
+
+A MUDdown server MAY expose the following WebSocket endpoints on its
+HTTP listener:
+
+| Path | Direction | Auth | Description |
+|------|-----------|------|-------------|
+| `/` (or `/?ticket=…`) | Both | Required (single-use ticket) | Authenticated gameplay channel. The full envelope set in §6.2 flows here. |
+| `/feed` | S→C only | None (read-only) | Optional public feed. The server MUST emit only `:::system{scope="world"}` envelopes (§3.6) on this endpoint. Inbound data frames from a `/feed` client are a protocol violation; the server SHOULD close such connections with WebSocket close code `1003` (Unsupported Data). |
+
+Servers exposing `/feed` SHOULD apply per-IP and global concurrent-connection
+caps and a periodic ping/pong keepalive, since the endpoint is unauthenticated
+and otherwise vulnerable to socket-exhaustion DoS. Multi-user transports that
+subscribe to `/feed` (Discord bridge, IRC bridge, etc.) MUST re-validate
+`scope="world"` on every received envelope rather than trust the endpoint
+contract alone.
+
+#### Transport Security
+
+Production servers MUST expose both endpoints over TLS (`wss://`). Plain `ws://`
+is permitted for local development only and MUST NOT be used in production:
+the gameplay endpoint carries authentication tickets and command input, and
+`/feed` carries unsigned world events that downstream bridges may republish.
+
+#### 6.3.1 Single-Use Ticket Authentication
+
+The gameplay endpoint authenticates each WebSocket upgrade with a single-use
+ticket because browsers cannot attach `Authorization` headers to the upgrade
+request. The flow is:
+
+1. **Acquire.** The client first establishes an authenticated HTTPS session
+   (cookie or bearer token) via the server's normal auth flow, then issues
+   `GET /auth/ws-ticket`. The server SHOULD rate-limit this endpoint per
+   account.
+2. **Format.** A ticket is an opaque server-generated string with at least 122
+   bits of entropy (e.g. a UUIDv4 or equivalent CSPRNG token). Clients MUST
+   treat it as opaque.
+3. **Expiry.** Tickets MUST expire within a short window (RECOMMENDED 60
+   seconds) and the server MUST reject expired tickets.
+4. **Single use.** The server MUST consume the ticket atomically on the
+   WebSocket upgrade — successful or not — so it cannot be replayed. Reuse
+   MUST be rejected.
+5. **Validation.** On the upgrade request the server reads the ticket from
+   the `?ticket=…` query parameter, verifies it exists, has not expired, and
+   matches the character bound at issuance. Invalid, expired, missing, or
+   already-consumed tickets MUST cause the upgrade to fail (HTTP 401) or, if
+   the upgrade has already completed, the WebSocket to close with code
+   `4401` (or `1008` Policy Violation).
+6. **Post-consumption.** Once consumed, the WebSocket connection is the
+   authenticated session — no per-frame re-auth is required for its
+   lifetime. Closing the WebSocket ends the gameplay session; reconnecting
+   requires a fresh ticket.
+
+`/feed` is exempt from this scheme: it is unauthenticated read-only and any
+inbound data frame from a `/feed` client is a protocol violation that the
+server MUST close with WebSocket close code `1003` (Unsupported Data) as
+specified in the table above.
+
+#### 6.3.2 DoS Mitigations
+
+Both endpoints SHOULD implement defense-in-depth controls. The values below
+are interoperable defaults — implementations MAY tune them but SHOULD stay
+within the same order of magnitude so clients written against one server
+behave reasonably on another.
+
+**`/feed` (unauthenticated):**
+
+- *Per-IP concurrent-connection cap:* RECOMMENDED 8. Reject excess upgrades
+  with WebSocket close code `1013` (Try Again Later).
+- *Global concurrent-connection cap:* RECOMMENDED 100 (tune for capacity).
+  Reject excess upgrades with `1013`.
+- *Cap value `0` or negative:* SHOULD be interpreted as "no limit" so an
+  accidental misconfiguration does not deny all traffic.
+- *Server→client ping interval:* RECOMMENDED 30 s (range 30–60 s).
+- *Client pong timeout:* RECOMMENDED 90 s (3× ping interval). After 2
+  consecutive missed pongs the server SHOULD close with `1011` and reclaim
+  the slot.
+- *Inbound data frame:* protocol violation; close with `1003` per §6.3.
+
+**`/` (authenticated gameplay):**
+
+- *Per-session command throughput:* RECOMMENDED token-bucket of **burst 20,
+  refill 5 commands/s**. Excess `command` and `input` envelopes SHOULD be
+  dropped with a `:::system{type="warning"}` envelope rather than closing
+  the connection — a player smashing keys should not be disconnected.
+- *Backpressure:* if the outbound buffer for a session exceeds an
+  implementation-defined high-water mark, the server SHOULD pause command
+  processing for that session until the buffer drains, and MAY close with
+  `1009` (Message Too Big) or `1011` if the client never reads.
+- *Circuit breaker for downstream services* (LLM hint generation, database,
+  external APIs): on repeated failure the server SHOULD short-circuit to a
+  static fallback rather than queue requests indefinitely.
+- *Ticket-issuance rate limit:* `GET /auth/ws-ticket` SHOULD be rate-limited
+  per account (RECOMMENDED 5 tickets / 60 s).
+
+These defaults match a single-server deployment of a few hundred concurrent
+players. Servers operating at larger scale or behind an L7 load balancer
+SHOULD enforce caps at both layers.
+
 ## 7. AI Integration Hooks
 
 ### 7.1 Tool-Calling Schema

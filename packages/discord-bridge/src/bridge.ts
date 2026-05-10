@@ -39,6 +39,8 @@ import {
 } from "./commands.js";
 import type { DiscordSession } from "./sessions.js";
 import { LINK_SELECT_CUSTOM_ID, renderEnvelope } from "./render.js";
+import { FeedSubscriber } from "./feed-subscriber.js";
+import type { FeedChannel } from "./feed-subscriber.js";
 import {
   dispatchGameplayCommand,
   formatWhoStatus,
@@ -121,6 +123,7 @@ class BridgeLifecycle {
   private readonly deliveryFailureStreak = new Map<string, number>();
   private readonly reconnectNotifier = new ReconnectNotifier();
   private idleSweepTimer: ReturnType<typeof setInterval> | undefined;
+  private feedSubscriber: FeedSubscriber | undefined;
 
   async main(): Promise<void> {
     if (this.isShuttingDown || this.client) return;
@@ -158,6 +161,15 @@ class BridgeLifecycle {
     this.disposeConnections();
     this.deliveryFailureStreak.clear();
     this.reconnectNotifier.clear();
+    if (this.feedSubscriber) {
+      try {
+        this.feedSubscriber.stop();
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn("[muddown-discord-bridge] feed subscriber stop() failed during shutdown:", error);
+      }
+      this.feedSubscriber = undefined;
+    }
     const clearedSessions = this.sessions.clear();
     if (clearedSessions > 0) {
       // eslint-disable-next-line no-console
@@ -177,6 +189,15 @@ class BridgeLifecycle {
     this.disposeConnections();
     this.deliveryFailureStreak.clear();
     this.reconnectNotifier.clear();
+    if (this.feedSubscriber) {
+      try {
+        this.feedSubscriber.stop();
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn("[muddown-discord-bridge] feed subscriber stop() failed during reset:", error);
+      }
+      this.feedSubscriber = undefined;
+    }
     this.client = undefined;
     this.config = undefined;
     const clearedSessions = this.sessions.clear();
@@ -245,6 +266,68 @@ class BridgeLifecycle {
     console.log(
       `[muddown-discord-bridge] logged in as ${formatUserTag(client.user)}; registered ${DISCORD_COMMANDS.length} slash commands (${scope})`,
     );
+
+    await this.startFeedSubscriber(client);
+  }
+
+  private async startFeedSubscriber(client: Client<true>): Promise<void> {
+    const config = this.config;
+    if (!config?.feedChannelId) return;
+    let channel: Awaited<ReturnType<typeof client.channels.fetch>>;
+    try {
+      channel = await client.channels.fetch(config.feedChannelId);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[muddown-discord-bridge] feed channel fetch failed (id=${config.feedChannelId}) — feed channel is DISABLED until bot restart:`,
+        error,
+      );
+      return;
+    }
+    // Re-check lifecycle after the await: if shutdown() or reset() ran while
+    // the channel fetch was in flight, this.client has been cleared (or
+    // replaced by a subsequent login). Bail out without starting the
+    // subscriber; otherwise we'd write an orphaned FeedSubscriber back into
+    // this.feedSubscriber that no future stop() call could ever reach.
+    if (this.client !== client) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[muddown-discord-bridge] bridge lifecycle changed during feed channel fetch — feed subscriber not started`,
+      );
+      return;
+    }
+    if (channel === null) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[muddown-discord-bridge] feed channel ${config.feedChannelId} not found or inaccessible (bot lacks View Channel?) — feed channel is DISABLED until bot restart`,
+      );
+      return;
+    }
+    if (!channel.isTextBased() || !channel.isSendable()) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[muddown-discord-bridge] feed channel ${config.feedChannelId} is not a text-sendable channel (got type ${channel.type}) — feed channel is DISABLED until bot restart`,
+      );
+      return;
+    }
+    const sendable: FeedChannel = channel;
+    try {
+      this.feedSubscriber = new FeedSubscriber({
+        serverUrl: config.serverUrl,
+        channel: sendable,
+      });
+      this.feedSubscriber.start();
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[muddown-discord-bridge] feed subscriber failed to start (channel=${config.feedChannelId}) — feed channel is DISABLED until bot restart:`,
+        error,
+      );
+      this.feedSubscriber = undefined;
+      return;
+    }
+    // eslint-disable-next-line no-console
+    console.log(`[muddown-discord-bridge] feed subscriber started (channel=${config.feedChannelId})`);
   }
 
   private async handleInteraction(interaction: Interaction): Promise<void> {

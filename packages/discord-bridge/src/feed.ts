@@ -73,3 +73,29 @@ export function isWorldScopeEnvelope(envelope: ServerMessage): boolean {
     return false;
   }
 }
+
+/**
+ * Match a Markdown link whose destination uses one of the MUDdown interactive
+ * schemes (per SPECIFICATION.md §4: `go:`, `cmd:`, `item:`, `npc:`, `player:`,
+ * `help:`). Capture group 1 is the visible link text. The destination must
+ * not contain `)` so a simple `[^)]*` body is sufficient — MUDdown
+ * destinations don't carry parentheses by spec.
+ *
+ * Anchored neither at start-of-line nor end so it matches links anywhere
+ * in the body. Multiple links per line are handled by the global flag.
+ */
+const INTERACTIVE_LINK = /\[([^\]]+)\]\((?:go|cmd|item|npc|player|help):[^)]*\)/g;
+
+/**
+ * Strip MUDdown interactive-scheme links from a body, keeping the visible
+ * text. Used by the public-feed publisher: a shared Discord channel has no
+ * per-user session, so `[north](go:north)` would be a misleading dead button.
+ * Replacing it with `north` preserves the prose meaning without inviting
+ * clicks that can't resolve to anything.
+ *
+ * External `https://` / `http://` URLs and non-link Markdown are left
+ * untouched.
+ */
+export function stripInteractiveLinks(body: string): string {
+  return body.replace(INTERACTIVE_LINK, "$1");
+}

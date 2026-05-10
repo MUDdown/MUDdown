@@ -755,6 +755,71 @@ export function buildWorldBroadcastBlock(
   return `:::system{type="${safeType}" scope="world"}\n${safeText}\n:::`;
 }
 
+// ─── Public /feed Endpoint Helpers ───────────────────────────────────────────
+
+/**
+ * Resolve the client IP for an incoming HTTP/WS request.
+ *
+ * When `trustProxy` is true, reads the rightmost (closest-hop) entry from
+ * `X-Forwarded-For` so the immediate proxy's appended client IP is used and
+ * any client-supplied prefix is ignored. When false (the safe default for
+ * deployments that don't sit behind a reverse proxy), falls back to the
+ * socket peer address — clients cannot forge that.
+ *
+ * Returns `"unknown"` when no address can be resolved so per-IP bookkeeping
+ * still has a stable key (one shared bucket for unidentifiable peers).
+ */
+export function getClientIp(
+  headers: Readonly<Record<string, string | string[] | undefined>>,
+  remoteAddress: string | undefined,
+  trustProxy: boolean,
+): string {
+  if (trustProxy) {
+    const raw = headers["x-forwarded-for"];
+    const xff = Array.isArray(raw) ? raw.join(",") : raw;
+    if (typeof xff === "string" && xff.length > 0) {
+      const parts = xff.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+      const rightmost = parts[parts.length - 1];
+      if (rightmost) return rightmost;
+    }
+  }
+  return remoteAddress && remoteAddress.length > 0 ? remoteAddress : "unknown";
+}
+
+/**
+ * Decide whether to admit a new public-feed WebSocket connection from `ip`.
+ *
+ * The `/feed` endpoint is unauthenticated by design (it only ever emits
+ * `scope="world"` envelopes), so two caps prevent trivial socket-exhaustion
+ * DoS:
+ *
+ * - `capTotal` bounds the global feed-subscriber count.
+ * - `capPerIp` bounds connections from any single client IP.
+ *
+ * A cap value `<= 0` is treated as "no limit" so an accidental zero/negative
+ * config does not silently deny all feed traffic. Operators who want to
+ * disable the endpoint entirely should not bind the route in the first place.
+ *
+ * Returns `{ ok: true }` to admit, otherwise `{ ok: false, reason }` so
+ * callers can distinguish global vs. per-IP refusal in close codes / logs.
+ */
+export type FeedAdmitResult =
+  | { ok: true }
+  | { ok: false; reason: "global-cap" | "per-ip-cap" };
+
+export function canAcceptFeedConnection(
+  ip: string,
+  perIpCounts: ReadonlyMap<string, number>,
+  totalCount: number,
+  capPerIp: number,
+  capTotal: number,
+): FeedAdmitResult {
+  if (capTotal > 0 && totalCount >= capTotal) return { ok: false, reason: "global-cap" };
+  const perIp = perIpCounts.get(ip) ?? 0;
+  if (capPerIp > 0 && perIp >= capPerIp) return { ok: false, reason: "per-ip-cap" };
+  return { ok: true };
+}
+
 // ─── Hint Context Builder ────────────────────────────────────────────────────
 
 export interface BuildHintContextInput {
