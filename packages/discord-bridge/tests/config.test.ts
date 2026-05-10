@@ -1,5 +1,26 @@
 import { describe, it, expect } from "vitest";
 import { loadConfig, DiscordBridgeConfigError } from "../src/config.js";
+import {
+  GAMEPLAY_DELIVERY_BACKOFF_MS,
+  GAMEPLAY_DELIVERY_RETRIES,
+  MAX_CONSECUTIVE_DELIVERY_FAILURES,
+  MAX_GAMEPLAY_DELIVERY_BACKOFF_MS,
+} from "../src/delivery-policy.js";
+import { IDLE_CHECK_INTERVAL_MS, IDLE_TIMEOUT_MS } from "../src/idle-policy.js";
+
+const REQUIRED_ENV = {
+  MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+  MUDDOWN_SERVER_URL: "ws://localhost:3300",
+} as const;
+
+const DEFAULT_TUNABLES = {
+  idleTimeoutMs: IDLE_TIMEOUT_MS,
+  idleCheckIntervalMs: IDLE_CHECK_INTERVAL_MS,
+  deliveryRetries: GAMEPLAY_DELIVERY_RETRIES,
+  deliveryBackoffMs: GAMEPLAY_DELIVERY_BACKOFF_MS,
+  maxDeliveryBackoffMs: MAX_GAMEPLAY_DELIVERY_BACKOFF_MS,
+  maxConsecutiveDeliveryFailures: MAX_CONSECUTIVE_DELIVERY_FAILURES,
+};
 
 describe("loadConfig", () => {
   it("throws when MUDDOWN_DISCORD_BOT_TOKEN is absent", () => {
@@ -74,6 +95,7 @@ describe("loadConfig", () => {
       botToken: "abc.def.ghi",
       serverUrl: "ws://localhost:3300",
       guildId: undefined,
+      tunables: DEFAULT_TUNABLES,
     });
   });
 
@@ -128,6 +150,89 @@ describe("loadConfig", () => {
     } catch (err) {
       expect(err).toBeInstanceOf(DiscordBridgeConfigError);
       expect((err as Error).name).toBe("DiscordBridgeConfigError");
+    }
+  });
+});
+
+describe("loadConfig tunables", () => {
+  const ENV_VARS = [
+    "MUDDOWN_DISCORD_IDLE_TIMEOUT_MS",
+    "MUDDOWN_DISCORD_IDLE_CHECK_INTERVAL_MS",
+    "MUDDOWN_DISCORD_DELIVERY_RETRIES",
+    "MUDDOWN_DISCORD_DELIVERY_BACKOFF_MS",
+    "MUDDOWN_DISCORD_MAX_DELIVERY_BACKOFF_MS",
+    "MUDDOWN_DISCORD_MAX_CONSECUTIVE_DELIVERY_FAILURES",
+  ] as const;
+
+  it("applies built-in defaults when no tunable env vars are set", () => {
+    const config = loadConfig({ ...REQUIRED_ENV });
+    expect(config.tunables).toEqual(DEFAULT_TUNABLES);
+  });
+
+  it("applies built-in defaults when tunable env vars are empty strings", () => {
+    const overrides: Record<string, string> = { ...REQUIRED_ENV };
+    for (const name of ENV_VARS) overrides[name] = "";
+    const config = loadConfig(overrides);
+    expect(config.tunables).toEqual(DEFAULT_TUNABLES);
+  });
+
+  it("applies built-in defaults when tunable env vars are whitespace-only", () => {
+    const overrides: Record<string, string> = { ...REQUIRED_ENV };
+    for (const name of ENV_VARS) overrides[name] = "   ";
+    const config = loadConfig(overrides);
+    expect(config.tunables).toEqual(DEFAULT_TUNABLES);
+  });
+
+  it("accepts valid positive-integer overrides for every tunable", () => {
+    const config = loadConfig({
+      ...REQUIRED_ENV,
+      MUDDOWN_DISCORD_IDLE_TIMEOUT_MS: "120000",
+      MUDDOWN_DISCORD_IDLE_CHECK_INTERVAL_MS: "5000",
+      MUDDOWN_DISCORD_DELIVERY_RETRIES: "5",
+      MUDDOWN_DISCORD_DELIVERY_BACKOFF_MS: "100",
+      MUDDOWN_DISCORD_MAX_DELIVERY_BACKOFF_MS: "10000",
+      MUDDOWN_DISCORD_MAX_CONSECUTIVE_DELIVERY_FAILURES: "10",
+    });
+    expect(config.tunables).toEqual({
+      idleTimeoutMs: 120000,
+      idleCheckIntervalMs: 5000,
+      deliveryRetries: 5,
+      deliveryBackoffMs: 100,
+      maxDeliveryBackoffMs: 10000,
+      maxConsecutiveDeliveryFailures: 10,
+    });
+  });
+
+  it("trims surrounding whitespace before parsing", () => {
+    const config = loadConfig({
+      ...REQUIRED_ENV,
+      MUDDOWN_DISCORD_DELIVERY_RETRIES: "  4\n",
+    });
+    expect(config.tunables.deliveryRetries).toBe(4);
+  });
+
+  for (const invalid of ["0", "-1", "abc", "Infinity", "NaN", "1.5"]) {
+    it(`rejects ${JSON.stringify(invalid)} for MUDDOWN_DISCORD_IDLE_TIMEOUT_MS`, () => {
+      expect(() =>
+        loadConfig({
+          ...REQUIRED_ENV,
+          MUDDOWN_DISCORD_IDLE_TIMEOUT_MS: invalid,
+        }),
+      ).toThrow(DiscordBridgeConfigError);
+    });
+  }
+
+  it("includes the env var name in the validation error message", () => {
+    try {
+      loadConfig({
+        ...REQUIRED_ENV,
+        MUDDOWN_DISCORD_DELIVERY_RETRIES: "-3",
+      });
+      expect.fail("loadConfig should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DiscordBridgeConfigError);
+      expect((err as Error).message).toMatch(/MUDDOWN_DISCORD_DELIVERY_RETRIES/);
+      expect((err as Error).message).toMatch(/positive integer/);
     }
   });
 });
