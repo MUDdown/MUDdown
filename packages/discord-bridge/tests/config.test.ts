@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loadConfig, DiscordBridgeConfigError } from "../src/config.js";
+import { loadConfig, DiscordBridgeConfigError, parsePositiveIntEnv } from "../src/config.js";
 import {
   GAMEPLAY_DELIVERY_BACKOFF_MS,
   GAMEPLAY_DELIVERY_RETRIES,
@@ -152,6 +152,16 @@ describe("loadConfig", () => {
       expect((err as Error).name).toBe("DiscordBridgeConfigError");
     }
   });
+});
+
+describe("parsePositiveIntEnv defaultValue validation", () => {
+  for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+    it(`rejects ${bad} as a default to catch caller bugs`, () => {
+      expect(() => parsePositiveIntEnv("X_TEST", undefined, bad)).toThrow(
+        DiscordBridgeConfigError,
+      );
+    });
+  }
 });
 
 describe("loadConfig tunables", () => {

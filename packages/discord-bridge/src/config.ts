@@ -65,6 +65,11 @@ export function parsePositiveIntEnv(
   raw: string | undefined,
   defaultValue: number,
 ): number {
+  if (!Number.isFinite(defaultValue) || !Number.isInteger(defaultValue) || defaultValue <= 0) {
+    throw new DiscordBridgeConfigError(
+      `internal: default for ${name} must be a positive integer (got ${defaultValue})`,
+    );
+  }
   const trimmed = raw?.trim();
   if (trimmed === undefined || trimmed === "") return defaultValue;
   const parsed = Number(trimmed);
