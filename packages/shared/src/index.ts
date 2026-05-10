@@ -65,6 +65,19 @@ export interface DialogueAttributes extends BlockAttributes {
   mood?: string;
 }
 
+export interface SystemAttributes extends BlockAttributes {
+  /** Free-form notification kind (welcome, who, inventory, hint, error, …). */
+  type?: string;
+  /**
+   * Audience selector. `player` (default) means the single recipient session.
+   * `world` means broadcast-eligible — every connected session plus subscribed
+   * external feeds (Discord channel, IRC bridge, …). Unknown values MUST be
+   * treated as `player` so forward-compat clients never accidentally broadcast.
+   * See SPECIFICATION.md §3.6.
+   */
+  scope?: "player" | "world";
+}
+
 // ─── Parsed Block ────────────────────────────────────────────────────────────
 
 export interface MUDdownBlock {

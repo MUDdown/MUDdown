@@ -95,6 +95,7 @@ describe("loadConfig", () => {
       botToken: "abc.def.ghi",
       serverUrl: "ws://localhost:3300",
       guildId: undefined,
+      feedChannelId: undefined,
       tunables: DEFAULT_TUNABLES,
     });
   });
@@ -142,6 +143,60 @@ describe("loadConfig", () => {
     });
     expect(config.guildId).toBeUndefined();
   });
+
+  it("includes feedChannelId when MUDDOWN_DISCORD_FEED_CHANNEL_ID is a valid snowflake", () => {
+    const config = loadConfig({
+      MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+      MUDDOWN_SERVER_URL: "ws://localhost:3300",
+      MUDDOWN_DISCORD_FEED_CHANNEL_ID: "987654321098765432",
+    });
+    expect(config.feedChannelId).toBe("987654321098765432");
+  });
+
+  it("trims surrounding whitespace from feedChannelId", () => {
+    const config = loadConfig({
+      MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+      MUDDOWN_SERVER_URL: "ws://localhost:3300",
+      MUDDOWN_DISCORD_FEED_CHANNEL_ID: " 987654321098765432 ",
+    });
+    expect(config.feedChannelId).toBe("987654321098765432");
+  });
+
+  it("treats whitespace-only feedChannelId as unset", () => {
+    const config = loadConfig({
+      MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+      MUDDOWN_SERVER_URL: "ws://localhost:3300",
+      MUDDOWN_DISCORD_FEED_CHANNEL_ID: "   ",
+    });
+    expect(config.feedChannelId).toBeUndefined();
+  });
+
+  it("leaves feedChannelId undefined when MUDDOWN_DISCORD_FEED_CHANNEL_ID is absent", () => {
+    const config = loadConfig({
+      MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+      MUDDOWN_SERVER_URL: "ws://localhost:3300",
+    });
+    expect(config.feedChannelId).toBeUndefined();
+  });
+
+  for (const bad of [
+    "abc",                  // non-numeric
+    "0123456789012345678",  // leading zero
+    "1234567890123456",     // 16 digits (too short)
+    "123456789012345678901",// 21 digits (too long)
+    "12345 67890123456789", // embedded whitespace
+    "123456789012345678a",  // trailing junk
+  ]) {
+    it(`rejects feedChannelId ${JSON.stringify(bad)} as not a snowflake`, () => {
+      expect(() =>
+        loadConfig({
+          MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+          MUDDOWN_SERVER_URL: "ws://localhost:3300",
+          MUDDOWN_DISCORD_FEED_CHANNEL_ID: bad,
+        }),
+      ).toThrow(/MUDDOWN_DISCORD_FEED_CHANNEL_ID must be a Discord snowflake/);
+    });
+  }
 
   it("DiscordBridgeConfigError carries the right name for instanceof checks", () => {
     try {

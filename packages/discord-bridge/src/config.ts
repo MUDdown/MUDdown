@@ -42,6 +42,12 @@ export interface DiscordBridgeConfig {
   serverUrl: WebSocketUrl;
   /** Optional guild for guild-scoped slash-command registration during development. */
   guildId: string | undefined;
+  /**
+   * Optional Discord channel to receive world-scope system broadcasts (server
+   * boot/reboot, scheduled downtime, public events). When unset the feed is
+   * disabled; per-player DM gameplay is unaffected.
+   */
+  feedChannelId: string | undefined;
   /** Numeric runtime knobs (defaults applied when env vars are unset). */
   tunables: DiscordBridgeTunables;
 }
@@ -81,10 +87,26 @@ export function parsePositiveIntEnv(
   return parsed;
 }
 
+/**
+ * Discord snowflake IDs are 64-bit integers serialized as decimal strings.
+ * Real-world IDs land in the 17–20 digit range; we accept that span and
+ * reject anything else (including leading zeros or non-digit characters)
+ * so a typo in the channel ID fails fast at startup rather than 404ing on
+ * the first publish attempt.
+ */
+const DISCORD_SNOWFLAKE = /^[1-9]\d{16,19}$/;
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeConfig {
   const botToken = env.MUDDOWN_DISCORD_BOT_TOKEN?.trim();
   const serverUrl = env.MUDDOWN_SERVER_URL?.trim();
   const guildId = env.MUDDOWN_DISCORD_GUILD_ID?.trim() || undefined;
+  const feedChannelIdRaw = env.MUDDOWN_DISCORD_FEED_CHANNEL_ID?.trim();
+  const feedChannelId = feedChannelIdRaw || undefined;
+  if (feedChannelId !== undefined && !DISCORD_SNOWFLAKE.test(feedChannelId)) {
+    throw new DiscordBridgeConfigError(
+      `MUDDOWN_DISCORD_FEED_CHANNEL_ID must be a Discord snowflake (17–20 digits, no leading zero); got ${JSON.stringify(feedChannelIdRaw)}`,
+    );
+  }
   if (!botToken) {
     throw new DiscordBridgeConfigError("MUDDOWN_DISCORD_BOT_TOKEN is required");
   }
@@ -155,6 +177,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeC
     botToken,
     serverUrl: serverUrl as WebSocketUrl,
     guildId,
+    feedChannelId,
     tunables,
   };
 }
