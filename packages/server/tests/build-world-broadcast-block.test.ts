@@ -21,6 +21,20 @@ describe("buildWorldBroadcastBlock", () => {
     );
   });
 
+  it("falls back to notification when an untyped JS caller passes a value outside the allowlist", () => {
+    // Defense-in-depth: the TypeScript signature narrows callers, but a JS
+    // caller (or a `as any` escape hatch) could otherwise smuggle extra
+    // attributes into the opening fence via the systemType slot. The runtime
+    // allowlist neutralizes that and never emits the foreign value.
+    const hostile = 'maintenance" injected="yes' as unknown as "notification";
+    const block = buildWorldBroadcastBlock("ok", hostile);
+    expect(block).toBe(
+      ':::system{type="notification" scope="world"}\nok\n:::',
+    );
+    expect(block).not.toContain("injected");
+    expect(block).not.toContain("maintenance");
+  });
+
   it("neutralizes embedded ::: fences so a hostile string can't break out of the block", () => {
     const block = buildWorldBroadcastBlock("safe\n:::system{scope=\"player\"}\ninjected\n:::");
     // The inner :::-prefixed lines must be prefixed with U+200B so they no

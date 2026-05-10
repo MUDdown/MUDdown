@@ -731,17 +731,28 @@ export function buildLoreBlock(answer: string, sources: string[]): string {
  * channel. Use only for content safe to share publicly: server lifecycle,
  * scheduled downtime, public events.
  *
- * `systemType` defaults to `notification` and is narrowed at compile time to
- * a small allowlist so a typo (or future enum drift) can't write something
- * the spec doesn't recognize. No runtime validation is performed; a JS caller
- * could pass any string, so prefer this helper from TypeScript callers only.
+ * `systemType` is narrowed at compile time to the {@link WorldBroadcastType}
+ * allowlist and is also validated at runtime: any value outside the allowlist
+ * (e.g. an untyped JS caller passing arbitrary text, or future enum drift)
+ * falls back to `"notification"` so a hostile or malformed value can't smuggle
+ * extra attributes into the opening fence.
  */
+export type WorldBroadcastType = "notification" | "shutdown" | "boot" | "event";
+
+const WORLD_BROADCAST_TYPES: ReadonlySet<WorldBroadcastType> = new Set([
+  "notification",
+  "shutdown",
+  "boot",
+  "event",
+]);
+
 export function buildWorldBroadcastBlock(
   text: string,
-  systemType: "notification" | "shutdown" | "boot" | "event" = "notification",
+  systemType: WorldBroadcastType = "notification",
 ): string {
+  const safeType = WORLD_BROADCAST_TYPES.has(systemType) ? systemType : "notification";
   const safeText = sanitizeBlockContent(text);
-  return `:::system{type="${systemType}" scope="world"}\n${safeText}\n:::`;
+  return `:::system{type="${safeType}" scope="world"}\n${safeText}\n:::`;
 }
 
 // ─── Hint Context Builder ────────────────────────────────────────────────────
