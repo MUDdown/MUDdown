@@ -1,0 +1,1 @@
+../../../.github/skills/discord-bridge/SKILL.md

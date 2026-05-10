@@ -1,6 +1,6 @@
 # MUDdown Operator
 
-A Claude Code plugin that bundles the agent skills needed to operate a MUDdown server: the telnet bridge with OSC 8 hyperlink support, and OAuth/OIDC identity provider integration.
+A Claude Code plugin that bundles the agent skills needed to operate a MUDdown server: the telnet bridge with OSC 8 hyperlink support, the Discord-as-client bridge, and OAuth/OIDC identity provider integration.
 
 This plugin is intended for **ops-focused contributors** running a MUDdown server who want the same operational guidance the reference deployment uses.
 
@@ -9,6 +9,7 @@ This plugin is intended for **ops-focused contributors** running a MUDdown serve
 | Skill | Purpose |
 |-------|---------|
 | `/muddown-operator:osc8-bridge` | Add or modify OSC 8 hyperlink capabilities in the telnet bridge — NEW-ENVIRON negotiation, Mudlet `send:`/`prompt:` URIs, tooltip/menu metadata, word-wrap envelope invariant |
+| `/muddown-operator:discord-bridge` | Work on the Discord-as-client bridge — renderer invariants, button `custom_id` encoding, no-auto-message rule, multi-character picker flow, public `/feed` subscriber |
 | `/muddown-operator:oauth-provider` | Add a new OAuth/OIDC identity provider (shared types, auth switches, server config, login button, env vars, tests) |
 
 The skill files are symlinks to `.github/skills/<name>/` so the source of truth stays with the canonical MUDdown repo.
@@ -21,7 +22,7 @@ From a checkout of `MUDdown/MUDdown`:
 claude --plugin-dir .github/plugins/muddown-operator
 ```
 
-After Claude Code starts, run `/help` and confirm both skills appear under the `muddown-operator` namespace. Restart Claude Code to pick up edits.
+After Claude Code starts, run `/help` and confirm all three skills appear under the `muddown-operator` namespace. Restart Claude Code to pick up edits.
 
 ## Distribution
 
