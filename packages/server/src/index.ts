@@ -65,13 +65,13 @@ const RESPAWN_ROOM = "town-square";
 const NPC_RESPAWN_MS = 20 * 60 * 1000; // 20 minutes
 const SAVE_INTERVAL_MS = 60 * 1000;    // auto-save every 60 seconds
 
-// Rate limiting — configurable via env
+// Positive-integer env helper, used for both rate-limit and `/feed` tunables.
 function envInt(key: string, fallback: number): number {
   const raw = process.env[key];
   if (raw === undefined || raw === "") return fallback;
   const n = Number(raw);
   if (!Number.isInteger(n) || n <= 0) {
-    console.warn(`[rate-limit] invalid ${key}=${raw} (must be a positive integer), using default ${fallback}`);
+    console.warn(`[env] invalid ${key}=${raw} (must be a positive integer), using default ${fallback}`);
     return fallback;
   }
   return n;
@@ -394,6 +394,13 @@ feedWss.on("connection", (ws, req: IncomingMessage) => {
     // 1013 "Try Again Later" is the closest standard close code to a soft
     // capacity refusal. Per-IP and global use the same code; the reason
     // string disambiguates for operators reading logs.
+    //
+    // Attach an error listener BEFORE close(): if the cap-rejected socket
+    // hits a transport error during the close handshake (most plausible
+    // precisely under the DoS load that triggered the cap), an unhandled
+    // 'error' event would crash the process. Swallowing here is safe —
+    // the connection is already being closed.
+    ws.on("error", () => { /* ignore — already closing */ });
     ws.close(1013, admit.reason);
     return;
   }

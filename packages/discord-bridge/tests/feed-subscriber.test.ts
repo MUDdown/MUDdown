@@ -224,6 +224,35 @@ describe("FeedSubscriber", () => {
     subscriber.stop();
   });
 
+  it("decodes a fragmented Buffer[] frame correctly", async () => {
+    // `ws` can deliver fragmented binary frames as Buffer[]. The naive
+    // .toString("utf-8") on an array returns "[object Object]"; we must
+    // Buffer.concat() first or the feed silently drops valid envelopes.
+    const { subscriber, sockets, calls } = makeSubscriber();
+    subscriber.start();
+    sockets[0]!.emit("open");
+    const halfA = Buffer.from(SAMPLE_WORLD_ENVELOPE.slice(0, 20));
+    const halfB = Buffer.from(SAMPLE_WORLD_ENVELOPE.slice(20));
+    sockets[0]!.emit("message", [halfA, halfB]);
+    await new Promise((r) => setImmediate(r));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.embeds[0]!.description).toContain("Server is up.");
+    subscriber.stop();
+  });
+
+  it("decodes an ArrayBuffer frame correctly", async () => {
+    const { subscriber, sockets, calls } = makeSubscriber();
+    subscriber.start();
+    sockets[0]!.emit("open");
+    const buf = Buffer.from(SAMPLE_WORLD_ENVELOPE);
+    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    sockets[0]!.emit("message", ab);
+    await new Promise((r) => setImmediate(r));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.embeds[0]!.description).toContain("Server is up.");
+    subscriber.stop();
+  });
+
   it("schedules a reconnect on close and reconnects", () => {
     const { subscriber, sockets, scheduler, constructorCalls } = makeSubscriber();
     subscriber.start();

@@ -263,7 +263,7 @@ class BridgeLifecycle {
   private async startFeedSubscriber(client: Client<true>): Promise<void> {
     const config = this.config;
     if (!config?.feedChannelId) return;
-    let channel;
+    let channel: Awaited<ReturnType<typeof client.channels.fetch>>;
     try {
       channel = await client.channels.fetch(config.feedChannelId);
     } catch (error) {

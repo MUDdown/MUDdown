@@ -169,7 +169,20 @@ export class FeedSubscriber {
   private async handleMessage(data: WebSocket.RawData): Promise<void> {
     let envelope: ServerMessage;
     try {
-      const text = typeof data === "string" ? data : data.toString("utf-8");
+      // `ws` delivers RawData in three shapes: string, Buffer, Buffer[]
+      // (fragmented), or ArrayBuffer. Normalize like the server's
+      // compliance probe does so a fragmented frame doesn't get
+      // stringified to "[object Object]" and silently fail JSON.parse.
+      let text: string;
+      if (typeof data === "string") {
+        text = data;
+      } else if (Array.isArray(data)) {
+        text = Buffer.concat(data).toString("utf-8");
+      } else if (data instanceof ArrayBuffer) {
+        text = Buffer.from(data).toString("utf-8");
+      } else {
+        text = data.toString("utf-8");
+      }
       envelope = JSON.parse(text) as ServerMessage;
     } catch (err) {
       // Malformed frame from the server. The server is the sole writer to
