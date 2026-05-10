@@ -452,8 +452,8 @@ Tasks:
 - [x] Tests (`vitest`): renderer fixtures (envelope → expected embed/components shape), connection-manager unit tests, account-linking round trip, character-switch flow — 183 tests across 10 files
 - [x] Systemd unit (`deploy/muddown-discord-bridge.service`) parallel to `muddown-bridge.service` — shipped in [#107](https://github.com/MUDdown/MUDdown/pull/107) (env-tunable config + `setup.sh` wiring)
 - [x] Wiki: new `Discord-Bridge.md` page (sibling to `Telnet-Bridge.md`); link from `_Sidebar.md` and `Home.md`
-- [ ] Skill: new `.github/skills/discord-bridge/SKILL.md` covering renderer invariants, button-id encoding, the no-auto-message rule, and the multi-character picker flow
-- [ ] Plugin: add `discord-bridge` to the `muddown-operator` plugin (`.github/plugins/muddown-operator/skills/discord-bridge/` directory symlink + README table + AGENTS.md skills table)
+- [x] Skill: new `.github/skills/discord-bridge/SKILL.md` covering renderer invariants, button-id encoding, the no-auto-message rule, and the multi-character picker flow
+- [x] Plugin: add `discord-bridge` to the `muddown-operator` plugin (`.github/plugins/muddown-operator/skills/discord-bridge/` directory symlink + README table + AGENTS.md skills table)
 
 ##### Public feed channel (`scope="world"` broadcasts)
 

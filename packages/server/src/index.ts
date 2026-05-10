@@ -77,6 +77,21 @@ function envInt(key: string, fallback: number): number {
   return n;
 }
 
+// Non-negative-integer env helper for tunables where `0` is a documented
+// "disable this cap" value (see `canAcceptFeedConnection`, which treats
+// `cap <= 0` as unlimited). Keeps the strict-positive `envInt` for knobs
+// where `0` would be a bug (e.g. token-bucket refill rates, ping intervals).
+function envIntNonNeg(key: string, fallback: number): number {
+  const raw = process.env[key];
+  if (raw === undefined || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0) {
+    console.warn(`[env] invalid ${key}=${raw} (must be a non-negative integer), using default ${fallback}`);
+    return fallback;
+  }
+  return n;
+}
+
 const RATE_LIMIT_BURST  = envInt("RATE_LIMIT_BURST", 20);
 const RATE_LIMIT_REFILL = envInt("RATE_LIMIT_REFILL", 5);
 console.log(`[rate-limit] burst=${RATE_LIMIT_BURST} refill=${RATE_LIMIT_REFILL}/s`);
@@ -86,8 +101,8 @@ console.log(`[rate-limit] burst=${RATE_LIMIT_BURST} refill=${RATE_LIMIT_REFILL}/
 // exhaustion. Set FEED_TRUST_PROXY=1 only when running behind a reverse proxy
 // that appends the real client IP to X-Forwarded-For; otherwise the header is
 // ignored and the socket peer is used.
-const FEED_CAP_PER_IP   = envInt("FEED_CAP_PER_IP", 8);
-const FEED_CAP_TOTAL    = envInt("FEED_CAP_TOTAL", 100);
+const FEED_CAP_PER_IP   = envIntNonNeg("FEED_CAP_PER_IP", 8);
+const FEED_CAP_TOTAL    = envIntNonNeg("FEED_CAP_TOTAL", 100);
 const FEED_PING_MS      = envInt("FEED_PING_MS", 30_000);
 const FEED_TRUST_PROXY  = process.env.FEED_TRUST_PROXY === "1";
 
