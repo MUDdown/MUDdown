@@ -5,6 +5,7 @@ import {
   resolveGameLink,
   MUDdownConnection,
   buildWsUrl,
+  makeTicketRefresh,
 } from "@muddown/client";
 import type { InvState } from "@muddown/client";
 import { invoke } from "@tauri-apps/api/core";
@@ -600,6 +601,14 @@ function connectToServer(ticket?: string): void {
         if (currentHintMode === "off") applyHintMode("persistent");
       },
       onInventory: (state) => renderInventoryState(state),
+      // Pass a getter so the closure always reads the current authToken,
+      // even if it rotates between reconnect cycles. Guests and signed-out
+      // states return undefined, which makeTicketRefresh forwards as the
+      // documented "guest fallback" so the connection still reconnects.
+      onReconnecting: makeTicketRefresh({
+        apiBase,
+        sessionToken: () => (isGuest || !authToken ? undefined : authToken),
+      }),
       onClose: (willReconnect) => {
         if (willReconnect) {
           appendMessage("*Disconnected. Reconnecting in 3s...*", "system");

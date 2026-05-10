@@ -87,6 +87,8 @@ class MockWebSocket {
 
 describe("MUDdownConnection", () => {
   let origWebSocket: typeof globalThis.WebSocket;
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+  let errSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     origWebSocket = globalThis.WebSocket;
@@ -94,11 +96,19 @@ describe("MUDdownConnection", () => {
     globalThis.WebSocket = MockWebSocket;
     MockWebSocket.instances.length = 0;
     vi.useFakeTimers();
+    // Silence the constructor "no onReconnecting handler" warning and the
+    // session-downgrade error log. Most tests in this file exercise those
+    // paths intentionally; their own observability is covered by dedicated
+    // tests below.
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
   afterEach(() => {
     globalThis.WebSocket = origWebSocket;
     vi.useRealTimers();
+    warnSpy.mockRestore();
+    errSpy.mockRestore();
   });
 
   it("fires onOpen when connected", async () => {
@@ -373,5 +383,157 @@ describe("MUDdownConnection", () => {
 
     // No new connection should be created
     expect(MockWebSocket.instances.length).toBe(countBefore);
+  });
+
+  // Regression guard: a consumer that wires autoReconnect=true (the default)
+  // but forgets to supply onReconnecting silently drops authenticated players
+  // to a guest session on every server reboot. The constructor warning makes
+  // this loud during development; this test pins the warning behavior so a
+  // future refactor doesn't quietly remove it.
+  it("warns when autoReconnect is on but onReconnecting is missing", () => {
+    warnSpy.mockClear();
+    const conn = new MUDdownConnection({ wsUrl: "ws://localhost:3300/ws" }, {});
+    expect(warnSpy).toHaveBeenCalledOnce();
+    expect(warnSpy.mock.calls[0][0]).toMatch(/onReconnecting/);
+    conn.dispose();
+  });
+
+  it("does not warn when autoReconnect is disabled", () => {
+    warnSpy.mockClear();
+    const conn = new MUDdownConnection(
+      { wsUrl: "ws://localhost:3300/ws", autoReconnect: false },
+      {},
+    );
+    expect(warnSpy).not.toHaveBeenCalled();
+    conn.dispose();
+  });
+
+  it("does not warn when onReconnecting is supplied", () => {
+    warnSpy.mockClear();
+    const conn = new MUDdownConnection(
+      { wsUrl: "ws://localhost:3300/ws" },
+      { onReconnecting: () => undefined },
+    );
+    expect(warnSpy).not.toHaveBeenCalled();
+    conn.dispose();
+  });
+
+  it("does not warn when reconnectAsGuest opt-out is set", () => {
+    warnSpy.mockClear();
+    const conn = new MUDdownConnection(
+      { wsUrl: "ws://localhost:3300/ws", reconnectAsGuest: true },
+      {},
+    );
+    expect(warnSpy).not.toHaveBeenCalled();
+    conn.dispose();
+  });
+
+  it("warns once per instance, not per construction across instances", () => {
+    warnSpy.mockClear();
+    const a = new MUDdownConnection({ wsUrl: "ws://localhost:3300/ws" }, {});
+    const b = new MUDdownConnection({ wsUrl: "ws://localhost:3300/ws" }, {});
+    // Each instance fires exactly once; there is no module-level dedup flag
+    // that would suppress the second instance's warning.
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+    a.dispose();
+    b.dispose();
+  });
+
+  it("calls onReconnecting on every reconnect cycle (no caching)", async () => {
+    const onReconnecting = vi
+      .fn<() => Promise<string | undefined>>()
+      .mockResolvedValueOnce("ticket-1")
+      .mockResolvedValueOnce("ticket-2");
+    const conn = new MUDdownConnection(
+      { wsUrl: "ws://localhost:3300/ws", reconnectDelay: 500 },
+      { onReconnecting },
+    );
+    conn.connect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    // First reconnect cycle
+    MockWebSocket.instances[0].simulateClose();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onReconnecting).toHaveBeenCalledTimes(1);
+    let lastWs = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    expect(lastWs.url).toBe("ws://localhost:3300/ws?ticket=ticket-1");
+
+    // Second reconnect cycle should call onReconnecting again with a fresh result
+    lastWs.simulateClose();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(onReconnecting).toHaveBeenCalledTimes(2);
+    lastWs = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    expect(lastWs.url).toBe("ws://localhost:3300/ws?ticket=ticket-2");
+
+    conn.dispose();
+  });
+
+  it("routes onReconnecting throw to onReconnectError when provided", async () => {
+    const refreshErr = new Error("token refresh failed");
+    const onReconnecting = vi.fn().mockRejectedValue(refreshErr);
+    const onReconnectError = vi.fn();
+    const onError = vi.fn();
+    const conn = new MUDdownConnection(
+      { wsUrl: "ws://localhost:3300/ws", reconnectDelay: 500 },
+      { onReconnecting, onReconnectError, onError },
+    );
+    conn.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    MockWebSocket.instances[0].simulateClose();
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(onReconnectError).toHaveBeenCalledWith(refreshErr);
+    expect(onError).not.toHaveBeenCalled();
+    conn.dispose();
+  });
+
+  it("falls back to onError with original error when onReconnectError is absent", async () => {
+    const refreshErr = new Error("token refresh failed");
+    const onReconnecting = vi.fn().mockRejectedValue(refreshErr);
+    const onError = vi.fn();
+    const conn = new MUDdownConnection(
+      { wsUrl: "ws://localhost:3300/ws", reconnectDelay: 500 },
+      { onReconnecting, onError },
+    );
+    conn.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    MockWebSocket.instances[0].simulateClose();
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(onError).toHaveBeenCalledOnce();
+    // The Event-shaped fallback is constructed as a plain object (not via
+    // `new Event(...)`) so it works in non-DOM runtimes like React Native /
+    // Hermes; pin that here so a future refactor doesn't reintroduce the
+    // Event constructor and break the RN bundle.
+    const evt = onError.mock.calls[0][0] as unknown as { type: string; error: unknown };
+    expect(evt).not.toBeInstanceOf(Event);
+    expect(evt.type).toBe("token-refresh-failed");
+    expect(evt.error).toBe(refreshErr);
+    conn.dispose();
+  });
+
+  it("logs but does not propagate when onReconnectError handler itself throws", async () => {
+    errSpy.mockClear();
+    const onReconnecting = vi.fn().mockRejectedValue(new Error("token refresh failed"));
+    const onReconnectError = vi.fn(() => {
+      throw new Error("buggy handler");
+    });
+    const conn = new MUDdownConnection(
+      { wsUrl: "ws://localhost:3300/ws", reconnectDelay: 500 },
+      { onReconnecting, onReconnectError },
+    );
+    conn.connect();
+    await vi.advanceTimersByTimeAsync(0);
+    MockWebSocket.instances[0].simulateClose();
+    await vi.advanceTimersByTimeAsync(500);
+
+    // Reconnect must still proceed despite the buggy callback
+    const lastWs = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    expect(lastWs.url).toBe("ws://localhost:3300/ws");
+    // The handler-thrown error must have been logged, not swallowed
+    expect(
+      errSpy.mock.calls.some((c) => String(c[0]).includes("handler threw")),
+    ).toBe(true);
+    conn.dispose();
   });
 });
