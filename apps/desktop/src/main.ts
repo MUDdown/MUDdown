@@ -609,6 +609,26 @@ function connectToServer(ticket?: string): void {
         apiBase,
         sessionToken: () => (isGuest || !authToken ? undefined : authToken),
       }),
+      onDisplaced: () => {
+        // Use the OS-appropriate reload shortcut: Cmd+R on macOS, Ctrl+R
+        // elsewhere. Both reload the Tauri webview, which re-runs the
+        // initial connect flow with a fresh ws-ticket.
+        // navigator.userAgentData is the modern (UA-CH) replacement for the
+        // deprecated navigator.platform; fall back if the runtime doesn't
+        // expose UA Client Hints (older WebView2 / WKWebView).
+        const platform = (
+          (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform
+          ?? navigator.platform
+          ?? ""
+        ).toLowerCase();
+        const reloadShortcut = platform.includes("mac") ? "Cmd+R" : "Ctrl+R";
+        appendMessage(
+          "**Your character was claimed by another client.** This session is closed. " +
+          `Press ${reloadShortcut} to reload and reclaim your character.`,
+          "system",
+        );
+        setTrayTooltip("MUDdown — Displaced (reload to reclaim)").catch((err) => console.warn("[tray] tooltip update failed:", err));
+      },
       onClose: (willReconnect) => {
         if (willReconnect) {
           appendMessage("*Disconnected. Reconnecting in 3s...*", "system");

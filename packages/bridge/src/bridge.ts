@@ -1552,6 +1552,21 @@ export class TelnetSession {
             this.writeLine("\r\nDisconnected from game server.\r\n");
           }
         },
+        onDisplaced: () => {
+          if (this.disposed) return;
+          this.writeLine(
+            "\r\nYour character was claimed by another connection. This session is closed.\r\n",
+          );
+          // The MUDdownConnection has already cleared its socket and will
+          // not auto-reconnect on a 4002 close. Tear down the telnet side
+          // too so the client gets EOF instead of an idle TCP socket.
+          // dispose() is sync and self-guards on this.disposed.
+          try {
+            this.dispose();
+          } catch (err) {
+            console.error(`[bridge] session ${this.id}: dispose after displacement threw`, err);
+          }
+        },
         onError: () => {
           if (!this.disposed) {
             this.writeLine("\r\nConnection error.\r\n");

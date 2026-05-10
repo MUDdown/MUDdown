@@ -301,6 +301,18 @@ inbound data frame from a `/feed` client is a protocol violation that the
 server MUST close with WebSocket close code `1003` (Unsupported Data) as
 specified in the table above.
 
+**Anonymous guest session.** A session whose ticket binds the connection to
+no *persistent character ID*. The ticket MAY carry an ephemeral session
+identifier (used for rate-limiting and journal correlation) but that
+identifier is scoped to a single WebSocket lifetime and is discarded when
+the connection closes. Servers MUST distinguish at ticket-issuance time
+between (a) a persistent character ID — a stable handle that survives
+disconnects and identifies the same player across sessions — and (b) an
+ephemeral guest session ID. Guest sessions do not participate in the
+concurrent-session policy of §6.3.3: they MUST NOT displace any other
+session and MUST NOT receive close code `4002`. Subsequent sections refer
+to this definition when they say "anonymous guest session" or "guest".
+
 #### 6.3.2 DoS Mitigations
 
 Both endpoints SHOULD implement defense-in-depth controls. The values below
@@ -341,6 +353,70 @@ behave reasonably on another.
 These defaults match a single-server deployment of a few hundred concurrent
 players. Servers operating at larger scale or behind an L7 load balancer
 SHOULD enforce caps at both layers.
+
+#### 6.3.3 Session Lifecycle Close Codes
+
+In addition to the standard WebSocket close codes referenced above, MUDdown
+defines the following close codes in the application range (4000–4999) for
+gameplay-session lifecycle events on the `/` endpoint. Conformant clients
+MUST recognize these codes on `WebSocket.onclose` and behave as specified.
+
+| Code | Name | Direction | Client behavior |
+|------|------|-----------|------------------|
+| `4001` | `WS_CLOSE_QUIT` | S→C | Player explicitly quit (`quit` command). Client MUST NOT auto-reconnect. |
+| `4002` | `WS_CLOSE_DISPLACED` | S→C | The server bound the player's character to a *different* connection (see concurrent-session policy below). Client MUST NOT automatically attempt to reconnect; any subsequent reconnect MUST obtain a fresh ws-ticket per §6.3.1. Client SHOULD display the accompanying notice as a persistent, user-dismissible message (shown until the user acknowledges or navigates away) rather than a transient toast, so the player understands why the session ended. Client MAY re-issue `connect()` with a fresh ticket if the user explicitly chooses to reclaim. |
+
+**Concurrent-session policy.** A character (identified by its persistent
+character ID) MUST be bound to at most one active WebSocket on a given
+server. When a new connection authenticates with a character ID that is
+already bound to an existing connection, the server:
+
+1. SHOULD persist the existing session's mutable state (current room,
+   inventory, HP, etc.) before evicting it.
+2. MUST send the existing connection a final
+   `:::system{type="notification" scope="player"}` envelope explaining the
+   displacement before closing the WebSocket, so the player sees a reason
+   rather than a silent drop. The send is best-effort: if the transport
+   has already failed (the underlying socket is no longer writable) the
+   server MAY skip step 2 and proceed directly to step 3, but it MUST NOT
+   omit the notice for any other reason.
+3. MUST close the existing connection with code `4002`
+   (`WS_CLOSE_DISPLACED`).
+4. MUST bind the character to the new connection.
+
+Servers MAY instead reject the *new* connection (e.g. with `4002` to the
+new connection and a notice to the existing one) if their policy is
+"first-in wins" rather than "last-in wins"; the displacement code carries
+the same semantics in either direction. The "last-in wins" pattern is
+RECOMMENDED because it lets a player recover from a stuck client (e.g. a
+crashed terminal that the server still sees as connected) by simply
+logging in again.
+
+**Client guidance for `4002`.** Because the same code is sent under both
+policies, the client cannot tell from the close code alone whether *its*
+session was the displaced one or whether it was rejected at login. The
+distinguishing signal is which connection lifecycle phase the close
+arrives in:
+
+- *Close arrives on a previously-open session* (i.e. after `onOpen` has
+  fired): the server is "last-in wins" and another client just took the
+  character. Surface a notice such as "Your character was claimed by
+  another connection" and do **not** auto-reconnect — auto-reconnecting
+  would race the new client and ping-pong the character. The user MAY
+  reclaim the session by an explicit action (e.g. a "Reconnect" button
+  that re-issues `connect()` with a fresh ticket).
+- *Close arrives during the initial handshake* (before any gameplay
+  envelopes are received): the server is "first-in wins" and refused this
+  login because the character is already in use elsewhere. Surface a
+  notice such as "This character is already logged in from another
+  client" and do **not** retry automatically. The user MAY retry after
+  ending the other session.
+
+In both cases the client MUST NOT treat `4002` as a transient failure
+eligible for the standard reconnect-with-backoff path.
+
+Anonymous guest sessions (as defined in §6.3.1) are exempt — guests
+do not displace each other and MUST NOT receive `4002`.
 
 ## 7. AI Integration Hooks
 

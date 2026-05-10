@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { WS_CLOSE_QUIT } from "@muddown/shared";
+import { WS_CLOSE_QUIT, WS_CLOSE_DISPLACED } from "@muddown/shared";
 import { buildWsUrl, MUDdownConnection } from "../src/connection.js";
 
 describe("buildWsUrl", () => {
@@ -300,6 +300,93 @@ describe("MUDdownConnection", () => {
     const countBefore = MockWebSocket.instances.length;
     await vi.advanceTimersByTimeAsync(5000);
     expect(MockWebSocket.instances.length).toBe(countBefore);
+    conn.dispose();
+  });
+
+  it("does not reconnect when server closes with code 4002 (displaced) and fires onDisplaced instead of onClose", async () => {
+    const onClose = vi.fn();
+    const onDisplaced = vi.fn();
+    const onReconnecting = vi.fn();
+    const conn = new MUDdownConnection(
+      { wsUrl: "ws://localhost:3300/ws", reconnectDelay: 500 },
+      { onClose, onDisplaced, onReconnecting },
+    );
+    conn.connect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    MockWebSocket.instances[0].simulateClose(WS_CLOSE_DISPLACED);
+    // Displaced fires onDisplaced *instead of* onClose so consumers that
+    // wire both don't double-notify the player (e.g. "Disconnected." and
+    // then "You were displaced.")
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onDisplaced).toHaveBeenCalledOnce();
+
+    const countBefore = MockWebSocket.instances.length;
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(MockWebSocket.instances.length).toBe(countBefore);
+    expect(onReconnecting).not.toHaveBeenCalled();
+    conn.dispose();
+  });
+
+  it("suppresses reconnect on WS_CLOSE_DISPLACED even when onDisplaced is not wired", async () => {
+    // The reconnect-suppression contract must live in the close-code
+    // handling, not in the user-facing callback — otherwise a consumer
+    // that forgets to wire onDisplaced gets the ping-pong loop back.
+    const onReconnecting = vi.fn();
+    const conn = new MUDdownConnection(
+      { wsUrl: "ws://localhost:3300/ws", reconnectDelay: 500 },
+      { onReconnecting },
+    );
+    conn.connect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    MockWebSocket.instances[0].simulateClose(WS_CLOSE_DISPLACED);
+
+    const countBefore = MockWebSocket.instances.length;
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(MockWebSocket.instances.length).toBe(countBefore);
+    expect(onReconnecting).not.toHaveBeenCalled();
+    conn.dispose();
+  });
+
+  it("can be reclaimed via connect() after displacement", async () => {
+    // Displacement does not dispose the instance — a consumer can call
+    // connect() with a fresh ticket to claim the character back. This
+    // pins that contract so a future accidental `this.disposed = true`
+    // in the displaced branch wouldn't silently break reclaim.
+    const conn = new MUDdownConnection(
+      { wsUrl: "ws://localhost:3300/ws", reconnectDelay: 500 },
+    );
+    conn.connect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    MockWebSocket.instances[0].simulateClose(WS_CLOSE_DISPLACED);
+    const countAfterDisplace = MockWebSocket.instances.length;
+
+    conn.connect("reclaim-ticket");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(MockWebSocket.instances.length).toBe(countAfterDisplace + 1);
+    expect(MockWebSocket.instances[countAfterDisplace].url).toContain("ticket=reclaim-ticket");
+    conn.dispose();
+  });
+
+  it("logs but does not throw when onDisplaced handler itself throws", async () => {
+    errSpy.mockClear();
+    const onDisplaced = vi.fn(() => { throw new Error("boom"); });
+    const conn = new MUDdownConnection(
+      { wsUrl: "ws://localhost:3300/ws", reconnectDelay: 500 },
+      { onDisplaced },
+    );
+    conn.connect();
+    await vi.advanceTimersByTimeAsync(0);
+
+    MockWebSocket.instances[0].simulateClose(WS_CLOSE_DISPLACED);
+    expect(onDisplaced).toHaveBeenCalledOnce();
+    expect(errSpy).toHaveBeenCalledOnce();
+    const [msg, err] = errSpy.mock.calls[0];
+    expect(msg).toMatch(/onDisplaced handler threw/);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe("boom");
     conn.dispose();
   });
 

@@ -856,6 +856,23 @@ class BridgeLifecycle {
           }
           handleSocketClose(discordUserId, willReconnect, (id, notify) => this.closeSession(id, notify));
         },
+        onDisplaced: () => {
+          if (this.isShuttingDown) return;
+          this.sendDirectMessage(
+            discordUserId,
+            "Your character was claimed by another connection. This Discord session is closed.",
+          ).catch((error) => {
+            // eslint-disable-next-line no-console
+            console.error(
+              `[muddown-discord-bridge] failed to send displaced DM to ${discordUserId}:`,
+              error,
+            );
+          });
+          // Tear down the local Discord session — the upstream WS already
+          // suppressed auto-reconnect, but the local session map still
+          // holds state we need to release.
+          this.closeSession(discordUserId, false);
+        },
         onError: (event) => {
           // eslint-disable-next-line no-console
           console.error("[muddown-discord-bridge] websocket error:", event);

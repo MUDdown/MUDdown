@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import type { ClientMessage, ServerMessage, EquipSlot, NpcDefinition, DialogueNode, CharacterRecord, CharacterClass } from "@muddown/shared";
-import { PLAYER_DEFAULTS, CLASS_STATS, WS_CLOSE_QUIT, CHARACTER_CLASSES } from "@muddown/shared";
+import { PLAYER_DEFAULTS, CLASS_STATS, WS_CLOSE_QUIT, WS_CLOSE_DISPLACED, CHARACTER_CLASSES } from "@muddown/shared";
 import { loadWorld, type WorldMap } from "./world.js";
 import {
   dirAliases, findItemByName, findNpcInRoom, findUnclaimedIndex,
@@ -15,6 +15,7 @@ import {
   sanitizeRoomDescription, buildNarrativeImpression,
   buildTalkFillerMessages, buildStatsPayload,
   getClientIp, canAcceptFeedConnection,
+  findDisplacedSessions, displaceSession,
 } from "./helpers.js";
 import { SqliteDatabase } from "./db/index.js";
 import type { GameDatabase } from "./db/types.js";
@@ -533,16 +534,33 @@ wss.on("connection", (ws, req: IncomingMessage) => {
   sessions.set(ws, session);
 
   // Evict any stale session for the same character (e.g., reconnect before
-  // the old WebSocket's close event fires) so the player doesn't see
-  // themselves listed as "also here."
-  if (session.characterId) {
-    for (const [existingWs, existing] of sessions) {
-      if (existing.characterId === session.characterId && existingWs !== ws) {
-        saveCharacterSession(existing);
-        sessions.delete(existingWs);
-        try { existingWs.close(); } catch (err) { console.warn("Error closing stale WebSocket:", err); }
-      }
-    }
+  // the old WebSocket's close event fires, or a second client logging in
+  // with the same character) so the player doesn't see themselves listed
+  // as "also here." We close with a dedicated WS_CLOSE_DISPLACED code so
+  // the displaced client knows not to auto-reconnect (otherwise the two
+  // clients ping-pong evicting each other, or the displaced client would
+  // silently fall back to a guest session).
+  for (const match of findDisplacedSessions(sessions, ws, session.characterId)) {
+    displaceSession(match, {
+      save: saveCharacterSession,
+      deleteFromRegistry: (existingWs) => sessions.delete(existingWs),
+      notify: (existingWs) => send(existingWs, {
+        v: 1,
+        id: randomUUID(),
+        type: "system",
+        timestamp: new Date().toISOString(),
+        muddown:
+          ":::system{type=\"notification\" scope=\"player\"}\n" +
+          "Your character was claimed by another connection. This session is closing.\n" +
+          ":::",
+      }),
+      close: (existingWs) => existingWs.close(WS_CLOSE_DISPLACED, "displaced"),
+      onSaveFailed: (existing) => console.error(
+        `[displace] failed to save displaced character before eviction ` +
+        `[characterId=${existing.characterId}] [name=${existing.name}] ` +
+        `[room=${existing.currentRoom}] — recent progress may be lost`,
+      ),
+    });
   }
 
   // Send welcome

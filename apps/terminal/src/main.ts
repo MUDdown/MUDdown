@@ -896,6 +896,14 @@ function runGame(opts: CliOptions): void {
           }
         },
 
+        onDisplaced: () => {
+          display(
+            opts.ansi
+              ? chalk.yellow("Your character was claimed by another connection. This session is closed.")
+              : "Your character was claimed by another connection. This session is closed.",
+          );
+        },
+
         onError: (event: Event) => {
           const rec = event as unknown as Record<string, unknown>;
           const msg =

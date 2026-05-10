@@ -54,6 +54,21 @@ export function GameScreen({ route }: GameScreenProps) {
         setConnected(false);
         setStatusMessage(willReconnect ? "Reconnecting…" : "Disconnected");
       },
+      onDisplaced() {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `displaced-${Date.now()}`,
+            type: "system",
+            muddown:
+              ":::system{type=\"notification\"}\n" +
+              "Your character was claimed by another client. This session is closed.\n" +
+              ":::",
+          },
+        ]);
+        setConnected(false);
+        setStatusMessage("Displaced");
+      },
       // Refetch a fresh ws-ticket on reconnect so a server reboot resumes
       // the player's authenticated session instead of dropping to guest.
       // Guest sessions short-circuit and reconnect without a ticket.
