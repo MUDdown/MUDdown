@@ -2,7 +2,7 @@
 
 **Version**: 0.1.0-draft  
 **Status**: Draft  
-**Date**: 2026-03-28
+**Date**: 2026-05-09
 
 ## 1. Introduction
 
@@ -126,6 +126,29 @@ The guard blinks and reaches for his sword.
 :::
 ```
 
+A world-scope broadcast (visible to every connected session and any subscribed external feed):
+
+```markdown
+:::system{type="notification" scope="world"}
+**Server**: rebooting in 5 minutes.
+:::
+```
+
+**Optional attributes**: `type`, `scope`
+
+The `scope` attribute identifies the audience of the message and lets transports route it independently of its envelope `type`. The two are orthogonal: envelope `type` identifies the message category (`system` here, vs. `room`/`combat`/`dialogue`/`narrative`), while the container block's `scope` attribute controls audience routing within that category.
+
+| Value | Audience | Examples |
+|-------|----------|----------|
+| `player` (default) | The single recipient session | `welcome`, `inventory`, `who`, `help`, `hint`, command output, error notifications |
+| `world` | Every connected session, plus any subscribed external feed (Discord channel, IRC bridge, web feed) | Server boot/reboot, scheduled downtime, public quest completions, world-state announcements |
+
+A system block with `scope="world"` MUST contain only information that is safe to share publicly; private gameplay (combat results, room narrative, OOC tells) MUST NOT use `scope="world"`. Ambiguous categories — login/logout notices, achievement announcements, level-up banners, death notices — sit between the two and are not normatively classified here; implementers SHOULD decide per-game policy and document it, then mark the resulting envelopes accordingly.
+
+Transports that bridge to multi-user channels (e.g. a Discord server-wide feed channel) MUST publish only `scope="world"` envelopes to shared channels and MUST NOT publish `scope="player"` content to a shared channel without explicit per-channel opt-in. Clients that have no concept of a shared channel MAY render `scope="world"` and `scope="player"` identically; clients that do distinguish them SHOULD render `scope="world"` messages with a visible broadcast indicator (icon, badge, color, or prefix) so users can tell a global announcement from a per-player notification at a glance.
+
+Unknown `scope` values MUST be treated as `player` so a forward-compatible client never accidentally broadcasts.
+
 ### 3.7 Map Block
 
 ````markdown
@@ -214,7 +237,7 @@ MUDdown messages are transmitted over WebSocket as JSON envelopes containing MUD
 | `room` | S→C | Room description |
 | `combat` | S→C | Combat round update |
 | `dialogue` | S→C | NPC dialogue |
-| `system` | S→C | Server notifications |
+| `system` | S→C | Server notifications. The block's `scope` attribute (see §3.6) determines the audience: `player` (default, single recipient) or `world` (broadcast-eligible). |
 | `narrative` | S→C | Freeform story text |
 | `command` | C→S | Player command |
 | `input` | C→S | Dialogue/prompt response |

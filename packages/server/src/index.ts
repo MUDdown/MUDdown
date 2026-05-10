@@ -10,6 +10,7 @@ import {
   resolveAttack, formatAttackLine, getPlayerAttackBonus, getPlayerDamage, getPlayerAc,
   resetPlayerAfterDefeat, stripHtmlComments, buildInventoryState, TokenBucket,
   getHelpEntry, helpEntries, buildHelpBlock, buildHelpTable, buildHintBlock, buildLoreBlock,
+  buildWorldBroadcastBlock,
   isValidCommand, buildHintContext, extractNarrativeDescription,
   sanitizeRoomDescription, buildNarrativeImpression,
   buildTalkFillerMessages, buildStatsPayload,
@@ -1901,6 +1902,52 @@ function broadcastToRoom(roomId: string, exclude: PlayerSession, message: string
   }
 }
 
+/**
+ * Send a world-scope system announcement to every connected session.
+ *
+ * Emits a `:::system{type=<systemType> scope="world"}` block per
+ * SPECIFICATION.md §3.6 so external transports (Discord feed channel, IRC
+ * bridge) can route the message to a shared channel; in-game clients render
+ * it the same as any other system block.
+ *
+ * Use only for content that is safe to share publicly: server lifecycle
+ * (boot, scheduled reboot, shutdown), public events, world-state
+ * announcements. Per-player state MUST NOT use this path.
+ *
+ * Returns a Promise that resolves once every per-socket `ws.send()` callback
+ * has settled (success or error). Callers that need delivery confirmation
+ * before tearing the socket down — most importantly the shutdown handler,
+ * which races this against a `setTimeout` cap so a wedged socket cannot
+ * stall process exit — should `await` this; fire-and-forget callers can
+ * ignore the return value without functional change.
+ */
+function broadcastWorld(
+  text: string,
+  systemType: "notification" | "shutdown" | "boot" | "event" = "notification",
+): Promise<void> {
+  const envelope: ServerMessage = {
+    v: 1,
+    id: randomUUID(),
+    type: "system",
+    timestamp: new Date().toISOString(),
+    muddown: buildWorldBroadcastBlock(text, systemType),
+  };
+  const payload = JSON.stringify(envelope);
+  const pending: Promise<void>[] = [];
+  for (const ws of sessions.keys()) {
+    if (ws.readyState !== WebSocket.OPEN) continue;
+    pending.push(
+      new Promise<void>((resolve) => {
+        ws.send(payload, (err) => {
+          if (err) console.warn("broadcastWorld: send error:", err.message);
+          resolve();
+        });
+      }),
+    );
+  }
+  return Promise.all(pending).then(() => undefined);
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function send(ws: WebSocket, msg: ServerMessage): void {
@@ -1993,6 +2040,27 @@ complianceTimer.unref();
 
 async function shutdown(): Promise<void> {
   console.log("Shutting down — saving all state...");
+
+  // Notify connected sessions before tearing down the WebSocket layer so the
+  // send is enqueued before the socket close-loop runs. (TCP delivery is not
+  // guaranteed once we exit; we just make sure the close frame doesn't beat
+  // our payload into the kernel send buffer.) World-scope so external feeds
+  // (Discord channel) see it too. Awaited with a 1-second cap so a wedged
+  // socket can't stall the rest of the shutdown path.
+  try {
+    const broadcast = broadcastWorld(
+      "**Server**: shutting down. Reconnect in a moment.",
+      "shutdown",
+    );
+    const cap = new Promise<void>((resolve) => {
+      const t = setTimeout(resolve, 1_000);
+      t.unref();
+    });
+    await Promise.race([broadcast, cap]);
+  } catch (err) {
+    console.warn("Error broadcasting shutdown notice:", err);
+  }
+
   clearInterval(respawnTimer);
   clearInterval(saveTimer);
   clearTimeout(complianceInitialTimer);

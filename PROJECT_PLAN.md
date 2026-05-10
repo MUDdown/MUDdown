@@ -436,24 +436,45 @@ Mapping (the design choices that need fixing now, not later):
 Out of scope (deliberately, like the telnet bridge): voice, lobbies, account creation, world editing.
 
 Tasks:
-- [ ] Scaffold `packages/discord-bridge` (depends on `client`, `shared`, `parser`; runtime dep on `discord.js`)
-- [ ] Discord bot application registration + invite flow + `MUDDOWN_DISCORD_BOT_TOKEN` env var (deploy-side)
-- [ ] Connection manager: Discord user ID → WebSocket session, with idle eviction matching the telnet bridge
-- [ ] MUDdown → Discord renderer: AST → embeds + components, with the constraints above
-- [ ] Slash commands (`/play`, `/who`, `/switch`, `/quit`) registered globally for the MUDdown guild
-- [ ] DM intake: route plain text from a player's DM to their session as a command line
-- [ ] Button/select handlers: re-inject link URIs as commands; character-picker buttons
-- [ ] Account linking: leverage existing Discord OAuth; persist Discord user ID ↔ account mapping in `GameDatabase` by extending `IdentityLinkRecord` for Discord links (`provider = "discord"`, `providerId = discord_user_id`) and persisting `lastCharacterId` on the same record (`last_character_id` column)
-- [ ] Multi-character flow: picker on first DM, `/switch` mid-session, resume from persisted `IdentityLinkRecord.lastCharacterId`
-- [ ] DB migration (mandatory for Discord bridge persistence):
-- [ ] Add nullable `last_character_id` to `identity_links` (`ALTER TABLE identity_links ADD COLUMN last_character_id TEXT NULL REFERENCES characters(id) ON DELETE SET NULL`)
-- [ ] Backfill existing rows: keep `last_character_id = NULL` for all existing links (including existing Discord links)
-- [ ] Update `GameDatabase` + SQLite adapter reads/writes so Discord link lookups expose `providerId` as `discord_user_id` and persist/load `lastCharacterId` via `last_character_id`
-- [ ] Tests (`vitest`): renderer fixtures (envelope → expected embed/components shape), connection-manager unit tests, account-linking round trip, character-switch flow
-- [ ] Systemd unit (`deploy/muddown-discord-bridge.service`) parallel to `muddown-bridge.service`
-- [ ] Wiki: new `Discord-Bridge.md` page (sibling to `Telnet-Bridge.md`); link from `_Sidebar.md` and `Home.md`
+- [x] Scaffold `packages/discord-bridge` (depends on `client`, `shared`, `parser`; runtime dep on `discord.js`) — shipped in `11c13c7`
+- [x] Discord bot application registration + invite flow + `MUDDOWN_DISCORD_BOT_TOKEN` env var (deploy-side) — documented in `MUDdown.wiki/Discord-Setup.md`
+- [x] Connection manager: Discord user ID → WebSocket session, with idle eviction matching the telnet bridge — shipped in [#106](https://github.com/MUDdown/MUDdown/pull/106) (idle eviction, reconnect DMs, `/who` status)
+- [x] MUDdown → Discord renderer: AST → embeds + components, with the constraints above — shipped in `11c13c7`
+- [x] Slash commands (`/play`, `/who`, `/switch`, `/quit`) registered globally for the MUDdown guild — shipped in `11c13c7`
+- [x] DM intake: route plain text from a player's DM to their session as a command line — shipped in `11c13c7`
+- [x] Button/select handlers: re-inject link URIs as commands; character-picker buttons — shipped in `11c13c7`
+- [x] Account linking: leverage existing Discord OAuth; persist Discord user ID ↔ account mapping in `GameDatabase` by extending `IdentityLinkRecord` for Discord links (`provider = "discord"`, `providerId = discord_user_id`) and persisting `lastCharacterId` on the same record (`last_character_id` column)
+- [x] Multi-character flow: picker on first DM, `/switch` mid-session, resume from persisted `IdentityLinkRecord.lastCharacterId`
+- [x] DB migration (mandatory for Discord bridge persistence):
+  - [x] Add nullable `last_character_id` to `identity_links` (`ALTER TABLE identity_links ADD COLUMN last_character_id TEXT NULL REFERENCES characters(id) ON DELETE SET NULL`)
+  - [x] Backfill existing rows: keep `last_character_id = NULL` for all existing links (including existing Discord links)
+  - [x] Update `GameDatabase` + SQLite adapter reads/writes so Discord link lookups expose `providerId` as `discord_user_id` and persist/load `lastCharacterId` via `last_character_id`
+- [x] Tests (`vitest`): renderer fixtures (envelope → expected embed/components shape), connection-manager unit tests, account-linking round trip, character-switch flow — 183 tests across 10 files
+- [x] Systemd unit (`deploy/muddown-discord-bridge.service`) parallel to `muddown-bridge.service` — shipped in [#107](https://github.com/MUDdown/MUDdown/pull/107) (env-tunable config + `setup.sh` wiring)
+- [x] Wiki: new `Discord-Bridge.md` page (sibling to `Telnet-Bridge.md`); link from `_Sidebar.md` and `Home.md`
 - [ ] Skill: new `.github/skills/discord-bridge/SKILL.md` covering renderer invariants, button-id encoding, the no-auto-message rule, and the multi-character picker flow
 - [ ] Plugin: add `discord-bridge` to the `muddown-operator` plugin (`.github/plugins/muddown-operator/skills/discord-bridge/` directory symlink + README table + AGENTS.md skills table)
+
+##### Public feed channel (`scope="world"` broadcasts)
+
+A dedicated Discord channel that mirrors broadcast-eligible server announcements (boot, scheduled reboot, shutdown, public events) into a single shared channel — separate from the per-user DM gameplay flow. Spec, server emitter, and bridge-side scaffolding land in [#108](https://github.com/MUDdown/MUDdown/pull/108); the bridge-side publisher itself is a follow-up.
+
+- [x] Spec: `:::system{scope="player"|"world"}` attribute in `packages/spec/SPECIFICATION.md` §3.6, with multi-user-transport rule and `player` fallback (PR #108)
+- [x] Shared type: `SystemAttributes` in `@muddown/shared` (PR #108)
+- [x] Bridge config knob: `MUDDOWN_DISCORD_FEED_CHANNEL_ID` (snowflake-validated, fails fast on invalid input) (PR #108)
+- [x] Bridge scope detector: `isWorldScopeEnvelope()` in `packages/discord-bridge/src/feed.ts` — defense-in-depth filter that rejects everything except `:::system{scope="world"}` envelopes (PR #108)
+- [x] Server-side emitter: `buildWorldBroadcastBlock()` helper + `broadcastWorld()` in `packages/server`; first lifecycle event is the `SIGTERM`/`SIGINT` shutdown notice (PR #108)
+- [x] Wiki: `MUDdown-Format.md`, `Wire-Protocol.md`, `Discord-Bridge.md` (Public Feed Channel section), `Discord-Setup.md`, `Deployment-Guide.md` updated (PR #108 / wiki `ae654fb`)
+- [ ] **Slice 3b — bridge feed publisher** (deferred follow-up PR): unauthenticated read-only `/feed` WebSocket endpoint on the game server + bridge subscriber that posts world-scope envelopes to the configured Discord channel.
+  - [ ] Server: second WS route at `/feed` keyed by `req.url`; a server-level `feedSubscribers: Set<WebSocket>` tracks all open feed-subscriber connections, kept separate from the gameplay `sessions: Map<WebSocket, PlayerSession>` so feed clients never get a `PlayerSession` or a command handler. Inbound messages on `/feed` are dropped or closed with code 1003 to enforce read-only by construction.
+  - [ ] Server: refactor `broadcastWorld()` to also iterate `feedSubscribers` so the same payload reaches both gameplay sessions and feed subscribers — the **only** path that writes to feed subscribers is `broadcastWorld()`, which guarantees `scope="player"` traffic can never reach them.
+  - [ ] Server: per-IP cap (e.g. 4 concurrent connections) + global cap (e.g. 100) to prevent trivial socket-exhaustion DoS, since there's no auth gate.
+  - [ ] Server: 30s ping/pong keepalive matching the gameplay socket.
+  - [ ] Bridge: new `feed-subscriber.ts` opens a dedicated WS to `${MUDDOWN_SERVER_URL.replace('/ws','/feed')}` with exponential-backoff reconnect; only activates when `feedChannelId !== undefined`.
+  - [ ] Bridge: run incoming envelopes through the existing `isWorldScopeEnvelope()` as defense-in-depth, render via the existing system-block embed renderer with interactive links stripped (no per-user session in a public channel), post to `feedChannelId`.
+  - [ ] Bridge: tests for subscriber lifecycle, reconnect/backoff, `scope="player"` rejection (defense-in-depth even if the server ever ships a bug), and embed shape.
+  - [ ] Spec/wiki: document the unauthenticated `/feed` endpoint in `Wire-Protocol.md`; remove the "deferred publisher" note from `Discord-Bridge.md` once shipped.
+  - [ ] Open question to settle before coding: same port (`3300`) routed by path vs. separate listener. Same-port is preferred — nginx already terminates TLS for `/ws`, so `/feed` becomes `wss://host/feed` for free.
 
 #### 9b. Discord Rich Presence (opt-in, desktop only)
 
