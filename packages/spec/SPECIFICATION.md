@@ -243,6 +243,23 @@ MUDdown messages are transmitted over WebSocket as JSON envelopes containing MUD
 | `input` | C→S | Dialogue/prompt response |
 | `ping`/`pong` | Both | Keepalive |
 
+### 6.3 Endpoints
+
+A MUDdown server MAY expose the following WebSocket endpoints on its
+HTTP listener:
+
+| Path | Direction | Auth | Description |
+|------|-----------|------|-------------|
+| `/` (or `/?ticket=…`) | Both | Required (single-use ticket) | Authenticated gameplay channel. The full envelope set in §6.2 flows here. |
+| `/feed` | S→C only | None (read-only) | Optional public feed. The server MUST emit only `:::system{scope="world"}` envelopes (§3.6) on this endpoint. Inbound data frames from a `/feed` client are a protocol violation; the server SHOULD close such connections with WebSocket close code `1003` (Unsupported Data). |
+
+Servers exposing `/feed` SHOULD apply per-IP and global concurrent-connection
+caps and a periodic ping/pong keepalive, since the endpoint is unauthenticated
+and otherwise vulnerable to socket-exhaustion DoS. Multi-user transports that
+subscribe to `/feed` (Discord bridge, IRC bridge, etc.) MUST re-validate
+`scope="world"` on every received envelope rather than trust the endpoint
+contract alone.
+
 ## 7. AI Integration Hooks
 
 ### 7.1 Tool-Calling Schema

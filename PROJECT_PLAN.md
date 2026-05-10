@@ -466,15 +466,16 @@ A dedicated Discord channel that mirrors broadcast-eligible server announcements
 - [x] Server-side emitter: `buildWorldBroadcastBlock()` helper + `broadcastWorld()` in `packages/server`; first lifecycle event is the `SIGTERM`/`SIGINT` shutdown notice (PR #108)
 - [x] Wiki: `MUDdown-Format.md`, `Wire-Protocol.md`, `Discord-Bridge.md` (Public Feed Channel section), `Discord-Setup.md`, `Deployment-Guide.md` updated (PR #108 / wiki `ae654fb`)
 - [ ] **Slice 3b — bridge feed publisher** (deferred follow-up PR): unauthenticated read-only `/feed` WebSocket endpoint on the game server + bridge subscriber that posts world-scope envelopes to the configured Discord channel.
-  - [ ] Server: second WS route at `/feed` keyed by `req.url`; a server-level `feedSubscribers: Set<WebSocket>` tracks all open feed-subscriber connections, kept separate from the gameplay `sessions: Map<WebSocket, PlayerSession>` so feed clients never get a `PlayerSession` or a command handler. Inbound messages on `/feed` are dropped or closed with code 1003 to enforce read-only by construction.
-  - [ ] Server: refactor `broadcastWorld()` to also iterate `feedSubscribers` so the same payload reaches both gameplay sessions and feed subscribers — the **only** path that writes to feed subscribers is `broadcastWorld()`, which guarantees `scope="player"` traffic can never reach them.
-  - [ ] Server: per-IP cap (e.g. 4 concurrent connections) + global cap (e.g. 100) to prevent trivial socket-exhaustion DoS, since there's no auth gate.
-  - [ ] Server: 30s ping/pong keepalive matching the gameplay socket.
-  - [ ] Bridge: new `feed-subscriber.ts` opens a dedicated WS to `${MUDDOWN_SERVER_URL.replace('/ws','/feed')}` with exponential-backoff reconnect; only activates when `feedChannelId !== undefined`.
-  - [ ] Bridge: run incoming envelopes through the existing `isWorldScopeEnvelope()` as defense-in-depth, render via the existing system-block embed renderer with interactive links stripped (no per-user session in a public channel), post to `feedChannelId`.
-  - [ ] Bridge: tests for subscriber lifecycle, reconnect/backoff, `scope="player"` rejection (defense-in-depth even if the server ever ships a bug), and embed shape.
-  - [ ] Spec/wiki: document the unauthenticated `/feed` endpoint in `Wire-Protocol.md`; remove the "deferred publisher" note from `Discord-Bridge.md` once shipped.
-  - [ ] Open question to settle before coding: same port (`3300`) routed by path vs. separate listener. Same-port is preferred — nginx already terminates TLS for `/ws`, so `/feed` becomes `wss://host/feed` for free.
+  - [x] Server: second WS route at `/feed` keyed by `req.url`; a server-level `feedSubscribers: Set<WebSocket>` tracks all open feed-subscriber connections, kept separate from the gameplay `sessions: Map<WebSocket, PlayerSession>` so feed clients never get a `PlayerSession` or a command handler. Inbound messages on `/feed` are dropped or closed with code 1003 to enforce read-only by construction.
+  - [x] Server: refactor `broadcastWorld()` to also iterate `feedSubscribers` so the same payload reaches both gameplay sessions and feed subscribers — the **only** path that writes to feed subscribers is `broadcastWorld()`, which guarantees `scope="player"` traffic can never reach them.
+  - [x] Server: per-IP cap (4 concurrent) + global cap (100) to prevent trivial socket-exhaustion DoS, since there's no auth gate. Tunable via `FEED_CAP_PER_IP` / `FEED_CAP_TOTAL`. `FEED_TRUST_PROXY=1` opts into reading the rightmost `X-Forwarded-For` for per-IP accounting when behind a reverse proxy.
+  - [x] Server: 30s ping/pong keepalive matching the gameplay socket. Tunable via `FEED_PING_MS`.
+  - [x] Bridge: new `feed-subscriber.ts` opens a dedicated WS to `${MUDDOWN_SERVER_URL}` with the path overwritten to `/feed`, exponential-backoff reconnect (1s → 30s with full jitter); only activates when `feedChannelId !== undefined`.
+  - [x] Bridge: run incoming envelopes through the existing `isWorldScopeEnvelope()` as defense-in-depth, render via the existing system-block embed renderer with interactive-scheme links stripped (visible text retained, `components` discarded — no per-user session in a public channel), post to `feedChannelId`.
+  - [x] Bridge: tests for subscriber lifecycle, reconnect/backoff, `scope="player"` rejection (defense-in-depth even if the server ever ships a bug), and embed shape.
+  - [x] Spec: documented the unauthenticated `/feed` endpoint in `packages/spec/SPECIFICATION.md` §6.3 with the read-only contract, close-code, cap, and keepalive guidance.
+  - [x] Wiki: remove the "deferred publisher" note from `Discord-Bridge.md`; document `FEED_CAP_PER_IP`, `FEED_CAP_TOTAL`, `FEED_PING_MS`, `FEED_TRUST_PROXY` in `Deployment-Guide.md`; cross-link the new spec §6.3 from `Wire-Protocol.md`.
+  - [x] Resolved: same-port path-routed (`/ws` gameplay, `/feed` read-only) sharing the existing nginx TLS termination.
 
 #### 9b. Discord Rich Presence (opt-in, desktop only)
 

@@ -14,6 +14,7 @@ import {
   isValidCommand, buildHintContext, extractNarrativeDescription,
   sanitizeRoomDescription, buildNarrativeImpression,
   buildTalkFillerMessages, buildStatsPayload,
+  getClientIp, canAcceptFeedConnection,
 } from "./helpers.js";
 import { SqliteDatabase } from "./db/index.js";
 import type { GameDatabase } from "./db/types.js";
@@ -79,6 +80,16 @@ function envInt(key: string, fallback: number): number {
 const RATE_LIMIT_BURST  = envInt("RATE_LIMIT_BURST", 20);
 const RATE_LIMIT_REFILL = envInt("RATE_LIMIT_REFILL", 5);
 console.log(`[rate-limit] burst=${RATE_LIMIT_BURST} refill=${RATE_LIMIT_REFILL}/s`);
+
+// Public `/feed` endpoint tunables. The endpoint is unauthenticated by design
+// (only emits `scope="world"` envelopes) so caps prevent trivial socket
+// exhaustion. Set FEED_TRUST_PROXY=1 only when running behind a reverse proxy
+// that appends the real client IP to X-Forwarded-For; otherwise the header is
+// ignored and the socket peer is used.
+const FEED_CAP_PER_IP   = envInt("FEED_CAP_PER_IP", 4);
+const FEED_CAP_TOTAL    = envInt("FEED_CAP_TOTAL", 100);
+const FEED_PING_MS      = envInt("FEED_PING_MS", 30_000);
+const FEED_TRUST_PROXY  = process.env.FEED_TRUST_PROXY === "1";
 
 // ─── LLM Configuration ───────────────────────────────────────────────────────
 
@@ -331,7 +342,31 @@ const server = createServer((req, res) => {
 
 const wss = new WebSocketServer({ noServer: true });
 
+// Public read-only feed: a separate WS server on the same HTTP listener,
+// dispatched by URL path so gameplay clients on `/` and feed subscribers
+// on `/feed` share TLS termination, port allocation, and process lifecycle.
+const feedWss = new WebSocketServer({ noServer: true });
+const feedSubscribers = new Set<WebSocket>();
+const feedPerIpCounts = new Map<string, number>();
+
 server.on("upgrade", (req: IncomingMessage, socket, head) => {
+  let pathname = "/";
+  try {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+    pathname = url.pathname;
+  } catch {
+    // Malformed URL — fall through to gameplay path. The gameplay handler
+    // tolerates parse failures and proceeds as a guest session, which is
+    // the existing behavior we want to preserve here.
+  }
+
+  if (pathname === "/feed") {
+    feedWss.handleUpgrade(req, socket, head, (ws) => {
+      feedWss.emit("connection", ws, req);
+    });
+    return;
+  }
+
   wss.handleUpgrade(req, socket, head, (ws) => {
     wss.emit("connection", ws, req);
   });
@@ -340,6 +375,71 @@ server.on("upgrade", (req: IncomingMessage, socket, head) => {
 server.listen(PORT, () => {
   console.log(`MUDdown server listening on http://localhost:${PORT}`);
   console.log(`WebSocket endpoint: ws://localhost:${PORT}`);
+  console.log(`[feed] capPerIp=${FEED_CAP_PER_IP} capTotal=${FEED_CAP_TOTAL} pingMs=${FEED_PING_MS} trustProxy=${FEED_TRUST_PROXY}`);
+});
+
+// ─── Public Read-Only Feed (`/feed`) ─────────────────────────────────────────
+
+feedWss.on("connection", (ws, req: IncomingMessage) => {
+  const ip = getClientIp(req.headers, req.socket.remoteAddress, FEED_TRUST_PROXY);
+
+  const admit = canAcceptFeedConnection(
+    ip,
+    feedPerIpCounts,
+    feedSubscribers.size,
+    FEED_CAP_PER_IP,
+    FEED_CAP_TOTAL,
+  );
+  if (!admit.ok) {
+    // 1013 "Try Again Later" is the closest standard close code to a soft
+    // capacity refusal. Per-IP and global use the same code; the reason
+    // string disambiguates for operators reading logs.
+    ws.close(1013, admit.reason);
+    return;
+  }
+
+  feedSubscribers.add(ws);
+  feedPerIpCounts.set(ip, (feedPerIpCounts.get(ip) ?? 0) + 1);
+
+  // Read-only by construction: any data frame from a feed client is a
+  // protocol violation. Close with 1003 (Unsupported Data) so clients
+  // get a clear signal rather than silent drops.
+  ws.on("message", () => {
+    console.warn(`[feed] read-only violation from ${ip}, closing 1003`);
+    try { ws.close(1003, "feed is read-only"); } catch { /* ignore */ }
+  });
+
+  // 30s ping/pong keepalive: terminate sockets that miss a pong so dead
+  // peers don't pin a slot against the cap.
+  let alive = true;
+  ws.on("pong", () => { alive = true; });
+  const pingTimer = setInterval(() => {
+    if (!alive) {
+      try { ws.terminate(); } catch { /* ignore */ }
+      return;
+    }
+    alive = false;
+    try { ws.ping(); } catch { /* ignore */ }
+  }, FEED_PING_MS);
+  pingTimer.unref();
+
+  // The `ws` library emits both `error` and `close` when a transport
+  // error tears down a socket. Both handlers must run cleanup, but the
+  // per-IP decrement is not idempotent — without this guard, an error on
+  // one of two connections from the same IP would drop the count 2 → 0
+  // and effectively double that IP's quota until restart.
+  let cleanedUp = false;
+  const cleanup = (): void => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    clearInterval(pingTimer);
+    feedSubscribers.delete(ws);
+    const next = (feedPerIpCounts.get(ip) ?? 1) - 1;
+    if (next <= 0) feedPerIpCounts.delete(ip);
+    else feedPerIpCounts.set(ip, next);
+  };
+  ws.on("close", cleanup);
+  ws.on("error", cleanup);
 });
 
 wss.on("connection", (ws, req: IncomingMessage) => {
@@ -1934,17 +2034,22 @@ function broadcastWorld(
   };
   const payload = JSON.stringify(envelope);
   const pending: Promise<void>[] = [];
-  for (const ws of sessions.keys()) {
-    if (ws.readyState !== WebSocket.OPEN) continue;
+  const sendTo = (ws: WebSocket, label: string): void => {
+    if (ws.readyState !== WebSocket.OPEN) return;
     pending.push(
       new Promise<void>((resolve) => {
         ws.send(payload, (err) => {
-          if (err) console.warn("broadcastWorld: send error:", err.message);
+          if (err) console.warn(`broadcastWorld: ${label} send error:`, err.message);
           resolve();
         });
       }),
     );
-  }
+  };
+  // Gameplay sessions and feed subscribers receive the same payload. This is
+  // the ONLY code path that writes to feed subscribers, which guarantees by
+  // construction that `scope="player"` traffic can never reach them.
+  for (const ws of sessions.keys()) sendTo(ws, "session");
+  for (const ws of feedSubscribers) sendTo(ws, "feed");
   return Promise.all(pending).then(() => undefined);
 }
 
@@ -2089,14 +2194,24 @@ async function shutdown(): Promise<void> {
       console.warn("Error closing WebSocket during shutdown:", err);
     }
   }
+  for (const ws of feedWss.clients) {
+    try {
+      ws.close(1001, "Server shutting down");
+    } catch (err) {
+      console.warn("Error closing feed WebSocket during shutdown:", err);
+    }
+  }
 
   wss.close(() => {
     console.log("WebSocket server closed.");
-    server.close(() => {
-      console.log("HTTP server closed.");
-      db.close();
-      clearTimeout(forceExitTimer);
-      process.exit(0);
+    feedWss.close(() => {
+      console.log("Feed WebSocket server closed.");
+      server.close(() => {
+        console.log("HTTP server closed.");
+        db.close();
+        clearTimeout(forceExitTimer);
+        process.exit(0);
+      });
     });
   });
 }
