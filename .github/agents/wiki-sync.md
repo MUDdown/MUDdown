@@ -34,7 +34,7 @@ The structure:
 |---------|-------|
 | Players | `Getting-Started.md`, `Command-Reference.md`, `World-Guide.md`, `Item-Catalog.md`, `NPC-Directory.md`, `Combat-Guide.md`, `FAQ.md` |
 | Developers | `Architecture-Overview.md`, `Adding-Content.md`, `Wire-Protocol.md`, `MUDdown-Format.md`, `LLM-Integration.md`, `Deployment-Guide.md`, `Contributing.md`, `OAuth-Setup.md` |
-| Clients | `Desktop-App.md`, `Desktop-Client.md`, `Mobile-App.md`, `Mobile-Client.md`, `Terminal-App.md`, `Terminal-Client.md`, `Telnet-Bridge.md` (the `*-App.md` and `*-Client.md` pages are **distinct** files — check both when a client change lands) |
+| Clients | `Desktop-App.md`, `Desktop-Client.md`, `Mobile-App.md`, `Mobile-Client.md`, `Terminal-App.md`, `Terminal-Client.md`, `Telnet-Bridge.md`, `Discord-Bridge.md` (the `*-App.md` and `*-Client.md` pages are **distinct** files — check both when a client change lands) |
 | Integrations | `MCP-Integration.md` |
 | Navigation | `_Sidebar.md`, `Home.md` |
 
@@ -54,6 +54,7 @@ AGENTS.md § "Maintaining the Wiki" defines the player-facing rules; the rest be
 - **Deployment / infra change** → `Deployment-Guide.md`.
 - **Architecture change** (package added/removed, dependency-graph shift) → `Architecture-Overview.md`.
 - **Client app change** (mobile/desktop/terminal/bridge) → the matching app page.
+- **Discord Rich Presence or Discord bridge DM-session change** → both `Desktop-App.md` and `Discord-Bridge.md` must stay aligned (per AGENTS.md "What NOT to Do").
 - **New page introduced** → also update `_Sidebar.md` and `Home.md`.
 - **Removed feature** → remove or revise the corresponding entries on each affected page.
 

@@ -23,6 +23,9 @@
     "turbo": "^2.9.3",
     "typescript": "^5.5.0"
   },
+  "overrides": {
+    "postcss": "^8.5.10"
+  },
   "engines": {
     "node": ">=22.9.0"
   },

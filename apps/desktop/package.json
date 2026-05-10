@@ -9,6 +9,8 @@
     "build": "tauri build",
     "dev:frontend": "vite dev",
     "build:frontend": "vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
@@ -25,6 +27,7 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
     "typescript": "^5.5.0",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^4.1.2"
   }
 }
