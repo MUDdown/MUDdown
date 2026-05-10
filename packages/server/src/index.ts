@@ -1913,11 +1913,17 @@ function broadcastToRoom(roomId: string, exclude: PlayerSession, message: string
  * Use only for content that is safe to share publicly: server lifecycle
  * (boot, scheduled reboot, shutdown), public events, world-state
  * announcements. Per-player state MUST NOT use this path.
+ *
+ * Returns a Promise that resolves once every per-socket `ws.send()` callback
+ * has settled (success or error). Callers that need delivery confirmation
+ * before tearing the socket down — most importantly the shutdown handler
+ * — should `await` this; fire-and-forget callers can ignore the return
+ * value without functional change.
  */
 function broadcastWorld(
   text: string,
   systemType: "notification" | "shutdown" | "boot" | "event" = "notification",
-): void {
+): Promise<void> {
   const envelope: ServerMessage = {
     v: 1,
     id: randomUUID(),
@@ -1926,13 +1932,19 @@ function broadcastWorld(
     muddown: buildWorldBroadcastBlock(text, systemType),
   };
   const payload = JSON.stringify(envelope);
+  const pending: Promise<void>[] = [];
   for (const ws of sessions.keys()) {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(payload, (err) => {
-        if (err) console.warn("broadcastWorld: send error:", err.message);
-      });
-    }
+    if (ws.readyState !== WebSocket.OPEN) continue;
+    pending.push(
+      new Promise<void>((resolve) => {
+        ws.send(payload, (err) => {
+          if (err) console.warn("broadcastWorld: send error:", err.message);
+          resolve();
+        });
+      }),
+    );
   }
+  return Promise.all(pending).then(() => undefined);
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -2030,9 +2042,18 @@ async function shutdown(): Promise<void> {
 
   // Notify connected sessions before tearing down the WebSocket layer so the
   // envelope actually flushes. World-scope so external feeds (Discord channel)
-  // see it too.
+  // see it too. Awaited (with a short cap) so a momentarily congested send
+  // buffer doesn't lose the race against the close-loop below.
   try {
-    broadcastWorld("**Server**: shutting down. Reconnect in a moment.", "shutdown");
+    const broadcast = broadcastWorld(
+      "**Server**: shutting down. Reconnect in a moment.",
+      "shutdown",
+    );
+    const cap = new Promise<void>((resolve) => {
+      const t = setTimeout(resolve, 1_000);
+      t.unref();
+    });
+    await Promise.race([broadcast, cap]);
   } catch (err) {
     console.warn("Error broadcasting shutdown notice:", err);
   }

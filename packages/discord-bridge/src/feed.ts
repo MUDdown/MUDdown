@@ -21,18 +21,21 @@ import { parseAttributes } from "@muddown/parser";
 import type { ServerMessage } from "@muddown/shared";
 
 /**
- * Match the opening `:::system{...}` fence and capture the attribute body.
- * Anchored to the start of the document (after optional leading whitespace
- * or YAML frontmatter) so an inner nested fence with `scope="world"` cannot
- * smuggle a per-player envelope onto the public channel.
+ * Match the opening `:::system{...}` fence at the start of a line and
+ * capture the attribute body. Anchored with `^` (multiline) so only an
+ * actual outer system block controls routing; a `:::system{...}` substring
+ * embedded mid-line in narrative text or quoted documentation cannot match.
  */
-const SYSTEM_OPEN_FENCE = /:::system\{([^}]*)\}/;
+const SYSTEM_OPEN_FENCE = /^:::system\{([^}]*)\}/m;
 
 /**
  * Returns true when `envelope` is a world-scope system broadcast eligible
  * for the public feed channel. Returns false for every other case (different
  * envelope type, missing scope, `scope="player"`, unknown scope value, or
  * malformed muddown payload).
+ *
+ * Fails closed: any unexpected error during attribute parsing returns false
+ * so a single malformed/hostile envelope cannot crash the bridge.
  */
 export function isWorldScopeEnvelope(envelope: ServerMessage): boolean {
   if (envelope.type !== "system") return false;
@@ -40,15 +43,29 @@ export function isWorldScopeEnvelope(envelope: ServerMessage): boolean {
   if (typeof muddown !== "string" || muddown.length === 0) return false;
 
   // Strip optional YAML frontmatter so the system fence can be the first
-  // non-frontmatter line.
+  // non-frontmatter line. Also strip any leading blank lines before the
+  // fence so the `^` anchor in SYSTEM_OPEN_FENCE matches the first
+  // significant line, not blank space.
   let body = muddown;
   if (body.startsWith("---\n")) {
     const end = body.indexOf("\n---\n", 4);
     if (end !== -1) body = body.slice(end + 5);
   }
+  body = body.replace(/^\s*\n/, "");
 
   const match = SYSTEM_OPEN_FENCE.exec(body);
   if (!match) return false;
-  const attrs = parseAttributes(match[1] ?? "");
-  return attrs.scope === "world";
+
+  // Require the fence to be on the very first line of the (post-frontmatter,
+  // post-leading-blank-line) body. Without this, a hostile inner narrative
+  // line beginning with ":::system{scope=\"world\"}" inside a per-player
+  // envelope could route the wrong way.
+  if (match.index !== 0) return false;
+
+  try {
+    const attrs = parseAttributes(match[1] ?? "");
+    return attrs.scope === "world";
+  } catch {
+    return false;
+  }
 }

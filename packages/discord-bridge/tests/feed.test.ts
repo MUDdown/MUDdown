@@ -88,4 +88,55 @@ describe("isWorldScopeEnvelope", () => {
       ),
     ).toBe(true);
   });
+
+  it("rejects a `:::system{scope=\"world\"}` substring smuggled mid-line inside a per-player envelope", () => {
+    // Hostile/legitimate-but-confusing per-player content that mentions the world fence
+    // syntax in narrative text MUST NOT route to the public channel. The anchor is what
+    // enforces this — without it the second fence on the line would be picked up.
+    expect(
+      isWorldScopeEnvelope(
+        envelope({
+          muddown:
+            ':::system{type="hint" scope="player"}\nA world-fence looks like :::system{scope="world"} in the spec.\n:::',
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects an envelope whose first non-blank line is narrative text, not a system fence", () => {
+    expect(
+      isWorldScopeEnvelope(
+        envelope({
+          muddown:
+            'Some preamble text.\n:::system{scope="world"}\nbroadcast\n:::',
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("tolerates leading blank lines before the system fence", () => {
+    expect(
+      isWorldScopeEnvelope(
+        envelope({
+          muddown: '\n\n:::system{scope="world"}\nrebooting\n:::',
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails closed when attribute parsing throws", () => {
+    // parseAttributes treats certain odd inputs as throws; even if it didn't,
+    // the contract here is fail-closed: never broadcast on a parse error.
+    // We pick a deliberately weird shape that exercises the catch path
+    // without depending on parser internals — if parseAttributes ever
+    // changes to be more permissive, the worst case is the test still
+    // rejects via the scope!=="world" branch, which is still correct.
+    expect(
+      isWorldScopeEnvelope(
+        envelope({
+          muddown: ':::system{scope=\u0000}\nbroken\n:::',
+        }),
+      ),
+    ).toBe(false);
+  });
 });
