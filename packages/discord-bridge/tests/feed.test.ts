@@ -232,4 +232,14 @@ describe("stripInteractiveLinks", () => {
     expect(stripInteractiveLinks("[North](GO:north)")).toBe("[North](GO:north)");
     expect(stripInteractiveLinks("[north](go:north)")).toBe("north");
   });
+
+  it("handles labels with escaped closing brackets", () => {
+    // `extractGameLinks` (in render.ts) accepts escaped brackets in labels,
+    // so the stripper must too — otherwise the renderer would emit a button
+    // while the raw Markdown source remained in the embed description.
+    expect(stripInteractiveLinks("Open the [box\\]](cmd:examine box) now.")).toBe(
+      "Open the box] now.",
+    );
+    expect(stripInteractiveLinks("[a\\\\b](go:north)")).toBe("a\\b");
+  });
 });
