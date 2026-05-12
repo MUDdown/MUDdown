@@ -156,28 +156,28 @@ footer {
   margin-top: 4rem;
 }
 
-/* ── Privacy Policy ─────────────────────────── */
+/* ── Legal Pages (Privacy Policy, Terms of Service) ────── */
 
-.privacy-policy {
+.legal-page {
   padding: 3rem 0 2rem;
 }
-.privacy-policy h2 {
+.legal-page h2 {
   font-size: 2rem;
   margin-bottom: 1.5rem;
 }
-.privacy-policy h3 {
+.legal-page h3 {
   margin-top: 2rem;
   margin-bottom: 0.75rem;
   font-size: 1.2rem;
 }
-.privacy-policy p {
+.legal-page p {
   margin-bottom: 1rem;
 }
-.privacy-policy ul {
+.legal-page ul {
   margin: 0.5rem 0 1rem 1.5rem;
   list-style: disc;
 }
-.privacy-policy li {
+.legal-page li {
   margin-bottom: 0.4rem;
 }
 
