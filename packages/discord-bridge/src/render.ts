@@ -16,6 +16,7 @@
 import type { ServerMessage } from "@muddown/shared";
 import { resolveGameLink } from "@muddown/client";
 import { stripInteractiveLinks } from "./feed.js";
+import { rewriteTables } from "./tables.js";
 
 /** Discord embed colors, by ServerMessage.type, mirroring ARIA-role intent. */
 export const BLOCK_COLORS: Readonly<Record<ServerMessage["type"], number>> = Object.freeze({
@@ -266,7 +267,11 @@ export function renderEnvelope(envelope: ServerMessage): RenderedMessage {
   // Interactive links surface as buttons under the embed (built from
   // `links` below) — strip them from the description so the prose
   // reads as plain text rather than exposing the URI syntax.
-  const description = stripInteractiveLinks(rawBody);
+  // Then rewrite GFM tables: Discord renders pipe-tables as literal
+  // text, so 2-column tables become bullet lists and N-column tables
+  // become padded code blocks. Tables run AFTER link stripping so the
+  // bullet/code-block text is already plain prose.
+  const description = rewriteTables(stripInteractiveLinks(rawBody));
   // BLOCK_COLORS is exhaustive over ServerMessage["type"] — TypeScript
   // guarantees a hit; no runtime fallback needed.
   const color = BLOCK_COLORS[envelope.type];

@@ -176,6 +176,34 @@ describe("renderEnvelope", () => {
     );
   });
 
+  it("rewrites GFM tables in the embed description", () => {
+    // Discord embed Markdown does not render pipe tables, so the
+    // renderer transforms 2-column tables into a bullet list. The
+    // interactive-link stripper runs before the table rewrite, so the
+    // bullet labels are already plain prose.
+    const result = renderEnvelope(
+      envelope({
+        type: "system",
+        muddown: [
+          "# Commands",
+          "",
+          "| Command | Description |",
+          "|---------|-------------|",
+          "| [look](help:look) | Examine your surroundings. |",
+          "| [go](help:go) | Move in a direction. |",
+        ].join("\n"),
+      }),
+    );
+    expect(result.embeds[0]!.description).toBe(
+      [
+        "# Commands",
+        "",
+        "- **look** — Examine your surroundings.",
+        "- **go** — Move in a direction.",
+      ].join("\n"),
+    );
+  });
+
   it("renders game links into button components", () => {
     const result = renderEnvelope(
       envelope({
