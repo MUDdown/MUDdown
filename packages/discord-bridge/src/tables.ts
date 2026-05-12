@@ -21,7 +21,11 @@
  * like a GFM table is left untouched.
  */
 
-const SEPARATOR_ROW = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/;
+// GFM table delimiter rows allow one-or-more dashes per cell
+// (`/^:?-+:?$/`); we match that lower bound rather than the stricter
+// `-{3,}` form used by some renderers so we don't silently skip
+// canonical-but-minimal tables.
+const SEPARATOR_ROW = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/;
 const PIPE_LINE = /^\s*\|.*\|\s*$/;
 
 /**

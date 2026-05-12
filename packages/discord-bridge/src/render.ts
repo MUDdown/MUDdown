@@ -133,6 +133,44 @@ export function chunkDescription(text: string, max = DISCORD_LIMITS.embedDescrip
   return chunks;
 }
 
+/**
+ * Re-emit fenced code blocks across chunk boundaries.
+ *
+ * {@link chunkDescription} splits purely on length / paragraph / word
+ * boundaries, so a long padded code block (produced for 3+ column
+ * tables) can be cut mid-fence. The first chunk would render with an
+ * unclosed ```` ``` ```` and the second would have the closing fence
+ * without an opener, breaking the monospaced formatting in both
+ * embeds. This pass walks the chunks, tracks whether we're inside an
+ * open fence at each boundary, and inserts a closing fence at the end
+ * of the outgoing chunk plus an opening fence at the start of the
+ * next chunk so each embed remains a self-contained code block.
+ *
+ * Joining the chunks no longer recovers the original byte-for-byte
+ * (we've injected fence markers), but each chunk individually renders
+ * correctly — which is what Discord needs.
+ */
+export function balanceCodeFences(chunks: string[]): string[] {
+  if (chunks.length <= 1) return chunks;
+  const out: string[] = [];
+  let carryOpen = false;
+  for (let i = 0; i < chunks.length; i++) {
+    let chunk = chunks[i]!;
+    if (carryOpen) chunk = "```\n" + chunk;
+    const fenceCount = (chunk.match(/```/g) ?? []).length;
+    const endsInsideFence = fenceCount % 2 === 1;
+    const isLast = i === chunks.length - 1;
+    if (endsInsideFence && !isLast) {
+      chunk = chunk + "\n```";
+      carryOpen = true;
+    } else {
+      carryOpen = false;
+    }
+    out.push(chunk);
+  }
+  return out;
+}
+
 /** Title-case a ServerMessage.type for the embed title. */
 function titleFor(envelope: ServerMessage): string {
   return envelope.type.charAt(0).toUpperCase() + envelope.type.slice(1);
@@ -276,7 +314,16 @@ export function renderEnvelope(envelope: ServerMessage): RenderedMessage {
   // guarantees a hit; no runtime fallback needed.
   const color = BLOCK_COLORS[envelope.type];
   const title = titleFor(envelope);
-  const embeds = chunkDescription(description).map((chunk) => ({
+  // Reserve 8 chars of headroom (`\n```` + `` ```\n ``) when the
+  // description contains a code fence, so fence-balancing can never
+  // push a chunk past the embed limit.
+  const hasFence = description.includes("```");
+  const chunkBudget = hasFence
+    ? DISCORD_LIMITS.embedDescription - 8
+    : DISCORD_LIMITS.embedDescription;
+  const rawChunks = chunkDescription(description, chunkBudget);
+  const finalChunks = hasFence ? balanceCodeFences(rawChunks) : rawChunks;
+  const embeds = finalChunks.map((chunk) => ({
     title,
     description: chunk,
     color,

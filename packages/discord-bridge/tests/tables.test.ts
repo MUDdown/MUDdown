@@ -49,6 +49,13 @@ describe("rewriteTables", () => {
     expect(rewriteTables(input)).toBe("- **1** — 2");
   });
 
+  it("accepts minimal single-dash separator cells per GFM spec", () => {
+    // GFM defines a separator cell as `/^:?-+:?$/` — one or more
+    // dashes. The regex must not require a stricter minimum.
+    const input = ["| A | B |", "|-|-|", "| 1 | 2 |"].join("\n");
+    expect(rewriteTables(input)).toBe("- **1** — 2");
+  });
+
   it("leaves non-table pipe-like text untouched", () => {
     const input = "Choose | one | of these.";
     expect(rewriteTables(input)).toBe(input);
@@ -66,7 +73,9 @@ describe("rewriteTables", () => {
       "| 1 | 2 |",
       "| only-one-cell |",
     ].join("\n");
-    // First row is malformed → entire block left untouched.
+    // The second body row has the wrong cell count → entire block
+    // (including the valid first row) is left untouched rather than
+    // partially rewritten.
     expect(rewriteTables(input)).toBe(input);
   });
 

@@ -8,6 +8,7 @@ import {
   renderEnvelope,
   stripContainerScaffolding,
   chunkDescription,
+  balanceCodeFences,
   BLOCK_COLORS,
   type RenderedButton,
 } from "../src/render.js";
@@ -84,6 +85,42 @@ describe("chunkDescription", () => {
       expect(c.length).toBeLessThanOrEqual(max);
     }
     expect(chunks.join("")).toBe(text);
+  });
+});
+
+describe("balanceCodeFences", () => {
+  it("returns single-chunk input unchanged", () => {
+    expect(balanceCodeFences(["```\nfoo\n```"])).toEqual(["```\nfoo\n```"]);
+  });
+
+  it("closes and reopens a fence split across two chunks", () => {
+    // Simulate chunkDescription having cut a code block in half.
+    const input = ["```\nrow-a\nrow-b", "row-c\nrow-d\n```"];
+    const out = balanceCodeFences(input);
+    expect(out).toEqual([
+      "```\nrow-a\nrow-b\n```",
+      "```\nrow-c\nrow-d\n```",
+    ]);
+    // Each chunk is now a self-contained code block: even fence count.
+    for (const chunk of out) {
+      const fences = chunk.match(/```/g) ?? [];
+      expect(fences.length % 2).toBe(0);
+    }
+  });
+
+  it("leaves chunks without fences untouched", () => {
+    const input = ["plain prose chunk 1", "plain prose chunk 2"];
+    expect(balanceCodeFences(input)).toEqual(input);
+  });
+
+  it("handles a fence that spans three chunks", () => {
+    const input = ["```\na", "b", "c\n```"];
+    const out = balanceCodeFences(input);
+    expect(out).toEqual([
+      "```\na\n```",
+      "```\nb\n```",
+      "```\nc\n```",
+    ]);
   });
 });
 
