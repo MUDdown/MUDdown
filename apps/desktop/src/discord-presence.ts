@@ -31,7 +31,7 @@ export interface TestablePresenceScheduler extends PresenceScheduler {
 
 /** Type-only alias so the test file and main.ts can share a single shape
  *  without leaking the test seam to non-test callers. */
-export type TimerHandle = ReturnType<typeof setTimeout>;
+export type TimerHandle = ReturnType<typeof globalThis.setTimeout>;
 
 export interface PresenceSchedulerOptions {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
@@ -80,9 +80,9 @@ export function createPresenceScheduler(opts: PresenceSchedulerOptions): Presenc
   const debounceMs = opts.debounceMs ?? DEFAULT_DEBOUNCE_MS;
   const now = opts.now ?? Date.now;
   const setTimeoutFn: (fn: () => void, ms: number) => TimerHandle =
-    opts.setTimeout ?? ((fn, ms) => globalThis.setTimeout(fn, ms) as TimerHandle);
+    opts.setTimeout ?? ((fn, ms) => globalThis.setTimeout(fn, ms));
   const clearTimeoutFn: (id: TimerHandle) => void =
-    opts.clearTimeout ?? ((id) => globalThis.clearTimeout(id as ReturnType<typeof globalThis.setTimeout>));
+    opts.clearTimeout ?? ((id) => globalThis.clearTimeout(id));
 
   let lastSentAt = Number.NEGATIVE_INFINITY;
   let timer: TimerHandle | null = null;

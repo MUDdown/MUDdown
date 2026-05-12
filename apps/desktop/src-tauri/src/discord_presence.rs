@@ -125,8 +125,6 @@ fn now_unix() -> i64 {
 
 // ── Tauri commands ────────────────────────────────────────────────
 
-/// Toggle the opt-in flag. Disabling immediately clears any active presence so
-/// nothing lingers on the user's profile.
 /// Toggle the integration. Always callable: idempotent against the cached
 /// `enabled` flag, and is the only entry point that runs while disabled
 /// (the others early-return when `enabled == false`).
@@ -198,7 +196,8 @@ pub fn discord_presence_update(
     Ok(())
 }
 
-/// Clear any active presence. Silently no-ops when disabled.
+/// Clear any active presence. Silently no-ops when disabled, and resets the
+/// session timer so the next update starts elapsed time from "now".
 #[tauri::command]
 pub fn discord_presence_clear(
     state: State<'_, Mutex<PresenceState>>,
