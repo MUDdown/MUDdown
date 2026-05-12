@@ -131,11 +131,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeC
   const guildId = guildIdRaw || undefined;
   const feedChannelIdRaw = env.MUDDOWN_DISCORD_FEED_CHANNEL_ID?.trim();
   const feedChannelId = feedChannelIdRaw || undefined;
-  const enableMessageContentIntent = parseBooleanEnv(
-    "MUDDOWN_DISCORD_ENABLE_MESSAGE_CONTENT_INTENT",
-    env.MUDDOWN_DISCORD_ENABLE_MESSAGE_CONTENT_INTENT,
-    false,
-  );
   // Required-field guards run before optional-field validation so an operator
   // who has misconfigured both a missing required var and a malformed optional
   // one sees the more important error first.
@@ -145,6 +140,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeC
   if (!serverUrl) {
     throw new DiscordBridgeConfigError("MUDDOWN_SERVER_URL is required");
   }
+  const enableMessageContentIntent = parseBooleanEnv(
+    "MUDDOWN_DISCORD_ENABLE_MESSAGE_CONTENT_INTENT",
+    env.MUDDOWN_DISCORD_ENABLE_MESSAGE_CONTENT_INTENT,
+    false,
+  );
   if (guildId !== undefined && !DISCORD_SNOWFLAKE.test(guildId)) {
     throw new DiscordBridgeConfigError(
       `MUDDOWN_DISCORD_GUILD_ID must be a Discord snowflake (17–20 digits, no leading zero); got ${JSON.stringify(guildIdRaw)}`,
