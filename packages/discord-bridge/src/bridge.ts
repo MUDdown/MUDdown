@@ -138,7 +138,7 @@ class BridgeLifecycle {
 
     // eslint-disable-next-line no-console
     console.log(
-      `[muddown-discord-bridge] starting (server=${config.serverUrl}, guild=${config.guildId ?? "<global>"})`,
+      `[muddown-discord-bridge] starting (server=${config.serverUrl}, guild=${config.guildId ?? "<global>"}, message_content=${config.enableMessageContentIntent ? "enabled" : "disabled"})`,
     );
 
     this.startIdleSweep();
@@ -208,13 +208,16 @@ class BridgeLifecycle {
   }
 
   private createClientOptions(): ClientOptions {
+    const intents = [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.DirectMessages,
+    ];
+    if (this.config?.enableMessageContentIntent) {
+      intents.push(GatewayIntentBits.MessageContent);
+    }
     return {
-      intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.DirectMessages,
-        GatewayIntentBits.MessageContent,
-      ],
+      intents,
       partials: [Partials.Channel],
     };
   }

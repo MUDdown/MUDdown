@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { loadConfig, DiscordBridgeConfigError, parsePositiveIntEnv } from "../src/config.js";
+import {
+  loadConfig,
+  DiscordBridgeConfigError,
+  parseBooleanEnv,
+  parsePositiveIntEnv,
+} from "../src/config.js";
 import {
   GAMEPLAY_DELIVERY_BACKOFF_MS,
   GAMEPLAY_DELIVERY_RETRIES,
@@ -96,6 +101,7 @@ describe("loadConfig", () => {
       serverUrl: "ws://localhost:3300",
       guildId: undefined,
       feedChannelId: undefined,
+      enableMessageContentIntent: false,
       tunables: DEFAULT_TUNABLES,
     });
   });
@@ -250,6 +256,46 @@ describe("loadConfig", () => {
     });
   }
 
+  it("defaults message-content intent to disabled", () => {
+    const config = loadConfig({
+      MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+      MUDDOWN_SERVER_URL: "ws://localhost:3300",
+    });
+    expect(config.enableMessageContentIntent).toBe(false);
+  });
+
+  for (const truthy of ["true", "TRUE", "1", "yes", "on"]) {
+    it(`enables message-content intent for ${JSON.stringify(truthy)}`, () => {
+      const config = loadConfig({
+        MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+        MUDDOWN_SERVER_URL: "ws://localhost:3300",
+        MUDDOWN_DISCORD_ENABLE_MESSAGE_CONTENT_INTENT: truthy,
+      });
+      expect(config.enableMessageContentIntent).toBe(true);
+    });
+  }
+
+  for (const falsy of ["false", "FALSE", "0", "no", "off", "  "]) {
+    it(`disables message-content intent for ${JSON.stringify(falsy)}`, () => {
+      const config = loadConfig({
+        MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+        MUDDOWN_SERVER_URL: "ws://localhost:3300",
+        MUDDOWN_DISCORD_ENABLE_MESSAGE_CONTENT_INTENT: falsy,
+      });
+      expect(config.enableMessageContentIntent).toBe(false);
+    });
+  }
+
+  it("rejects invalid message-content intent values", () => {
+    expect(() =>
+      loadConfig({
+        MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+        MUDDOWN_SERVER_URL: "ws://localhost:3300",
+        MUDDOWN_DISCORD_ENABLE_MESSAGE_CONTENT_INTENT: "maybe",
+      }),
+    ).toThrow(/MUDDOWN_DISCORD_ENABLE_MESSAGE_CONTENT_INTENT must be a boolean/);
+  });
+
   it("DiscordBridgeConfigError carries the right name for instanceof checks", () => {
     try {
       loadConfig({});
@@ -258,6 +304,34 @@ describe("loadConfig", () => {
       expect(err).toBeInstanceOf(DiscordBridgeConfigError);
       expect((err as Error).name).toBe("DiscordBridgeConfigError");
     }
+  });
+});
+
+describe("parseBooleanEnv", () => {
+  for (const [raw, expected] of [
+    ["true", true],
+    ["1", true],
+    ["yes", true],
+    ["on", true],
+    ["false", false],
+    ["0", false],
+    ["no", false],
+    ["off", false],
+  ] as const) {
+    it(`parses ${JSON.stringify(raw)} as ${expected}`, () => {
+      expect(parseBooleanEnv("X_BOOL", raw, false)).toBe(expected);
+    });
+  }
+
+  it("returns default when value is unset or blank", () => {
+    expect(parseBooleanEnv("X_BOOL", undefined, true)).toBe(true);
+    expect(parseBooleanEnv("X_BOOL", "   ", false)).toBe(false);
+  });
+
+  it("rejects invalid boolean values", () => {
+    expect(() => parseBooleanEnv("X_BOOL", "invalid", false)).toThrow(
+      /X_BOOL must be a boolean/,
+    );
   });
 });
 

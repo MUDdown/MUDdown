@@ -48,6 +48,8 @@ export interface DiscordBridgeConfig {
    * disabled; per-player DM gameplay is unaffected.
    */
   feedChannelId: string | undefined;
+  /** Whether to request the privileged Message Content intent. */
+  enableMessageContentIntent: boolean;
   /** Numeric runtime knobs (defaults applied when env vars are unset). */
   tunables: DiscordBridgeTunables;
 }
@@ -87,6 +89,32 @@ export function parsePositiveIntEnv(
   return parsed;
 }
 
+export function parseBooleanEnv(
+  name: string,
+  raw: string | undefined,
+  defaultValue: boolean,
+): boolean {
+  const trimmed = raw?.trim();
+  if (trimmed === undefined || trimmed === "") return defaultValue;
+
+  switch (trimmed.toLowerCase()) {
+    case "1":
+    case "true":
+    case "yes":
+    case "on":
+      return true;
+    case "0":
+    case "false":
+    case "no":
+    case "off":
+      return false;
+    default:
+      throw new DiscordBridgeConfigError(
+        `${name} must be a boolean (accepted: true/false, 1/0, yes/no, on/off); got ${JSON.stringify(raw)}`,
+      );
+  }
+}
+
 /**
  * Discord snowflake IDs are 64-bit integers serialized as decimal strings.
  * Real-world IDs land in the 17–20 digit range; we accept that span and
@@ -103,6 +131,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeC
   const guildId = guildIdRaw || undefined;
   const feedChannelIdRaw = env.MUDDOWN_DISCORD_FEED_CHANNEL_ID?.trim();
   const feedChannelId = feedChannelIdRaw || undefined;
+  const enableMessageContentIntent = parseBooleanEnv(
+    "MUDDOWN_DISCORD_ENABLE_MESSAGE_CONTENT_INTENT",
+    env.MUDDOWN_DISCORD_ENABLE_MESSAGE_CONTENT_INTENT,
+    false,
+  );
   // Required-field guards run before optional-field validation so an operator
   // who has misconfigured both a missing required var and a malformed optional
   // one sees the more important error first.
@@ -187,6 +220,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeC
     serverUrl: serverUrl as WebSocketUrl,
     guildId,
     feedChannelId,
+    enableMessageContentIntent,
     tunables,
   };
 }
