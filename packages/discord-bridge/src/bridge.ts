@@ -1146,7 +1146,7 @@ class BridgeLifecycle {
   }
 
   private buildDiscordLoginUrl(nonce: string): string {
-    const url = new URL(this.httpBase());
+    const url = new URL(this.loginBase());
     url.pathname = `${url.pathname.replace(/\/$/, "")}/auth/login`;
     url.searchParams.set("provider", "discord");
     url.searchParams.set("login_nonce", nonce);
@@ -1154,7 +1154,7 @@ class BridgeLifecycle {
   }
 
   private async pollForToken(nonce: string): Promise<string | undefined> {
-    const base = this.httpBase();
+    const base = this.serverBase();
     for (let index = 0; index < TOKEN_POLL_ATTEMPTS; index++) {
       await new Promise((resolve) => setTimeout(resolve, TOKEN_POLL_INTERVAL_MS));
       try {
@@ -1182,7 +1182,7 @@ class BridgeLifecycle {
 
   private async fetchMe(sessionToken: string): Promise<AuthMeResponse | undefined> {
     try {
-      const response = await fetchWithTimeout(`${this.httpBase()}/auth/me`, {
+      const response = await fetchWithTimeout(`${this.serverBase()}/auth/me`, {
         headers: { Authorization: `Bearer ${sessionToken}` },
       });
       if (!response.ok) return undefined;
@@ -1198,7 +1198,7 @@ class BridgeLifecycle {
 
   private async fetchCharacters(sessionToken: string): Promise<CharacterEntry[] | null> {
     try {
-      const response = await fetchWithTimeout(`${this.httpBase()}/auth/characters`, {
+      const response = await fetchWithTimeout(`${this.serverBase()}/auth/characters`, {
         headers: { Authorization: `Bearer ${sessionToken}` },
       });
       if (!response.ok) return null;
@@ -1213,7 +1213,7 @@ class BridgeLifecycle {
 
   private async selectCharacter(sessionToken: string, characterId: string): Promise<boolean> {
     try {
-      const response = await fetchWithTimeout(`${this.httpBase()}/auth/select-character`, {
+      const response = await fetchWithTimeout(`${this.serverBase()}/auth/select-character`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${sessionToken}`,
@@ -1231,7 +1231,7 @@ class BridgeLifecycle {
 
   private async fetchWsTicket(sessionToken: string): Promise<string | undefined> {
     try {
-      const response = await fetchWithTimeout(`${this.httpBase()}/auth/ws-ticket`, {
+      const response = await fetchWithTimeout(`${this.serverBase()}/auth/ws-ticket`, {
         headers: { Authorization: `Bearer ${sessionToken}` },
       });
       if (!response.ok) return undefined;
@@ -1244,9 +1244,15 @@ class BridgeLifecycle {
     }
   }
 
-  private httpBase(): string {
+  /** Base URL for browser-facing links sent to Discord users. Uses publicBaseUrl when set. */
+  private loginBase(): string {
     const config = this.requireConfig();
     return config.publicBaseUrl ?? wsToHttpBase(config.serverUrl);
+  }
+
+  /** Base URL for server-to-server API calls. Always derived from serverUrl. */
+  private serverBase(): string {
+    return wsToHttpBase(this.requireConfig().serverUrl);
   }
 
   private requireConfig(): DiscordBridgeConfig {

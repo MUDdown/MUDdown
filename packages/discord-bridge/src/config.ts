@@ -130,7 +130,11 @@ export function parseHttpBaseEnv(name: string, raw: string | undefined): string 
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new DiscordBridgeConfigError(`${name} must use http:// or https://`);
   }
-  return trimmed.replace(/\/$/, "");
+  if (parsed.username || parsed.password) {
+    throw new DiscordBridgeConfigError(`${name} must not contain credentials`);
+  }
+  // Strip query and fragment; the value must be a bare base URL.
+  return `${parsed.protocol}//${parsed.host}${parsed.pathname}`.replace(/\/$/, "");
 }
 
 /**
@@ -145,10 +149,6 @@ const DISCORD_SNOWFLAKE = /^[1-9]\d{16,19}$/;
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeConfig {
   const botToken = env.MUDDOWN_DISCORD_BOT_TOKEN?.trim();
   const serverUrl = env.MUDDOWN_SERVER_URL?.trim();
-  const publicBaseUrl = parseHttpBaseEnv(
-    "MUDDOWN_DISCORD_PUBLIC_BASE_URL",
-    env.MUDDOWN_DISCORD_PUBLIC_BASE_URL,
-  );
   const guildIdRaw = env.MUDDOWN_DISCORD_GUILD_ID?.trim();
   const guildId = guildIdRaw || undefined;
   const feedChannelIdRaw = env.MUDDOWN_DISCORD_FEED_CHANNEL_ID?.trim();
@@ -162,6 +162,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeC
   if (!serverUrl) {
     throw new DiscordBridgeConfigError("MUDDOWN_SERVER_URL is required");
   }
+  const publicBaseUrl = parseHttpBaseEnv(
+    "MUDDOWN_DISCORD_PUBLIC_BASE_URL",
+    env.MUDDOWN_DISCORD_PUBLIC_BASE_URL,
+  );
   const enableMessageContentIntent = parseBooleanEnv(
     "MUDDOWN_DISCORD_ENABLE_MESSAGE_CONTENT_INTENT",
     env.MUDDOWN_DISCORD_ENABLE_MESSAGE_CONTENT_INTENT,
