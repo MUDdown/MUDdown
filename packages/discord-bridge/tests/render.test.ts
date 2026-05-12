@@ -152,6 +152,30 @@ describe("renderEnvelope", () => {
     expect(result.embeds.map((e) => e.description).join("")).toBe(long);
   });
 
+  it("strips interactive-scheme links from the description", () => {
+    // Discord embed Markdown does not treat custom URI schemes as
+    // hyperlinks, so `[label](go:...)` would render as literal source
+    // text. The renderer drops the URI part — interactivity is provided
+    // by buttons under the embed.
+    const result = renderEnvelope(
+      envelope({
+        type: "room",
+        muddown: "A [stone marker](cmd:examine marker) stands here.\n- [North](go:north) — Road",
+      }),
+    );
+    expect(result.embeds[0]!.description).toBe("A stone marker stands here.\n- North — Road");
+    // External http(s) links still pass through untouched.
+    const result2 = renderEnvelope(
+      envelope({
+        type: "narrative",
+        muddown: "See the [spec](https://example.com/spec) for details.",
+      }),
+    );
+    expect(result2.embeds[0]!.description).toBe(
+      "See the [spec](https://example.com/spec) for details.",
+    );
+  });
+
   it("renders game links into button components", () => {
     const result = renderEnvelope(
       envelope({

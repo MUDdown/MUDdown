@@ -15,6 +15,7 @@
 
 import type { ServerMessage } from "@muddown/shared";
 import { resolveGameLink } from "@muddown/client";
+import { stripInteractiveLinks } from "./feed.js";
 
 /** Discord embed colors, by ServerMessage.type, mirroring ARIA-role intent. */
 export const BLOCK_COLORS: Readonly<Record<ServerMessage["type"], number>> = Object.freeze({
@@ -260,13 +261,19 @@ export function renderEnvelope(envelope: ServerMessage): RenderedMessage {
   // the message entirely when the envelope contains only container
   // scaffolding so the bot doesn't fail silently.
   if (!rawBody) return { embeds: [], components: [] };
+  // Discord's embed Markdown only treats `http(s):` as hyperlinks, so
+  // `[north](go:north)` would render as the literal Markdown source.
+  // Interactive links surface as buttons under the embed (built from
+  // `links` below) — strip them from the description so the prose
+  // reads as plain text rather than exposing the URI syntax.
+  const description = stripInteractiveLinks(rawBody);
   // BLOCK_COLORS is exhaustive over ServerMessage["type"] — TypeScript
   // guarantees a hit; no runtime fallback needed.
   const color = BLOCK_COLORS[envelope.type];
   const title = titleFor(envelope);
-  const embeds = chunkDescription(rawBody).map((description) => ({
+  const embeds = chunkDescription(description).map((chunk) => ({
     title,
-    description,
+    description: chunk,
     color,
   }));
   return { embeds, components: buildComponents(links) };
