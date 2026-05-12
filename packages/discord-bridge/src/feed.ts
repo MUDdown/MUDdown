@@ -81,10 +81,15 @@ export function isWorldScopeEnvelope(envelope: ServerMessage): boolean {
  * not contain `)` so a simple `[^)]*` body is sufficient — MUDdown
  * destinations don't carry parentheses by spec.
  *
+ * Label allows escaped characters (e.g. `[label\]](go:north)`) to match the
+ * shape accepted by `extractGameLinks` in render.ts — both surfaces must
+ * agree, otherwise the renderer would emit a button for a link whose
+ * raw Markdown still shows up in the description.
+ *
  * Anchored neither at start-of-line nor end so it matches links anywhere
  * in the body. Multiple links per line are handled by the global flag.
  */
-const INTERACTIVE_LINK = /\[([^\]]+)\]\((?:go|cmd|item|npc|player|help):[^)]*\)/g;
+const INTERACTIVE_LINK = /\[((?:\\.|[^\]])+)\]\((?:go|cmd|item|npc|player|help):[^)]*\)/g;
 
 /**
  * Strip MUDdown interactive-scheme links from a body, keeping the visible
@@ -93,9 +98,15 @@ const INTERACTIVE_LINK = /\[([^\]]+)\]\((?:go|cmd|item|npc|player|help):[^)]*\)/
  * Replacing it with `north` preserves the prose meaning without inviting
  * clicks that can't resolve to anything.
  *
+ * Escaped characters in the label (e.g. `\]`, `\\`) are unescaped so the
+ * visible text matches what `extractGameLinks` puts on the corresponding
+ * button label.
+ *
  * External `https://` / `http://` URLs and non-link Markdown are left
  * untouched.
  */
 export function stripInteractiveLinks(body: string): string {
-  return body.replace(INTERACTIVE_LINK, "$1");
+  return body.replace(INTERACTIVE_LINK, (_match, label: string) =>
+    label.replace(/\\(.)/g, "$1"),
+  );
 }
