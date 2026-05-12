@@ -40,6 +40,8 @@ export interface DiscordBridgeConfig {
   botToken: string;
   /** WebSocket URL of the upstream MUDdown game server. */
   serverUrl: WebSocketUrl;
+  /** Optional public HTTP base used for browser-facing auth links. */
+  publicBaseUrl: string | undefined;
   /** Optional guild for guild-scoped slash-command registration during development. */
   guildId: string | undefined;
   /**
@@ -115,6 +117,22 @@ export function parseBooleanEnv(
   }
 }
 
+export function parseHttpBaseEnv(name: string, raw: string | undefined): string | undefined {
+  const trimmed = raw?.trim();
+  if (trimmed === undefined || trimmed === "") return undefined;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new DiscordBridgeConfigError(`${name} must be a valid http:// or https:// URL`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new DiscordBridgeConfigError(`${name} must use http:// or https://`);
+  }
+  return trimmed.replace(/\/$/, "");
+}
+
 /**
  * Discord snowflake IDs are 64-bit integers serialized as decimal strings.
  * Real-world IDs land in the 17–20 digit range; we accept that span and
@@ -127,6 +145,10 @@ const DISCORD_SNOWFLAKE = /^[1-9]\d{16,19}$/;
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeConfig {
   const botToken = env.MUDDOWN_DISCORD_BOT_TOKEN?.trim();
   const serverUrl = env.MUDDOWN_SERVER_URL?.trim();
+  const publicBaseUrl = parseHttpBaseEnv(
+    "MUDDOWN_DISCORD_PUBLIC_BASE_URL",
+    env.MUDDOWN_DISCORD_PUBLIC_BASE_URL,
+  );
   const guildIdRaw = env.MUDDOWN_DISCORD_GUILD_ID?.trim();
   const guildId = guildIdRaw || undefined;
   const feedChannelIdRaw = env.MUDDOWN_DISCORD_FEED_CHANNEL_ID?.trim();
@@ -218,6 +240,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeC
   return {
     botToken,
     serverUrl: serverUrl as WebSocketUrl,
+    publicBaseUrl,
     guildId,
     feedChannelId,
     enableMessageContentIntent,

@@ -1245,7 +1245,8 @@ class BridgeLifecycle {
   }
 
   private httpBase(): string {
-    return wsToHttpBase(this.requireConfig().serverUrl);
+    const config = this.requireConfig();
+    return config.publicBaseUrl ?? wsToHttpBase(config.serverUrl);
   }
 
   private requireConfig(): DiscordBridgeConfig {
