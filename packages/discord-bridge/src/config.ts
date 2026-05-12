@@ -40,6 +40,8 @@ export interface DiscordBridgeConfig {
   botToken: string;
   /** WebSocket URL of the upstream MUDdown game server. */
   serverUrl: WebSocketUrl;
+  /** Optional public HTTP base used for browser-facing auth links. */
+  publicBaseUrl: string | undefined;
   /** Optional guild for guild-scoped slash-command registration during development. */
   guildId: string | undefined;
   /**
@@ -115,6 +117,26 @@ export function parseBooleanEnv(
   }
 }
 
+export function parseHttpBaseEnv(name: string, raw: string | undefined): string | undefined {
+  const trimmed = raw?.trim();
+  if (trimmed === undefined || trimmed === "") return undefined;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new DiscordBridgeConfigError(`${name} must be a valid http:// or https:// URL`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new DiscordBridgeConfigError(`${name} must use http:// or https://`);
+  }
+  if (parsed.username || parsed.password) {
+    throw new DiscordBridgeConfigError(`${name} must not contain credentials`);
+  }
+  // Strip query and fragment; the value must be a bare base URL.
+  return `${parsed.protocol}//${parsed.host}${parsed.pathname}`.replace(/\/$/, "");
+}
+
 /**
  * Discord snowflake IDs are 64-bit integers serialized as decimal strings.
  * Real-world IDs land in the 17–20 digit range; we accept that span and
@@ -140,6 +162,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeC
   if (!serverUrl) {
     throw new DiscordBridgeConfigError("MUDDOWN_SERVER_URL is required");
   }
+  const publicBaseUrl = parseHttpBaseEnv(
+    "MUDDOWN_DISCORD_PUBLIC_BASE_URL",
+    env.MUDDOWN_DISCORD_PUBLIC_BASE_URL,
+  );
   const enableMessageContentIntent = parseBooleanEnv(
     "MUDDOWN_DISCORD_ENABLE_MESSAGE_CONTENT_INTENT",
     env.MUDDOWN_DISCORD_ENABLE_MESSAGE_CONTENT_INTENT,
@@ -218,6 +244,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DiscordBridgeC
   return {
     botToken,
     serverUrl: serverUrl as WebSocketUrl,
+    publicBaseUrl,
     guildId,
     feedChannelId,
     enableMessageContentIntent,

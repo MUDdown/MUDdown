@@ -99,11 +99,50 @@ describe("loadConfig", () => {
     expect(config).toEqual({
       botToken: "abc.def.ghi",
       serverUrl: "ws://localhost:3300",
+      publicBaseUrl: undefined,
       guildId: undefined,
       feedChannelId: undefined,
       enableMessageContentIntent: false,
       tunables: DEFAULT_TUNABLES,
     });
+  });
+
+  it("accepts a public HTTP base for browser-facing auth links", () => {
+    const config = loadConfig({
+      MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+      MUDDOWN_SERVER_URL: "ws://localhost:3300",
+      MUDDOWN_DISCORD_PUBLIC_BASE_URL: "https://muddown.com/",
+    });
+    expect(config.publicBaseUrl).toBe("https://muddown.com");
+  });
+
+  it("rejects invalid public base URLs", () => {
+    expect(() =>
+      loadConfig({
+        MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+        MUDDOWN_SERVER_URL: "ws://localhost:3300",
+        MUDDOWN_DISCORD_PUBLIC_BASE_URL: "ftp://muddown.com",
+      }),
+    ).toThrow(/MUDDOWN_DISCORD_PUBLIC_BASE_URL must use http:\/\/ or https:\/\//);
+  });
+
+  it("rejects public base URL with embedded credentials", () => {
+    expect(() =>
+      loadConfig({
+        MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+        MUDDOWN_SERVER_URL: "ws://localhost:3300",
+        MUDDOWN_DISCORD_PUBLIC_BASE_URL: "https://user:pass@muddown.com",
+      }),
+    ).toThrow(/MUDDOWN_DISCORD_PUBLIC_BASE_URL must not contain credentials/);
+  });
+
+  it("strips query and fragment from public base URL", () => {
+    const config = loadConfig({
+      MUDDOWN_DISCORD_BOT_TOKEN: "abc.def.ghi",
+      MUDDOWN_SERVER_URL: "ws://localhost:3300",
+      MUDDOWN_DISCORD_PUBLIC_BASE_URL: "https://muddown.com?foo=bar#section",
+    });
+    expect(config.publicBaseUrl).toBe("https://muddown.com");
   });
 
   it("trims surrounding whitespace from required vars", () => {
