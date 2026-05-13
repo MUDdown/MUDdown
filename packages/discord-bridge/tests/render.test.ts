@@ -8,6 +8,7 @@ import {
   renderEnvelope,
   stripContainerScaffolding,
   chunkDescription,
+  balanceCodeFences,
   BLOCK_COLORS,
   type RenderedButton,
 } from "../src/render.js";
@@ -84,6 +85,42 @@ describe("chunkDescription", () => {
       expect(c.length).toBeLessThanOrEqual(max);
     }
     expect(chunks.join("")).toBe(text);
+  });
+});
+
+describe("balanceCodeFences", () => {
+  it("returns single-chunk input unchanged", () => {
+    expect(balanceCodeFences(["```\nfoo\n```"])).toEqual(["```\nfoo\n```"]);
+  });
+
+  it("closes and reopens a fence split across two chunks", () => {
+    // Simulate chunkDescription having cut a code block in half.
+    const input = ["```\nrow-a\nrow-b", "row-c\nrow-d\n```"];
+    const out = balanceCodeFences(input);
+    expect(out).toEqual([
+      "```\nrow-a\nrow-b\n```",
+      "```\nrow-c\nrow-d\n```",
+    ]);
+    // Each chunk is now a self-contained code block: even fence count.
+    for (const chunk of out) {
+      const fences = chunk.match(/```/g) ?? [];
+      expect(fences.length % 2).toBe(0);
+    }
+  });
+
+  it("leaves chunks without fences untouched", () => {
+    const input = ["plain prose chunk 1", "plain prose chunk 2"];
+    expect(balanceCodeFences(input)).toEqual(input);
+  });
+
+  it("handles a fence that spans three chunks", () => {
+    const input = ["```\na", "b", "c\n```"];
+    const out = balanceCodeFences(input);
+    expect(out).toEqual([
+      "```\na\n```",
+      "```\nb\n```",
+      "```\nc\n```",
+    ]);
   });
 });
 
@@ -173,6 +210,34 @@ describe("renderEnvelope", () => {
     );
     expect(result2.embeds[0]!.description).toBe(
       "See the [spec](https://example.com/spec) for details.",
+    );
+  });
+
+  it("rewrites GFM tables in the embed description", () => {
+    // Discord embed Markdown does not render pipe tables, so the
+    // renderer transforms 2-column tables into a bullet list. The
+    // interactive-link stripper runs before the table rewrite, so the
+    // bullet labels are already plain prose.
+    const result = renderEnvelope(
+      envelope({
+        type: "system",
+        muddown: [
+          "# Commands",
+          "",
+          "| Command | Description |",
+          "|---------|-------------|",
+          "| [look](help:look) | Examine your surroundings. |",
+          "| [go](help:go) | Move in a direction. |",
+        ].join("\n"),
+      }),
+    );
+    expect(result.embeds[0]!.description).toBe(
+      [
+        "# Commands",
+        "",
+        "- **look** — Examine your surroundings.",
+        "- **go** — Move in a direction.",
+      ].join("\n"),
     );
   });
 

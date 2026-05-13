@@ -86,6 +86,19 @@ jobs:
               exit 1
             fi
 
+            echo "==> Restarting Discord bridge..."
+            sudo systemctl restart muddown-discord-bridge
+
+            echo "==> Verifying Discord bridge is running..."
+            sleep 2
+            if systemctl is-active --quiet muddown-discord-bridge; then
+              echo "✓ muddown-discord-bridge is running"
+            else
+              echo "✗ muddown-discord-bridge failed to start"
+              sudo journalctl -u muddown-discord-bridge -n 20 --no-pager
+              exit 1
+            fi
+
             echo "==> Setting file permissions..."
             sudo chmod -R o+rX "$INSTALL_DIR"
 

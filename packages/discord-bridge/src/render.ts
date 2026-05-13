@@ -16,6 +16,7 @@
 import type { ServerMessage } from "@muddown/shared";
 import { resolveGameLink } from "@muddown/client";
 import { stripInteractiveLinks } from "./feed.js";
+import { rewriteTables } from "./tables.js";
 
 /** Discord embed colors, by ServerMessage.type, mirroring ARIA-role intent. */
 export const BLOCK_COLORS: Readonly<Record<ServerMessage["type"], number>> = Object.freeze({
@@ -108,7 +109,7 @@ export function stripContainerScaffolding(muddown: string): string {
  * Split a long description into chunks that fit
  * {@link DISCORD_LIMITS.embedDescription}, preferring paragraph breaks.
  */
-export function chunkDescription(text: string, max = DISCORD_LIMITS.embedDescription): string[] {
+export function chunkDescription(text: string, max: number = DISCORD_LIMITS.embedDescription): string[] {
   if (text.length <= max) return [text];
   const chunks: string[] = [];
   let remaining = text;
@@ -130,6 +131,44 @@ export function chunkDescription(text: string, max = DISCORD_LIMITS.embedDescrip
   }
   if (remaining.length > 0) chunks.push(remaining);
   return chunks;
+}
+
+/**
+ * Re-emit fenced code blocks across chunk boundaries.
+ *
+ * {@link chunkDescription} splits purely on length / paragraph / word
+ * boundaries, so a long padded code block (produced for 3+ column
+ * tables) can be cut mid-fence. The first chunk would render with an
+ * unclosed ```` ``` ```` and the second would have the closing fence
+ * without an opener, breaking the monospaced formatting in both
+ * embeds. This pass walks the chunks, tracks whether we're inside an
+ * open fence at each boundary, and inserts a closing fence at the end
+ * of the outgoing chunk plus an opening fence at the start of the
+ * next chunk so each embed remains a self-contained code block.
+ *
+ * Joining the chunks no longer recovers the original byte-for-byte
+ * (we've injected fence markers), but each chunk individually renders
+ * correctly — which is what Discord needs.
+ */
+export function balanceCodeFences(chunks: string[]): string[] {
+  if (chunks.length <= 1) return chunks;
+  const out: string[] = [];
+  let carryOpen = false;
+  for (let i = 0; i < chunks.length; i++) {
+    let chunk = chunks[i]!;
+    if (carryOpen) chunk = "```\n" + chunk;
+    const fenceCount = (chunk.match(/```/g) ?? []).length;
+    const endsInsideFence = fenceCount % 2 === 1;
+    const isLast = i === chunks.length - 1;
+    if (endsInsideFence && !isLast) {
+      chunk = chunk + "\n```";
+      carryOpen = true;
+    } else {
+      carryOpen = false;
+    }
+    out.push(chunk);
+  }
+  return out;
 }
 
 /** Title-case a ServerMessage.type for the embed title. */
@@ -266,12 +305,25 @@ export function renderEnvelope(envelope: ServerMessage): RenderedMessage {
   // Interactive links surface as buttons under the embed (built from
   // `links` below) — strip them from the description so the prose
   // reads as plain text rather than exposing the URI syntax.
-  const description = stripInteractiveLinks(rawBody);
+  // Then rewrite GFM tables: Discord renders pipe-tables as literal
+  // text, so 2-column tables become bullet lists and N-column tables
+  // become padded code blocks. Tables run AFTER link stripping so the
+  // bullet/code-block text is already plain prose.
+  const description = rewriteTables(stripInteractiveLinks(rawBody));
   // BLOCK_COLORS is exhaustive over ServerMessage["type"] — TypeScript
   // guarantees a hit; no runtime fallback needed.
   const color = BLOCK_COLORS[envelope.type];
   const title = titleFor(envelope);
-  const embeds = chunkDescription(description).map((chunk) => ({
+  // Reserve 8 chars of headroom (`\n```` + `` ```\n ``) when the
+  // description contains a code fence, so fence-balancing can never
+  // push a chunk past the embed limit.
+  const hasFence = description.includes("```");
+  const chunkBudget = hasFence
+    ? DISCORD_LIMITS.embedDescription - 8
+    : DISCORD_LIMITS.embedDescription;
+  const rawChunks = chunkDescription(description, chunkBudget);
+  const finalChunks = hasFence ? balanceCodeFences(rawChunks) : rawChunks;
+  const embeds = finalChunks.map((chunk) => ({
     title,
     description: chunk,
     color,
