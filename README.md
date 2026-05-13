@@ -15,8 +15,8 @@ Connect to the public server at `muddown.com` from any of these clients:
 | **Web** | Visit [muddown.com/play](https://muddown.com/play) and sign in with Discord, GitHub, Google, or Microsoft |
 | **Desktop** | [Download](https://muddown.com/download) the signed Tauri app for macOS, Windows, or Linux |
 | **Mobile** | Run the Expo app locally (see [apps/mobile](apps/mobile/)) — store builds coming soon |
-| **Terminal** | `npx @muddown/terminal` for an ink-based CLI client |
-| **Telnet** | `telnet muddown.com 2323` (TLS-only; works with Mudlet, MUSHclient, tintin++) |
+| **Terminal** | `npx @muddown/terminal` for a readline-based CLI client |
+| **Telnet** | `telnets://muddown.com:2323` — open in Mudlet, MUSHclient, tintin++ (`#ssl`), or any TLS-capable telnet client |
 | **Discord** | Join the [MUDdown Discord](https://discord.gg/mDFcMT3egK) and run `/play` |
 | **AI / MCP** | Add the [MCP server](packages/mcp/) to Claude Desktop, Cursor, or any MCP-compatible client |
 
@@ -60,7 +60,7 @@ MUDdown/
 ## Quick Start
 
 ```bash
-# Prerequisites: Node.js >= 20
+# Prerequisites: Node.js >= 22.9
 git clone https://github.com/MUDdown/MUDdown.git
 cd MUDdown
 npm install

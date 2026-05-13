@@ -17,7 +17,7 @@ import Base from "../layouts/Base.astro";
           <li><strong>Interactive link schemes</strong> — Clickable commands via <code>go:</code>, <code>cmd:</code>, <code>item:</code>, <code>npc:</code>, <code>player:</code>, and <code>help:</code>.</li>
           <li><strong>YAML frontmatter</strong> — Room metadata, exits, items, and lighting declared up front for machine consumption.</li>
           <li><strong>Wire protocol</strong> — JSON envelopes over WebSocket carry typed MUDdown payloads.</li>
-          <li><strong>ARIA-mapped blocks</strong> — Container roles (<code>room → main</code>, <code>system → alert</code>, <code>combat → log</code>, <code>dialogue → group</code>) make output navigable for screenreaders.</li>
+          <li><strong>ARIA-labelled blocks</strong> — Container blocks (<code>:::room</code>, <code>:::system</code>, <code>:::combat</code>, <code>:::dialogue</code>) are rendered with <code>role="group"</code> and a descriptive <code>aria-label</code>, so screenreaders can navigate output by block type without conflicting with the surrounding game-log live region.</li>
         </ul>
       </div>
 
@@ -53,7 +53,7 @@ import Base from "../layouts/Base.astro";
           <li><strong>Web client</strong> — Full browser MUD at <a href="/play">/play</a> with auto-reconnecting WebSocket, command history, inventory and hint panels, and clickable game links.</li>
           <li><strong>Desktop app</strong> — Native Tauri v2 client for macOS, Windows, and Linux with menu bar, system tray, OS notifications, keyboard shortcuts, and persistent window state.</li>
           <li><strong>Mobile app</strong> — Expo-based iOS/Android client with native MUDdown renderer, character selection, and tappable game links.</li>
-          <li><strong>Terminal client</strong> — Full-featured CLI with ink-based UI, startup wizard, browser-based OAuth, and shell mode.</li>
+          <li><strong>Terminal client</strong> — Full-featured Node.js CLI with readline-based input, startup wizard, browser-based OAuth, and shell mode.</li>
           <li><strong>Telnet bridge</strong> — TLS proxy (port 2323) with NAWS sizing, TTYPE ANSI detection, numbered link mode, and OSC 8 hyperlinks including Mudlet <code>send:</code>-URI support.</li>
           <li><strong>Discord bridge</strong> — Play from a Discord DM via the <code>/play</code> slash command; interactive links render as buttons and select menus.</li>
         </ul>
@@ -76,7 +76,7 @@ import Base from "../layouts/Base.astro";
           <li><strong>Turborepo monorepo</strong> — Shared types, independent packages, parallel builds. TypeScript strict mode throughout.</li>
           <li><strong>MUDdown parser</strong> — Extracts blocks, attributes, links, sections, and frontmatter from any MUDdown document.</li>
           <li><strong>Reusable client library</strong> — Framework-agnostic <code>@muddown/client</code> with renderer, connection manager, history, link resolver, and inventory state.</li>
-          <li><strong>Signed desktop downloads</strong> — Authenticode-signed Windows MSIs via Microsoft Artifact Signing; macOS notarization in progress. <a href="/download">Downloads page</a> auto-detects OS and architecture.</li>
+          <li><strong>Signed desktop downloads</strong> &mdash; Authenticode-signed Windows MSIs via Microsoft Artifact Signing, with macOS notarization support built into the release pipeline. <a href="/download">Downloads page</a> auto-detects OS and architecture.</li>
           <li><strong>Production deployment</strong> — Debian server with nginx, TLS via Let's Encrypt, systemd units, CI/CD via GitHub Actions.</li>
           <li><strong>Comprehensive test suite</strong> — 1341 tests across parser, server, client, bridge, discord-bridge, MCP, desktop, and website packages via vitest.</li>
         </ul>
