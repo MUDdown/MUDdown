@@ -2,31 +2,57 @@
 
 **A modern MUD platform using Markdown as the universal game markup language.**
 
-[Discord](https://discord.gg/mDFcMT3egK) · [Website](https://muddown.com) · [Play](https://muddown.com/play)
+[Website](https://muddown.com) · [Play](https://muddown.com/play) · [Download](https://muddown.com/download) · [Spec](https://muddown.com/spec) · [Wiki](https://github.com/MUDdown/MUDdown/wiki) · [Discord](https://discord.gg/mDFcMT3egK)
 
-MUDdown reimagines Multi-User Dungeons for the modern era. Instead of ANSI escape codes and raw telnet, MUDdown uses an extended Markdown format to describe game worlds — making them readable as plain text, beautifully rendered in browsers, and natively accessible to screenreaders and AI agents alike.
+MUDdown reimagines Multi-User Dungeons for the modern era. Instead of ANSI escape codes and raw telnet, the server speaks an extended Markdown format — readable as plain text, beautifully rendered in browsers, natively accessible to screenreaders, and structured enough for AI agents to play.
+
+## Try it now
+
+Connect to the public server at `muddown.com` from any of these clients:
+
+| Client | How |
+|--------|-----|
+| **Web** | Visit [muddown.com/play](https://muddown.com/play) and sign in with Discord, GitHub, Google, or Microsoft |
+| **Desktop** | [Download](https://muddown.com/download) the signed Tauri app for macOS, Windows, or Linux |
+| **Mobile** | Run the Expo app locally (see [apps/mobile](apps/mobile/)) — store builds coming soon |
+| **Terminal** | `npx @muddown/terminal` for a readline-based CLI client |
+| **Telnet** | `telnets://muddown.com:2323` — open in Mudlet, MUSHclient, tintin++ (`#ssl`), or any TLS-capable telnet client |
+| **Discord** | Join the [MUDdown Discord](https://discord.gg/mDFcMT3egK) and run `/play` |
+| **AI / MCP** | Add the [MCP server](packages/mcp/) to Claude Desktop, Cursor, or any MCP-compatible client |
+
+## What's in the box
+
+A 24-room demo world ("Northkeep") across 5 regions, 31 items, 16 NPCs with branching dialogue, turn-based combat, 4 character classes, OAuth login, persistent state, LLM-powered NPC conversations, AI hints, vector-search lore queries, and a Model Context Protocol surface for agents.
 
 ## Vision
 
-- **Markdown-native**: Room descriptions, combat logs, dialogue, and UI are all structured Markdown with game-specific extensions
-- **Multi-platform**: Play in a browser, on your phone, or in a terminal — one protocol, every surface
-- **AI-first**: Game state exposed via structured schemas compatible with LLM tool-calling and Model Context Protocol (MCP)
-- **Federated**: Servers can link realms together, letting players walk between worlds
-- **Accessible by design**: Screenreader-first architecture; semantic markup over visual decoration
+- **Markdown-native** — Rooms, combat, dialogue, and UI are structured Markdown with game-specific extensions
+- **Multi-platform** — Web, desktop, mobile, terminal, telnet, and Discord — one protocol, every surface
+- **AI-first** — Structured schemas compatible with LLM tool-calling and MCP
+- **Federated** — Servers can link realms together, letting players walk between worlds
+- **Accessible by design** — Screenreader-first architecture; semantic markup over visual decoration
 
 ## Repository Structure
+
+Turborepo monorepo with npm workspaces.
 
 ```
 MUDdown/
 ├── packages/
-│   ├── spec/       — The MUDdown Markdown specification
-│   ├── parser/     — TypeScript parser for MUDdown format
-│   ├── shared/     — Shared types and constants
-│   ├── server/     — Game server (Node.js + WebSocket)
-│   ├── client/     — Web/mobile client (React)
-│   └── bridge/     — Telnet-to-WebSocket bridge (future)
+│   ├── spec/           — The MUDdown specification (Markdown)
+│   ├── parser/         — TypeScript parser for the MUDdown format
+│   ├── shared/         — Shared types: wire protocol, blocks, items
+│   ├── server/         — Game server (Node.js + WebSocket, port 3300)
+│   ├── client/         — Framework-agnostic client library
+│   ├── bridge/         — Telnet → WebSocket bridge (TLS, port 2323)
+│   ├── discord-bridge/ — Discord → WebSocket bridge (DM gameplay)
+│   └── mcp/            — Model Context Protocol server
 ├── apps/
-│   └── website/    — muddown.com (spec docs + playable demo)
+│   ├── website/        — muddown.com (Astro, spec docs, web client)
+│   ├── desktop/        — Tauri v2 desktop app (macOS / Windows / Linux)
+│   ├── mobile/         — Expo React Native app (iOS / Android)
+│   └── terminal/       — Node.js CLI client (ink)
+├── deploy/             — systemd units and nginx configs
 ├── turbo.json
 └── package.json
 ```
@@ -34,15 +60,24 @@ MUDdown/
 ## Quick Start
 
 ```bash
-# Prerequisites: Node.js >= 20
+# Prerequisites: Node.js >= 22.9
+git clone https://github.com/MUDdown/MUDdown.git
+cd MUDdown
 npm install
-npm run build
-npm run dev
+npx turbo run build
+
+# Run the game server (port 3300)
+cd packages/server && npm start
+
+# In another terminal, run the website (port 4321)
+cd apps/website && npm run dev
 ```
+
+Then open <http://localhost:4321/play>. Tests for any package run with `npm test` inside that package, or `npx turbo run test` from the root.
 
 ## The MUDdown Format
 
-MUDdown extends standard Markdown with game-specific container blocks:
+MUDdown extends standard Markdown with game-specific container blocks and link schemes:
 
 ```markdown
 :::room{id="iron-gate" region="northkeep"}
@@ -61,12 +96,16 @@ The mechanism is **rusted**, but you notice [fresh oil on the gears](cmd:examine
 :::
 ```
 
-See [packages/spec/](packages/spec/) for the full specification.
+The full specification lives at [packages/spec/SPECIFICATION.md](packages/spec/SPECIFICATION.md).
+
+## Development & Contributing
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — branching, DCO, squash-merge workflow
+- [AGENTS.md](AGENTS.md) — conventions for human and AI contributors
+- [DCO](DCO) — all commits must be signed off (`git commit -s`)
+- [Wiki](https://github.com/MUDdown/MUDdown/wiki) — player guides, architecture, deployment, OAuth setup
+- Discord: [discord.gg/mDFcMT3egK](https://discord.gg/mDFcMT3egK)
 
 ## License
 
 [MIT](LICENSE)
-
-## Links
-
-- **Website**: [muddown.com](https://muddown.com)

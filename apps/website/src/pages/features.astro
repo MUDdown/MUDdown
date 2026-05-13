@@ -10,187 +10,75 @@ import Base from "../layouts/Base.astro";
       </p>
 
       <div class="features-page-category">
-        <h3><span class="icon" aria-hidden="true">📝</span> MUDdown Format</h3>
+        <h3><span class="icon" aria-hidden="true">📝</span> Format &amp; Protocol</h3>
         <ul class="features-page-list">
-          <li>
-            <strong>Markdown-native game output</strong> — Room descriptions, combat logs, dialogue, and system messages are all structured Markdown.
-            Readable as plain text, beautifully rendered in browsers, parseable by machines.
-          </li>
-          <li>
-            <strong>Container blocks</strong> — Semantic blocks (<code>:::room</code>, <code>:::combat</code>, <code>:::dialogue</code>, <code>:::system</code>, and more) with typed attributes give structure to every game event.
-          </li>
-          <li>
-            <strong>Interactive link schemes</strong> — Clickable commands via <code>go:</code>, <code>cmd:</code>, <code>item:</code>, <code>npc:</code>, <code>player:</code>, and <code>help:</code> schemes.
-            Point-and-click or type — your choice.
-          </li>
-          <li>
-            <strong>YAML frontmatter</strong> — Room metadata, connections, item references, and lighting are declared in frontmatter for machine consumption.
-          </li>
-          <li>
-            <strong>Wire protocol</strong> — JSON envelopes over WebSocket carry typed MUDdown payloads (<code>room</code>, <code>combat</code>, <code>dialogue</code>, <code>system</code>, <code>narrative</code>).
-          </li>
+          <li><strong>Markdown-native output</strong> — Rooms, combat, dialogue, and system messages are structured Markdown, readable as plain text and rendered in any client.</li>
+          <li><strong>Container blocks</strong> — Semantic blocks (<code>:::room</code>, <code>:::combat</code>, <code>:::dialogue</code>, <code>:::system</code>) with typed attributes carry every game event.</li>
+          <li><strong>Interactive link schemes</strong> — Clickable commands via <code>go:</code>, <code>cmd:</code>, <code>item:</code>, <code>npc:</code>, <code>player:</code>, and <code>help:</code>.</li>
+          <li><strong>YAML frontmatter</strong> — Room metadata, exits, items, and lighting declared up front for machine consumption.</li>
+          <li><strong>Wire protocol</strong> — JSON envelopes over WebSocket carry typed MUDdown payloads.</li>
+          <li><strong>ARIA-labelled blocks</strong> — Container blocks (<code>:::room</code>, <code>:::system</code>, <code>:::combat</code>, <code>:::dialogue</code>) are rendered with <code>role="group"</code> and a descriptive <code>aria-label</code>, so screenreaders can navigate output by block type without conflicting with the surrounding game-log live region.</li>
         </ul>
       </div>
 
       <div class="features-page-category">
         <h3><span class="icon" aria-hidden="true">⚔️</span> Gameplay</h3>
         <ul class="features-page-list">
-          <li>
-            <strong>24-room demo world</strong> — "Northkeep" spans 5 regions with fully interconnected bidirectional exits: town center, market district, harbor, north road, and catacombs.
-          </li>
-          <li>
-            <strong>Item system</strong> — 31 items across 22 rooms. Pick up, drop, equip, unequip, use, examine, and combine items. Equipment slots for weapon, armor, and accessory.
-          </li>
-          <li>
-            <strong>NPC dialogue</strong> — 16 NPCs with branching dialogue trees. Talk to merchants, guards, and townsfolk across Northkeep.
-          </li>
-          <li>
-            <strong>LLM-powered conversations</strong> — NPCs with backstories use an LLM to generate freeform, in-character dialogue. Dynamic speech, mood, narrative, and response suggestions — with automatic fallback to static dialogue trees when the LLM is unavailable.
-          </li>
-          <li>
-            <strong>Immediate talk feedback</strong> — When a player speaks to an NPC on the LLM path, the server immediately echoes the player's message back and emits a short non-verbal NPC acknowledgement (“pauses, considering your words…”) so the generation latency never feels like a dead channel.
-          </li>
-          <li>
-            <strong>Turn-based combat</strong> — Attack NPCs, flee from danger. Shared NPC HP for players in the same room, defeat tracking, and 20-minute respawn timers.
-          </li>
-          <li>
-            <strong>Character creation</strong> — Choose a name and class (Warrior, Mage, Rogue, or Cleric) with distinct starting stats.
-          </li>
-          <li>
-            <strong>Multi-player</strong> — See other players in rooms, broadcast chat, arrival and departure messages.
-          </li>
-          <li>
-            <strong>Entity lifecycle hooks</strong> — NPCs react to events: greet players on room entry, respawn to home rooms, reset state on timers.
-          </li>
-          <li>
-            <strong>Detailed help system</strong> — Type <code>help &lt;command&gt;</code> for per-command usage, aliases, and examples. The overview table links to each command via <code>help:</code> links.
-          </li>
-          <li>
-            <strong>AI game assistant</strong> — The <code>hint</code> command gives context-aware suggestions based on your location, inventory, and surroundings. Uses AI when available, with a static fallback.
-          </li>
-          <li>
-            <strong>Dynamic room descriptions</strong> — Room narratives adapt to your character's state: class, health, equipment, active combat, and surroundings. The LLM rewrites the static description in real time, with graceful fallback to the original text.
-          </li>
-          <li>
-            <strong>Lore search</strong> — The <code>lore</code> command answers questions about the game world using vector search over all rooms, NPCs, items, and recipes. When an LLM is available, results are synthesized into a narrative answer; otherwise you get relevant excerpts.
-          </li>
+          <li><strong>24-room demo world</strong> — "Northkeep" spans 5 regions: town center, market, harbor, north road, and catacombs.</li>
+          <li><strong>Items &amp; equipment</strong> — 31 items across 22 rooms; pick up, drop, equip, unequip, use, examine, and combine, with weapon, armor, and accessory slots.</li>
+          <li><strong>NPCs &amp; dialogue</strong> — 16 NPCs with branching dialogue trees and entity lifecycle hooks.</li>
+          <li><strong>Turn-based combat</strong> — Attack, flee, shared NPC HP, defeat tracking, and respawn timers.</li>
+          <li><strong>Character creation</strong> — Pick a name and class: Warrior, Mage, Rogue, or Cleric.</li>
+          <li><strong>Multi-player</strong> — See other players in rooms, broadcast chat, arrival and departure messages.</li>
+          <li><strong>Help system</strong> — <code>help &lt;command&gt;</code> for per-command usage, with clickable cross-references via <code>help:</code> links.</li>
         </ul>
       </div>
 
       <div class="features-page-category">
-        <h3><span class="icon" aria-hidden="true">🌐</span> Web Client</h3>
+        <h3><span class="icon" aria-hidden="true">🤖</span> AI &amp; LLM</h3>
         <ul class="features-page-list">
-          <li>
-            <strong>Browser-based play</strong> — Full MUD client at <a href="/play">/play</a> with auto-reconnecting WebSocket, command history (up/down arrows), and clickable game links.
-          </li>
-          <li>
-            <strong>MUDdown renderer</strong> — Converts MUDdown markup to styled HTML: headings, bold, italic, code, lists, tables, blockquotes, and interactive game links.
-          </li>
-          <li>
-            <strong>Inventory panel</strong> — Sidebar (persistent), floating overlay, or hidden — your choice, persisted in localStorage.
-          </li>
-          <li>
-            <strong>Hint panel</strong> — Persistent sidebar or floating overlay that displays the latest AI hint with clickable suggested commands. Auto-opens on first hint.
-          </li>
-          <li>
-            <strong>Character selection</strong> — Create and switch between characters from the play screen (requires login).
-          </li>
-          <li>
-            <strong>Dark terminal aesthetic</strong> — Monospace typography, carefully tuned dark theme, responsive layout.
-          </li>
+          <li><strong>LLM-powered NPCs</strong> — NPCs with backstories generate in-character dialogue at runtime, with automatic fallback to static dialogue trees.</li>
+          <li><strong>Immediate talk feedback</strong> — Player speech and a short NPC acknowledgement render before the LLM reply lands, masking generation latency.</li>
+          <li><strong>Dynamic room descriptions</strong> — Room narratives adapt to your class, health, equipment, and combat state.</li>
+          <li><strong>AI game assistant</strong> — The <code>hint</code> command gives context-aware suggestions based on your location, inventory, and surroundings.</li>
+          <li><strong>Lore search (RAG)</strong> — The <code>lore</code> command answers questions via TF-IDF vector search across rooms, NPCs, items, and recipes.</li>
+          <li><strong>MCP server</strong> — Game state exposed as Model Context Protocol resources with 15 granular tools for agent play.</li>
+          <li><strong>Provider-agnostic</strong> — Vercel AI SDK abstraction; Anthropic out of the box, swap providers with a single env var.</li>
         </ul>
       </div>
 
       <div class="features-page-category">
-        <h3><span class="icon" aria-hidden="true">🔐</span> Authentication &amp; Persistence</h3>
+        <h3><span class="icon" aria-hidden="true">🌐</span> Play Anywhere</h3>
         <ul class="features-page-list">
-          <li>
-            <strong>OAuth2 login</strong> — Sign in with Discord, GitHub, Microsoft, or Google. No passwords to manage.
-          </li>
-          <li>
-            <strong>Player persistence</strong> — Room position, inventory, equipment, and HP saved across sessions via SQLite.
-          </li>
-          <li>
-            <strong>World state persistence</strong> — Room items, NPC health, and defeated NPC tracking survive server restarts.
-          </li>
-          <li>
-            <strong>Rate limiting</strong> — Per-session token-bucket throttling protects against command flooding without affecting normal gameplay.
-          </li>
+          <li><strong>Web client</strong> — Full browser MUD at <a href="/play">/play</a> with auto-reconnecting WebSocket, command history, inventory and hint panels, and clickable game links.</li>
+          <li><strong>Desktop app</strong> — Native Tauri v2 client for macOS, Windows, and Linux with menu bar, system tray, OS notifications, keyboard shortcuts, and persistent window state.</li>
+          <li><strong>Mobile app</strong> — Expo-based iOS/Android client with native MUDdown renderer, character selection, and tappable game links.</li>
+          <li><strong>Terminal client</strong> — Full-featured Node.js CLI with readline-based input, startup wizard, browser-based OAuth, and shell mode.</li>
+          <li><strong>Telnet bridge</strong> — TLS proxy (port 2323) with NAWS sizing, TTYPE ANSI detection, numbered link mode, and OSC 8 hyperlinks including Mudlet <code>send:</code>-URI support.</li>
+          <li><strong>Discord bridge</strong> — Play from a Discord DM via the <code>/play</code> slash command; interactive links render as buttons and select menus.</li>
         </ul>
       </div>
 
       <div class="features-page-category">
-        <h3><span class="icon" aria-hidden="true">🤖</span> AI Integration</h3>
+        <h3><span class="icon" aria-hidden="true">🔐</span> Accounts &amp; Persistence</h3>
         <ul class="features-page-list">
-          <li>
-            <strong>MCP server</strong> — Game state exposed as Model Context Protocol resources (room, inventory, stats, map, help). AI agents can read and interact with the world.
-          </li>
-          <li>
-            <strong>Tool-calling interface</strong> — 15 granular MCP tools (<code>look</code>, <code>go</code>, <code>examine</code>, <code>get</code>, <code>drop</code>, <code>inventory</code>, <code>equip</code>, <code>unequip</code>, <code>use</code>, <code>talk</code>, <code>attack</code>, <code>say</code>, <code>combine</code>, <code>lore</code>, <code>available_actions</code>) plus a raw <code>game_command</code> fallback. AI agents play with semantic actions, not string parsing.
-          </li>
-          <li>
-            <strong>Structured schemas</strong> — All game constructs are typed data that LLMs can parse, reason about, and act on.
-          </li>
-          <li>
-            <strong>LLM NPC abstraction</strong> — Provider-agnostic dialogue generation via the Vercel AI SDK. Anthropic supported out of the box; swap in other providers (OpenAI, Ollama) by changing a single env var.
-          </li>
-          <li>
-            <strong>LLM room description engine</strong> — Generates player-aware room narratives using structured context (static room description, exits, and player state such as inventory, equipment, combat, and HP). Same provider-agnostic abstraction as NPC dialogue, with timeout and sanitization safeguards.
-          </li>
-          <li>
-            <strong>Vector-based lore search (RAG)</strong> — TF-IDF vector store indexes all game content at startup. The <code>lore</code> command retrieves relevant documents by cosine similarity and feeds them to the LLM as context for grounded, factual answers.
-          </li>
-        </ul>
-      </div>
-
-      <div class="features-page-category">
-        <h3><span class="icon" aria-hidden="true">♿</span> Accessibility</h3>
-        <ul class="features-page-list">
-          <li>
-            <strong>ARIA-mapped blocks</strong> — Container blocks carry semantic roles: <code>room → main</code>, <code>system → alert</code>, <code>combat → log</code>, <code>dialogue → group</code>.
-          </li>
-          <li>
-            <strong>Screenreader-first</strong> — Text is the primary interface. Structured Markdown ensures content is navigable and meaningful without visual rendering.
-          </li>
+          <li><strong>OAuth login</strong> — Sign in with Discord, GitHub, Microsoft, or Google. No passwords to manage.</li>
+          <li><strong>Player persistence</strong> — Room position, inventory, equipment, and HP saved across sessions in SQLite.</li>
+          <li><strong>World state persistence</strong> — Room items, NPC health, and defeated NPC tracking survive server restarts.</li>
+          <li><strong>Rate limiting</strong> — Per-session token-bucket throttling protects against command flooding.</li>
+          <li><strong>Discord Rich Presence</strong> — Optional, opt-in: the desktop app can show your region, room title, and session time on your Discord profile via local IPC only. Off by default.</li>
         </ul>
       </div>
 
       <div class="features-page-category">
         <h3><span class="icon" aria-hidden="true">🏗️</span> Infrastructure</h3>
         <ul class="features-page-list">
-          <li>
-            <strong>Turborepo monorepo</strong> — Shared types, independent packages, parallel builds. TypeScript throughout with strict mode.
-          </li>
-          <li>
-            <strong>MUDdown parser</strong> — Extracts blocks, attributes, links, sections, and frontmatter from MUDdown documents. 56 unit tests.
-          </li>
-          <li>
-            <strong>Reusable client library</strong> — Framework-agnostic <code>@muddown/client</code> package with MUDdown renderer, WebSocket connection manager, command history, game link resolver, and inventory state validation. 130 unit tests.
-          </li>
-          <li>
-            <strong>React Native mobile app</strong> — Expo-based iOS/Android client with native MUDdown renderer, character selection, command input with history, and tappable game links.
-          </li>
-          <li>
-            <strong>Tauri desktop app</strong> — Native desktop client for macOS, Windows, and Linux via Tauri v2. Includes native menu bar, system tray with connection status, OS notifications, keyboard shortcuts, persistent window state, auto-updater with signed releases, and Apple notarization support for macOS distribution (pending enrollment).
-          </li>
-          <li>
-            <strong>Optional Discord Rich Presence (opt-in)</strong> — The desktop app can show your current region, room title, and session elapsed time on your Discord profile. Off by default; toggled from the in-app Settings panel. Communication is local-only between the desktop app and your Discord desktop client over its IPC socket — nothing flows through MUDdown's servers, and the integration silently no-ops if Discord isn't running. Character names, inventory, and combat status are deliberately not shared.
-          </li>
-          <li>
-            <strong>Signed desktop downloads</strong> — Tauri builds publish to GitHub Releases when changes land in <code>apps/desktop</code>, the shared client packages, or the desktop build workflow itself, with Authenticode-signed Windows MSIs (via Microsoft Artifact Signing); macOS notarization is in progress. The <a href="/download">Downloads page</a> auto-detects the visitor's OS and architecture and links directly to the right installer; a stable <code>/download/[platform]</code> redirect provides permalink-style URLs that always resolve to the latest public release.
-          </li>
-          <li>
-            <strong>Terminal client</strong> — Full-featured CLI client with ink-based UI, startup wizard, browser-based OAuth, character creation, shell mode, and MUDdown rendering.
-          </li>
-          <li>
-            <strong>Telnet bridge</strong> — TLS proxy server (port 2323) allowing any telnet client to connect to MUDdown. Supports NAWS window sizing, TTYPE-based ANSI detection, browser-based auth, numbered link mode, NEW-ENVIRON capability negotiation, and OSC 8 hyperlinks with Mudlet <code>send:</code>-URI support including tooltip and right-click menu metadata.
-          </li>
-          <li>
-            <strong>Production deployment</strong> — Debian server with nginx, TLS via Let's Encrypt, systemd service, CI/CD via GitHub Actions.
-          </li>
-          <li>
-            <strong>Comprehensive test suite</strong> — 1341 tests across parser, server, client, bridge, discord-bridge, MCP, desktop, and website packages via vitest.
-          </li>
+          <li><strong>Turborepo monorepo</strong> — Shared types, independent packages, parallel builds. TypeScript strict mode throughout.</li>
+          <li><strong>MUDdown parser</strong> — Extracts blocks, attributes, links, sections, and frontmatter from any MUDdown document.</li>
+          <li><strong>Reusable client library</strong> — Framework-agnostic <code>@muddown/client</code> with renderer, connection manager, history, link resolver, and inventory state.</li>
+          <li><strong>Signed desktop downloads</strong> &mdash; Authenticode-signed Windows MSIs via Microsoft Artifact Signing, with macOS notarization support built into the release pipeline. <a href="/download">Downloads page</a> auto-detects OS and architecture.</li>
+          <li><strong>Production deployment</strong> — Debian server with nginx, TLS via Let's Encrypt, systemd units, CI/CD via GitHub Actions.</li>
+          <li><strong>Comprehensive test suite</strong> — 1388 tests across parser, server, client, bridge, discord-bridge, MCP, desktop, and website packages via vitest.</li>
         </ul>
       </div>
     </div>
