@@ -109,7 +109,7 @@ export function stripContainerScaffolding(muddown: string): string {
  * Split a long description into chunks that fit
  * {@link DISCORD_LIMITS.embedDescription}, preferring paragraph breaks.
  */
-export function chunkDescription(text: string, max = DISCORD_LIMITS.embedDescription): string[] {
+export function chunkDescription(text: string, max: number = DISCORD_LIMITS.embedDescription): string[] {
   if (text.length <= max) return [text];
   const chunks: string[] = [];
   let remaining = text;
