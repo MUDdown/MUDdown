@@ -386,14 +386,107 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
   - [ ] Update [apps/website/src/pages/features.astro](apps/website/src/pages/features.astro) to mention App Store / Play Store availability and remove any "coming soon" mobile copy.
   - [ ] Update wiki Mobile-App page with install instructions and store links.
 
-### Phase 7 — Federation & Social
+### Phase 7 — Speech-to-Text (Voice Input)
+
+Hands-free play across every surface, with privacy defaults matching the rest of the project: local/on-device engines preferred, cloud engines opt-in and clearly labeled. Cross-cutting `cmd:` / `say` routing and room-derived grammar bias live in `packages/client` so all surfaces benefit. Sequenced after Phase 6 so the mobile app already has an Apple/Google-store presence to ship the on-device STT plumbing into; Expo's `expo-speech-recognition` and `whisper.rn` integrations work cleanly in store-distributed Expo builds (dev-client flavor, not Expo Go).
+
+**Shared groundwork (`packages/client`)**:
+- [ ] `SpeechInput` interface in `packages/client/src/speech.ts` — surface-agnostic contract (`start`, `stop`, `onPartial`, `onFinal`, `setGrammarHints`). Each surface provides its own implementation; the client just calls the interface.
+- [ ] Transcript routing helper: if the final transcript matches a known command (parsed via the existing command grammar), inject it verbatim; otherwise prefix with `say ` so dictation defaults to in-character speech rather than dropped input. Configurable per-user toggle.
+- [ ] Room-derived grammar bias: derive a list of exit names, visible item names, NPC names, and command verbs from the most recent `:::room` block and pass it as hints (Whisper `initial_prompt`, Vosk grammar, native recognizer custom vocabulary where supported).
+- [ ] Privacy-policy update covering each surface's STT engine, whether audio leaves the device, and how to opt out — coordinate with the [`privacy` skill](.github/skills/privacy/SKILL.md).
+- [ ] Settings surface (web, desktop, mobile, terminal): per-surface engine picker (`Off`, `On-device`, `Cloud (where applicable)`), push-to-talk key/gesture, and "route unmatched transcript to `say`" toggle.
+
+**Web client (`apps/website/play.astro`)**:
+- [ ] Push-to-talk mic button next to the command input, bound to a configurable key (default spacebar-hold).
+- [ ] Primary engine: Web Speech API (`SpeechRecognition`) — zero deps, supported on Chrome/Edge/Safari. Clearly labeled as cloud-backed in Chrome (Google) so the privacy story stays explicit.
+- [ ] Local fallback: `whisper.cpp` via WASM (e.g. `transformers.js` or `whisper-web`) gated behind an opt-in "Privacy mode (downloads ~75 MB model)" setting. Default off to keep the initial page weight unchanged.
+- [ ] Tests: transcript-routing logic (command vs. `say`), grammar-hint derivation from a `:::room` fixture, settings persistence.
+
+**Desktop client (`apps/desktop`)**:
+- [ ] Primary engine: `whisper.cpp` bundled as a Tauri sidecar — fully offline, Metal/CUDA acceleration where available. Default on once shipped; matches the rest of the desktop client's "local first" defaults.
+- [ ] Rust command exposing `transcribe(audio_buffer, hints)` to the webview; webview captures audio via `getUserMedia` and streams to the sidecar.
+- [ ] Settings: push-to-talk hotkey (configurable, default ⌥Space / Alt+Space), mic device picker, model size (tiny/base/small) with download progress.
+- [ ] Optional secondary engine: OS-native dictation (macOS Dictation, Windows Speech Recognition, `speech-dispatcher` on Linux) for users who prefer the system path. Document the privacy difference in Settings copy.
+- [ ] Tests: sidecar lifecycle, hint propagation, fallback when no mic device is available.
+
+**Mobile client (`apps/mobile`)**:
+- [ ] Primary engine: `expo-speech-recognition` wrapping `SFSpeechRecognizer` (iOS, on-device on iOS 13+ for supported locales) and Android `SpeechRecognizer` (on-device on most modern devices). Free, partial-results capable. Default on after first-launch permission prompt.
+- [ ] iOS `Info.plist` `NSSpeechRecognitionUsageDescription` + `NSMicrophoneUsageDescription` strings; Android `RECORD_AUDIO` permission with rationale. Update the iOS privacy manifest accordingly.
+- [ ] Optional offline engine: `whisper.rn` (`whisper.cpp` bindings for React Native) for users who want fully-local STT and are on a dev-client / store build (not Expo Go). Gated behind a Settings toggle.
+- [ ] Push-to-talk button on the command bar; configurable to long-press or tap-to-toggle.
+- [ ] Tests: permission flow, hint propagation, transcript routing, graceful degradation when STT is unavailable.
+
+**Terminal client (`apps/terminal`)**:
+- [ ] Optional push-to-talk via a configurable key (default Ctrl+Space). Records via `sox` or `arecord` to a temp file, pipes to `whisper-cli -of txt`, feeds the result through the same transcript-routing helper into readline as if typed.
+- [ ] Detect missing binaries (`sox`, `arecord`, `whisper-cli`) on startup and surface a one-line install hint; do not block the client if absent.
+- [ ] No persistent audio stack inside ink — clip-record-transcribe-inject pattern only.
+
+**Telnet bridge (`packages/bridge`)**:
+- [ ] Out of scope. The bridge is a byte-level proxy with no audio channel. Wrapping clients (Mudlet built-in dictation, OS dictation feeding the terminal) are the supported path; document this in `Telnet-Bridge.md`.
+
+**Discord bridge (`packages/discord-bridge`)**:
+- [ ] Discord voice-message handler: when a player sends a voice message in their DM thread, download the attachment, transcribe via local `whisper.cpp` (default) or OpenAI `whisper-1` (operator opt-in via env var), and forward the result through the existing command pipeline as if the user had typed it. Matches the bridge's "no auto-message" rule — the user's explicit voice-message send is the action.
+- [ ] Voice-channel join (`@discordjs/voice` + Whisper) deliberately deferred / out of scope for v1 — heavy for a DM-based bridge.
+- [ ] Tests: attachment handler, transcript-routing into the existing command flow, engine selection.
+
+**Documentation**:
+- [ ] Wiki: new `Speech-to-Text.md` page covering supported engines per surface, privacy posture, and troubleshooting. Add to `_Sidebar.md` and `Home.md`.
+- [ ] Update `Desktop-App.md`, `Mobile-App.md`, `Terminal-App.md`, `Discord-Bridge.md`, and `Telnet-Bridge.md` with per-surface STT sections.
+- [ ] Features page: add a "Voice input" entry once at least one surface ships.
+- [ ] Skill: new `.github/skills/speech-to-text/SKILL.md` covering the `SpeechInput` interface contract, transcript-routing rules, and per-surface engine choices.
+
+### Phase 8 — Standard MUD Protocols (GMCP / MCMP / MMP)
+
+Extend the telnet bridge so legacy MUD clients (Mudlet, MUSHclient, BeipMU, TinTin++) get the same structured affordances the web/desktop/mobile clients already enjoy via the JSON envelope. Three established community protocols cover the surface area; all three are layered or adjacent to telnet, none require changes to the upstream WebSocket wire format. The bridge translates MUDdown envelopes into these protocols on the way out.
+
+Reference material:
+- **GMCP** — Generic MUD Communication Protocol. Telnet option 201; OOB `Namespace.Submodule.Command <json>` packets with per-package negotiation via `Core.Supports.Set`. The *de facto* standard for structured state on telnet. See [Mudlet wiki: Supported Protocols](https://wiki.mudlet.org/w/Manual:Supported_Protocols#GMCP).
+- **MCMP** — MUD Client Media Protocol (v1.0.3, authored by Mike Conley + Eric Oestrich). Reserved `Client.Media.*` GMCP package for server-pushed sound/music/video cues with accessibility captions. MSP successor. See [Standards:MUD Client Media Protocol](https://wiki.mudlet.org/w/Standards:MUD_Client_Media_Protocol).
+- **MMP** — MUD Map Protocol. Static XML map-export format (IRE/Imperian); not a live telnet protocol. Effectively a "download your map as XML" endpoint. See [Standards:MMP](https://wiki.mudlet.org/w/Standards:MMP).
+
+**GMCP emit (`packages/bridge`)**:
+- [ ] Negotiate telnet option 201 (`IAC WILL 201`) during the existing bridge handshake; accept `Core.Supports.Set` from clients and gate per-package emission accordingly.
+- [ ] Add `packages/bridge/src/gmcp.ts` with a tiny encoder: `sendGMCP(socket, "Namespace.Cmd", payload)` → `IAC SB 201 "Namespace.Cmd <json>" IAC SE`, with proper IAC escaping and the same word-wrap-envelope invariant the OSC 8 path already respects.
+- [ ] Always-on `Core.*` package: `Core.Hello`, `Core.Goodbye`, `Core.Ping`/`Core.Pong`, `Core.Supports.Set/Add/Remove`.
+- [ ] `Char.*` package (gated): `Char.Vitals` on HP/MP/SP change, `Char.StatusVars`, `Char.Name`, `Char.Items.*` on inventory diff (derived from server `:::system` updates + the existing inventory channel).
+- [ ] `Room.*` package (gated): `Room.Info` on every `:::room` envelope (id, name, area, exits, environment), `Room.Players` on arrival/departure, `Room.WrongDir` on failed `go`. Derive entirely from the existing room envelope — no server-side changes required.
+- [ ] `Comm.*` package (gated): `Comm.Channel.Text` for `say`, channel chat, system narrative.
+- [ ] Advertise `GMCP=1` in the existing MSSP response.
+- [ ] Tests: encoder IAC escaping, capability negotiation, per-package gating, envelope → GMCP mapping fidelity.
+
+**MCMP emit (`packages/bridge` + native WebSocket)**:
+- [ ] Once GMCP lands, add `Client.Media` as a gated package: `Client.Media.Default`, `Client.Media.Load`, `Client.Media.Play`, `Client.Media.Stop` matching the v1.0.3 schema (including the `caption` field — first-class accessibility text for the screen-reader-first principle).
+- [ ] Server-side media catalog: a `world/media/manifest.json` mapping logical sound names (`combat.hit-sword`, `ambient.tavern`) → asset URLs served from the website's `public/media/` (HTTPS only).
+- [ ] MUDdown spec extension: a `:::media` container block (or top-level `media` envelope field) mirroring the MCMP JSON shape, so the native WebSocket clients consume the same data structure. Update `packages/spec/SPECIFICATION.md` and add parser tests.
+- [ ] Bridge translates the spec-level media event → `Client.Media.Play` GMCP packet. Native clients (web/desktop/mobile/terminal) consume the spec-level event directly.
+- [ ] Web client renderer: HTML5 `<audio>` driven by the media event, gated behind a first-interaction unlock for browser autoplay policy. Caption is announced via an `aria-live="polite"` region for screen readers.
+- [ ] Advertise `MCMP=1` in MSSP. Document Mudlet/BeipMU/LociTerm compatibility in `Telnet-Bridge.md`.
+- [ ] Tests: capability gating, MCMP payload shape conformance (v1.0.3), caption propagation, no-autoplay-before-interaction in the web client.
+
+**MMP exporter (`packages/server` + `apps/website`)**:
+- [ ] Add `/api/map.xml` (or a static build-time export) that walks the loaded world tree and emits the MMP XML schema: `<map><areas/><rooms/><environments/></map>`, with `<room id area title environment><coord/><exit/></room>` derived from each room's frontmatter (regions → areas, room id, exits, lighting → environment id).
+- [ ] Per-area `/api/map/<region>.xml` endpoints matching the IRE convention.
+- [ ] Validate output against a real Mudlet automapper import (Mudlet → `mapper` → `XML Import`).
+- [ ] Tests: schema correctness, bidirectional-exit round-trip, area/environment id stability across loads.
+- [ ] Skip live progressive-disclosure updates — that's better served via the GMCP `Room.Info` stream above.
+
+**Documentation**:
+- [ ] Wiki: new `MUD-Protocols.md` page summarizing GMCP/MCMP/MMP support, supported packages, per-client compatibility matrix, and the spec-level `:::media` block. Add to `_Sidebar.md` and `Home.md`.
+- [ ] Update `Telnet-Bridge.md` with GMCP/MCMP negotiation, supported packages, and Mudlet/MUSHclient setup snippets.
+- [ ] Update `MUDdown-Format.md` with the new `:::media` block.
+- [ ] Update `Wire-Protocol.md` with the native media-envelope shape.
+- [ ] Skill: new `.github/skills/mud-protocols/SKILL.md` covering GMCP package authoring conventions, the MCMP v1.0.3 schema, and the MMP exporter mapping rules. Mirror at `.claude/skills/mud-protocols/SKILL.md`.
+- [ ] Features page: "Mudlet-compatible (GMCP, MCMP)" entry once GMCP ships; "Automapper export (MMP)" entry once the exporter ships.
+
+### Phase 9 — Federation & Social
 - [ ] Federation protocol design (realm discovery, portal linking)
 - [ ] Cross-server character identity
 - [ ] Player profiles and persistence across federated servers
 - [ ] Collaborative worldbuilding PRs (propose/vote/merge rooms)
 - [ ] World event system (server-wide narrative arcs)
 
-### Phase 8 — Advanced Features
+### Phase 10 — Advanced Features
 - [ ] Persistent ecology simulation
 - [ ] Spatial audio engine
 - [ ] Code-as-magic scripting API
@@ -401,11 +494,11 @@ Tie MUD rooms to GPS coordinates. Walk through your real neighborhood described 
 - [ ] GPS/physical world overlay mode
 - [ ] Accessibility audit and WCAG 2.2 compliance
 
-### Phase 9 — Discord Integration
+### Phase 11 — Discord Integration
 
 Two independent workstreams that surface MUDdown inside the existing MUDdown Discord server without depending on the Discord Social SDK (a closed C++/Unity/Unreal SDK aimed at packaged native games — not a fit for our web/RN/Tauri/Node clients). "Sign in with Discord" is already shipped via the standard OAuth provider; the work below is additive.
 
-#### 9a. Discord-as-client bridge (`packages/discord-bridge`)
+#### 11a. Discord-as-client bridge (`packages/discord-bridge`)
 
 A new workspace parallel to `packages/bridge` (telnet) that lets a Discord user play MUDdown from inside the MUDdown Discord server. Same architectural shape as the telnet bridge — a stateless proxy that holds one WebSocket connection to the production game server per Discord player and translates between Discord messages and the MUDdown wire envelope. **No ANSI**, no OSC 8 — Discord components (embeds + buttons) replace clickable telnet links.
 
@@ -477,7 +570,7 @@ A dedicated Discord channel that mirrors broadcast-eligible server announcements
   - [x] Wiki: remove the "deferred publisher" note from `Discord-Bridge.md`; document `FEED_CAP_PER_IP`, `FEED_CAP_TOTAL`, `FEED_PING_MS`, `FEED_TRUST_PROXY` in `Deployment-Guide.md`; cross-link the new spec §6.3 from `Wire-Protocol.md`.
   - [x] Resolved: same-port path-routed (`/ws` gameplay, `/feed` read-only) sharing the existing nginx TLS termination.
 
-#### 9b. Discord Rich Presence (opt-in, desktop only)
+#### 11b. Discord Rich Presence (opt-in, desktop only)
 
 [Discord Rich Presence](https://discord.com/developers/docs/rich-presence/overview) over the local IPC socket from the Tauri desktop app — no SDK, no extra runtime. The Discord client speaks RPC over a Unix domain socket (`$XDG_RUNTIME_DIR/discord-ipc-N`) on Linux/macOS and a named pipe (`\\.\pipe\discord-ipc-N`) on Windows; the desktop app talks to it directly from Rust.
 
@@ -521,7 +614,7 @@ Implementation tasks:
 - [x] Features page: add an "Optional Discord Rich Presence (opt-in)" entry under the Desktop section
 - [x] Skill: extend `.github/skills/desktop-app/SKILL.md` with the RPC integration pattern (or a new `discord-rich-presence` skill if it grows large enough)
 
-#### 9c. Cross-cutting
+#### 11c. Cross-cutting
 
 - [x] Update `AGENTS.md` "What NOT to Do" with: "Don't enable Rich Presence by default" and "Don't auto-send Discord messages without explicit user action" (mirrors Discord's policy and ours)
 - [x] Add `Discord-Bridge.md` and the `Desktop-App.md` Rich Presence section to the `wiki-sync` subagent's awareness so future doc-impact mapping covers them
