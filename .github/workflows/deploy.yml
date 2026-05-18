@@ -53,12 +53,24 @@ jobs:
             echo "==> Building..."
             sudo -u muddown npx turbo run build --force --filter='!@muddown/desktop'
 
-            echo "==> Updating nginx security headers..."
-            # Only update the security-headers snippet — the main nginx config
-            # is managed by certbot and must not be overwritten on deploy.
-            sudo cp deploy/nginx/security-headers.conf /etc/nginx/snippets/muddown-security-headers.conf
-            sudo nginx -t
-            sudo systemctl reload nginx
+            echo "==> Applying nginx patch helper..."
+            # patch-nginx.sh returns:
+            #   0 = fully applied
+            #   2 = snippets applied, site merge still pending (expected/safe)
+            #   other = failure
+            set +e
+            sudo "$INSTALL_DIR/deploy/patch-nginx.sh"
+            NGINX_PATCH_EXIT=$?
+            set -e
+            if [[ "$NGINX_PATCH_EXIT" -eq 0 ]]; then
+              echo "✓ Nginx patch applied"
+            elif [[ "$NGINX_PATCH_EXIT" -eq 2 ]]; then
+              echo "⚠ Nginx snippets applied; manual site merge pending"
+              echo "  Review on server: /etc/nginx/sites-available/muddown.conf.repo-new"
+            else
+              echo "✗ Nginx patch failed (exit $NGINX_PATCH_EXIT)"
+              exit "$NGINX_PATCH_EXIT"
+            fi
 
             echo "==> Restarting game server..."
             sudo systemctl restart muddown-server
