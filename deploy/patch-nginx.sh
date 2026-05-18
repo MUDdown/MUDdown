@@ -21,6 +21,9 @@ Default behavior:
   - If site config exists and differs, write candidate to:
       /etc/nginx/sites-available/muddown.conf.repo-new
     and ask for manual merge to preserve TLS/certbot edits.
+  - If live site config contains certbot-managed directives, differences against the
+    repo HTTP baseline are treated as non-blocking; candidate file is still written
+    for optional review.
   - Validate nginx config and reload nginx.
 EOF
 }
@@ -151,10 +154,16 @@ else
       install -m 0644 "$SOURCE_SITE" "$TARGET_SITE"
     else
       install -m 0644 "$SOURCE_SITE" "$TARGET_SITE_CANDIDATE"
-      NEEDS_MANUAL_MERGE=1
-      log "Site config differs; wrote candidate: $TARGET_SITE_CANDIDATE"
-      log "Manual merge required to preserve TLS/certbot edits in $TARGET_SITE"
-      log "Suggested: sudo diff -u $TARGET_SITE $TARGET_SITE_CANDIDATE"
+      if grep -q "managed by Certbot" "$TARGET_SITE"; then
+        log "Site config differs from repo HTTP baseline; wrote candidate: $TARGET_SITE_CANDIDATE"
+        log "Live config contains certbot-managed directives; treating this as non-blocking"
+        log "Optional review: sudo diff -u $TARGET_SITE $TARGET_SITE_CANDIDATE"
+      else
+        NEEDS_MANUAL_MERGE=1
+        log "Site config differs; wrote candidate: $TARGET_SITE_CANDIDATE"
+        log "Manual merge required to preserve TLS/certbot edits in $TARGET_SITE"
+        log "Suggested: sudo diff -u $TARGET_SITE $TARGET_SITE_CANDIDATE"
+      fi
     fi
   fi
 fi
