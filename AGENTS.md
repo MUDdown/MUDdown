@@ -86,7 +86,7 @@ cd apps/mobile && npm start                          # Start Expo dev server (mo
 
 ## Testing
 
-All packages use **vitest**. New server game-logic helpers belong in `packages/server/src/helpers.ts` (exported, pure) so they can be tested without WebSocket mocking. Run `npx turbo run test` before committing. See the `testing` skill for test file organization, fixture patterns, and world-integrity testing.
+All unit-test suites use **vitest**. New server game-logic helpers belong in `packages/server/src/helpers.ts` (exported, pure) so they can be tested without WebSocket mocking. Run `npx turbo run test` before committing. See the `testing` skill for test file organization, fixture patterns, and world-integrity testing.
 
 ## Accessibility
 
