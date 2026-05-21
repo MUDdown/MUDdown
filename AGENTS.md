@@ -35,66 +35,11 @@ Dependency graph: `server` → `shared`; `parser` → `shared`; `client` → `sh
 
 ## MUDdown Format Rules
 
-Room files live in `packages/server/world/<region>/<room-id>.md` and follow this structure:
-
-```markdown
----
-id: room-id
-region: region-name
-lighting: bright
-connections:
-  north: target-room-id
-  south: other-room-id
-items:
-  - item-id-1
-  - item-id-2
----
-:::room{id="room-id" region="region-name" lighting="bright"}
-# Room Title
-
-Narrative description of the room.
-
-## Exits
-- [North](go:north) — Description
-- [South](go:south) — Description
-
-## Present
-- A [town crier](npc:crier) stands near the fountain.
-
-## Items
-- A [rusty key](item:rusty-key) lies in the dust.
-:::
-```
-
-**Key rules:**
-- YAML frontmatter `items:` lists item IDs for the runtime loader. The `## Items` section in the body is the static template displayed to players (dynamically replaced at runtime).
-- `id` in frontmatter and `id` in `:::room{id=...}` must match.
-- All exits must be bidirectional — if room A connects north to room B, room B must connect south to room A.
-- Interactive links use spec schemes: `go:`, `cmd:`, `item:`, `npc:`, `player:`, `help:`
-- Container blocks (`:::room`, `:::system`, `:::item`, etc.) must open and close with `:::`
+Room files live in `packages/server/world/<region>/<room-id>.md`. For the full structure, frontmatter fields, exit rules, and link schemes, use the `room-creation` skill.
 
 ## Item Definitions
 
-Each item is a separate JSON file in `packages/server/world/items/<item-id>.json`:
-
-```json
-{
-  "id": "string",
-  "name": "Display Name",
-  "description": "Examination text",
-  "weight": 0.1,
-  "rarity": "common|uncommon|rare|legendary",
-  "fixed": false,
-  "equippable": false,
-  "usable": false
-}
-```
-
-Equippable items add `"slot": "weapon|armor|accessory"`. Usable items add `"useEffect": "eat|light|read|bless|fish|look-through"`.
-
-Combine recipes live in `packages/server/world/recipes.json`.
-
-NPC definitions are per-file in `packages/server/world/npcs/<npc-id>.json`.
+Item JSON files live in `packages/server/world/items/<item-id>.json`; NPC definitions in `packages/server/world/npcs/<npc-id>.json`; combine recipes in `packages/server/world/recipes.json`. For schema details, use the `item-creation` or `npc-creation` skill.
 
 ## Wire Protocol
 
@@ -139,22 +84,9 @@ cd apps/website && npm run dev                       # Start Astro dev server (p
 cd apps/mobile && npm start                          # Start Expo dev server (mobile app)
 ```
 
-Parser tests: `cd packages/parser && npm test` (56 tests via vitest).
-Server tests: `cd packages/server && npm test` (580 tests via vitest).
-Client tests: `cd packages/client && npm test` (155 tests via vitest).
-MCP tests: `cd packages/mcp && npm test` (24 tests via vitest).
-Bridge tests: `cd packages/bridge && npm test` (176 tests via vitest).
-
 ## Testing
 
-Both `packages/parser` and `packages/server` have unit test suites. Both use **vitest**.
-
-- **When adding a new feature**, add or update tests in the relevant package. New server helpers belong in `packages/server/src/helpers.ts` (exported, pure functions) so they can be unit tested without WebSocket mocking.
-- **When modifying existing behavior**, update any tests that cover the changed code path. Run `npx turbo run test` before considering work complete.
-- **Test file organization**: Each test file covers a single concern. Server tests live in `packages/server/tests/` with one file per topic (e.g., `load-rooms.test.ts`, `find-item.test.ts`). Shared fixture helpers live in `packages/server/tests/fixtures.ts`.
-- **World loader tests** use temporary fixture directories (via `mkdtempSync`) so they don't depend on production world data. The `world-integrity.test.ts` file validates production data (counts, bidirectional exits, cross-references).
-- **Pure helpers** (`findItemByName`, `findNpcInRoom`, `findUnclaimedIndex`, `dirAliases`) are in `packages/server/src/helpers.ts` — keep new game-logic helpers here so they stay testable.
-- All tests must pass (`npx turbo run test`) before committing.
+All unit-test suites use **vitest**. New server game-logic helpers belong in `packages/server/src/helpers.ts` (exported, pure) so they can be tested without WebSocket mocking. Run `npx turbo run test` before committing. See the `testing` skill for test file organization, fixture patterns, and world-integrity testing.
 
 ## Accessibility
 
@@ -208,14 +140,7 @@ Agent customization files live in `.github/` (canonical) with per-agent symlinks
 | `AGENTS.md` | `CLAUDE.md` | Whole-file symlink (`CLAUDE.md → AGENTS.md`) |
 | `.claude/settings.json` | *(Claude-specific, not symlinked)* | Wires hooks into Claude Code; references canonical `.github/hooks/` paths |
 
-Conventions when adding new customization:
-
-- **Always put the source file under `.github/`** so it's tool-agnostic and discoverable to anyone reading the repo on github.com.
-- **Use per-file symlinks**, not directory symlinks, so per-agent extras can sit alongside without polluting the canonical tree (matches the existing `skills/` layout).
-- **Symlink target uses a relative path** like `../../.github/hooks/foo.sh` so the link works regardless of where the repo is cloned.
-- **Tool-specific glue** (e.g. `.claude/settings.json`, future `.github/copilot/*` configs) lives in its agent's own directory and is *not* symlinked — it references the canonical `.github/` paths.
-
-When introducing a new agent integration (e.g. a Copilot-specific config tree), follow the same pattern: canonical content under `.github/`, agent-specific glue under the agent's own directory.
+Canonical content always lives under `.github/`; use per-file symlinks (relative paths) so each agent can add extras alongside. Tool-specific glue (e.g. `.claude/settings.json`) lives in the agent's own directory and is not symlinked.
 
 ## Skills
 
@@ -238,70 +163,23 @@ Detailed how-to guides live in `.github/skills/<name>/SKILL.md` (canonical) with
 
 ### Maintaining Skills
 
-When a milestone feature lands (new system, new content type, new workflow), evaluate whether it warrants a new skill or an update to an existing one. Guidelines:
-
-- **New skill**: The feature introduces a repeatable pattern that an agent will need to follow again (e.g., a new entity type, a new file format, a new integration). Create `.github/skills/<name>/SKILL.md` with YAML frontmatter (`name`, `description`) and a symlink at `.claude/skills/<name>/SKILL.md`.
-- **Update existing skill**: The feature changes conventions already covered by a skill (e.g., new test patterns → update `testing`, new link scheme → update `muddown-format`). Edit the existing `SKILL.md` in place.
-- **No skill needed**: One-off changes, bug fixes, or refactors that don't establish a new repeatable pattern.
-- **Update the table above** and the skills table in CLAUDE.md so the new skill is discoverable in both files.
-- **Bundled skills**: If the skill is included in a plugin under `.github/plugins/`, also update the plugin's `skills/<name>/` directory symlink and the skill table in the plugin's `README.md` when renaming or removing it. Otherwise the plugin will ship a dangling symlink.
+When a milestone feature lands, ask: does it introduce a repeatable pattern (new entity type, file format, integration)? If yes, add a skill (`SKILL.md` under `.github/skills/<name>/` + symlink at `.claude/skills/<name>/SKILL.md`). If it changes an existing pattern, update the relevant skill. Keep the table above current. For bundled skills in `.github/plugins/`, also update the plugin's `skills/<name>/` symlink and its `README.md` to avoid dangling links.
 
 ### Maintaining the Features Page
 
-The website features page (`apps/website/src/pages/features.astro`) showcases implemented functionality. When a user-facing feature ships, update the features page:
-
-- **New feature**: Add a `<li>` to the appropriate category with a `<strong>` label and brief description.
-- **New category**: Add a new `.features-page-category` block with a heading and icon.
-- **Removed or replaced feature**: Remove or update the corresponding entry so the page stays accurate.
-- **Test count**: The "Comprehensive test suite" entry in the Infrastructure section states the total test count across all packages. After adding or removing tests, run `npx turbo run test` and update the number to match the sum of all passing tests (parser + server + MCP). Do not leave a stale count.
-- **When in doubt**: If the change is visible to players or operators (new command, new UI element, new integration), it belongs on the features page. Internal refactors and test-only changes do not.
+When a user-facing feature ships, add it to `apps/website/src/pages/features.astro`. After adding or removing tests, update the total test count in the "Comprehensive test suite" entry. Internal refactors and test-only changes do not belong on the features page.
 
 ### Maintaining the Licenses Page
 
-The website licenses page (`apps/website/src/pages/licenses.astro`) lists every third-party open source dependency with its license type. Keep it accurate when dependencies change:
-
-- **New dependency**: When a new runtime or build dependency is added to any `package.json`, add a row to the licenses table with the package name (linked to its homepage or repo), license type, and a one-line description.
-- **Removed dependency**: Remove the corresponding row.
-- **License or version change**: Update the license column if an upgrade changes the license type (e.g., MIT → Apache-2.0).
-- **Audit command**: Run `npm ls --depth=0 --json | jq '((.dependencies // {}) + (.devDependencies // {})) | to_entries[] | {name: .key, version: .value.version}'` at the repo root to list current top-level dependencies. This is a workspaces monorepo, so also check each workspace's `package.json` (under `apps/*` and `packages/*`) for its `dependencies` and `devDependencies`. Look up each package's license in `node_modules/<pkg>/package.json`.
-- **What to include**: All direct `dependencies` and `devDependencies` from the root and workspaces that ship runtime code or are essential build tools (Astro, TypeScript, Turborepo, vitest, etc.). Omit `@types/*` packages (all MIT) and internal `@muddown/*` workspace references. Omit transitive dependencies unless they have a non-MIT/Apache-2.0 license that requires attribution.
+Keep `apps/website/src/pages/licenses.astro` current when dependencies change (add/remove rows; update license column on version upgrades). Audit command: `npm ls --depth=0 --json | jq '((.dependencies // {}) + (.devDependencies // {})) | to_entries[] | {name: .key, version: .value.version}'` — run at root and per workspace. Omit `@types/*` and internal `@muddown/*` packages.
 
 ### Maintaining the Wiki
 
-The project wiki lives in a separate Git repository (`MUDdown/MUDdown.wiki`), typically cloned to `../MUDdown.wiki` relative to the main repo. It contains player-facing and developer-facing documentation as Markdown pages plus a `_Sidebar.md` navigation file. When a feature ships or existing behavior changes, evaluate whether any wiki pages need to be created or updated.
+The project wiki lives in `../MUDdown.wiki` (master branch). After shipping a feature, run the `wiki-sync` subagent to identify which pages need updates. If adding a new page, also add it to `_Sidebar.md` and `Home.md`. Commit with `git add -A && git commit -m "docs: update <page> for <change>" && git push`.
 
-**Wiki structure:**
+**Wiki sections:** Players (Getting-Started, Command-Reference, World-Guide, Item-Catalog, NPC-Directory, Combat-Guide, FAQ) · Developers (Architecture-Overview, Adding-Content, Wire-Protocol, MUDdown-Format, LLM-Integration, Deployment-Guide, Contributing, OAuth-Setup) · Clients (Desktop-App, Desktop-Client, Mobile-App, Mobile-Client, Terminal-App, Terminal-Client, Telnet-Bridge, Discord-Bridge — update both `*-App.md` and `*-Client.md` when a client changes) · Integrations (MCP-Integration) · Navigation (_Sidebar, Home).
 
-| Section | Pages | Covers |
-|---------|-------|--------|
-| Players | Getting-Started, Command-Reference, World-Guide, Item-Catalog, NPC-Directory, Combat-Guide, FAQ | How to play, commands, world content, items, NPCs, combat |
-| Developers | Architecture-Overview, Adding-Content, Wire-Protocol, MUDdown-Format, LLM-Integration, Deployment-Guide, Contributing, OAuth-Setup | Codebase internals, content authoring, protocols, integrations, ops |
-| Clients | Desktop-App, Desktop-Client, Mobile-App, Mobile-Client, Terminal-App, Terminal-Client, Telnet-Bridge, Discord-Bridge | Per-client documentation; the `*-App.md` and `*-Client.md` pages are distinct — update both when a client change lands |
-| Integrations | MCP-Integration | External integrations (LLM-Integration is listed under Developers above) |
-| Navigation | _Sidebar, Home | Wiki sidebar and landing page — update when adding a new page |
-
-**When to update:**
-
-- **New command or player-visible feature**: Update the relevant player page (e.g., new command → Command-Reference, new area → World-Guide, new item → Item-Catalog, new NPC → NPC-Directory).
-- **New world content** (rooms, items, NPCs, recipes): Update World-Guide, Item-Catalog, or NPC-Directory to reflect the additions.
-- **Wire protocol or format change**: Update Wire-Protocol and/or MUDdown-Format.
-- **New integration or infrastructure** (e.g., new OAuth provider, new LLM feature, deployment change): Update the corresponding developer page.
-- **New content type or major system**: Consider creating a new wiki page. Add it to `_Sidebar.md` under the appropriate section and link it from `Home.md`.
-- **Removed or renamed feature**: Remove or update the corresponding wiki content so pages stay accurate.
-- **Architecture change**: Update Architecture-Overview if the package structure, dependency graph, or high-level design changes.
-
-**How to update:**
-
-1. Edit the relevant `.md` file(s) in the wiki repo directory.
-2. If adding a new page, also add it to `_Sidebar.md` and `Home.md`.
-3. Commit with a descriptive message and push: `cd ../MUDdown.wiki && git add -A && git commit -m "docs: update <page> for <change>" && git push`.
-4. The wiki repo uses `master` as its default branch (GitHub convention for wiki repos).
-
-**When NOT to update the wiki:**
-
-- Internal refactors with no user-visible or developer-visible behavior change.
-- Test-only changes (unless they establish new testing patterns worth documenting in Contributing or Adding-Content).
-- Bug fixes that don't change documented behavior.
+**Skip wiki updates for:** internal refactors, test-only changes, and bug fixes that don't change documented behavior.
 
 ## What NOT to Do
 
